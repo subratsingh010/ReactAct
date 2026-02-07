@@ -1107,6 +1107,8 @@ button:disabled {
   border-radius: 10px;
   /* Keep the resume paper readable even when the app is in dark mode. */
   color: #1b2230;
+  --resume-font-size: 10pt;
+  --resume-line-height: 1;
   width: 210mm;
   max-width: 210mm;
   margin: 0 auto;
@@ -1149,13 +1151,13 @@ button:disabled {
 }
 
 .resume-section {
-  margin-top: 14px;
+  margin-top: 10px;
   break-inside: avoid;
   page-break-inside: avoid;
 }
 
 .resume-section h3 {
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   font-size: 0.95rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1174,8 +1176,23 @@ button:disabled {
 
 .resume-section p {
   margin: 0;
-  font-size: 0.92rem;
-  line-height: 1.45;
+  font-size: var(--resume-font-size);
+  line-height: var(--resume-line-height);
+}
+
+.resume-rich {
+  font-size: var(--resume-font-size);
+  line-height: var(--resume-line-height);
+}
+
+.resume-rich ul,
+.resume-rich ol {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+
+.resume-rich li {
+  margin-top: 2px;
 }
 
 .resume-block {
@@ -1436,7 +1453,7 @@ button:disabled {
 }
 
 .resume-exp {
-  margin-top: 10px;
+  margin-top: 6px;
   break-inside: avoid;
   page-break-inside: avoid;
 }
@@ -1445,8 +1462,8 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  font-size: 0.95rem;
-  line-height: 1.35;
+  font-size: var(--resume-font-size);
+  line-height: var(--resume-line-height);
 }
 
 .resume-exp-left {
@@ -1478,7 +1495,7 @@ button:disabled {
 }
 
 .resume-exp-body {
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .resume-link {

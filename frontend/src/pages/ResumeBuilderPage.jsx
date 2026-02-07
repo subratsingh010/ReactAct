@@ -302,6 +302,11 @@ function richTextToHtml(text) {
 }
 
 function buildDocHtml(form) {
+  const fontSize = Number(form.bodyFontSizePt || 10)
+  const lineHeight = Number(form.bodyLineHeight || 1)
+  const safeFontSize = Number.isFinite(fontSize) ? fontSize : 10
+  const safeLineHeight = Number.isFinite(lineHeight) ? lineHeight : 1
+
   const contact = [form.location, form.phone, form.email]
     .map((v) => String(v || '').trim())
     .filter(Boolean)
@@ -383,7 +388,7 @@ function buildDocHtml(form) {
     h1 { margin: 0; text-align: center; }
     .center { text-align: center; color: #3a4861; margin-top: 4px; }
     h3 { margin: 14px 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
-    p, li { font-size: 11px; line-height: 1.4; margin: 6px 0; }
+    p, li { font-size: ${safeFontSize}pt; line-height: ${safeLineHeight}; margin: 6px 0; }
     ul, ol { margin: 6px 0 0; padding-left: 18px; }
     a { color: #1b2230; text-decoration: underline; }
   </style>
@@ -417,6 +422,8 @@ function ResumeBuilderPage({ navigate }) {
     summaryEnabled: false,
     summaryHeading: 'Summary',
     summaryStyle: 'auto',
+    bodyFontSizePt: 10,
+    bodyLineHeight: 1,
     sectionOrder: ['summary', 'skills', 'experience', 'projects', 'education'],
     sectionUnderline: false,
     customSections: [],
@@ -773,6 +780,35 @@ function ResumeBuilderPage({ navigate }) {
           </label>
 
           {saveState.message && <p className={saveState.message.startsWith('Saved') ? 'success' : 'error'}>{saveState.message}</p>}
+
+          <div className="section-options">
+            <label>Typography</label>
+            <div className="exp-row">
+              <select
+                value={String(form.bodyFontSizePt || 10)}
+                onChange={(e) => updateField('bodyFontSizePt', Number(e.target.value))}
+              >
+                <option value="9">Text size: 9</option>
+                <option value="10">Text size: 10</option>
+                <option value="11">Text size: 11</option>
+                <option value="12">Text size: 12</option>
+              </select>
+              <select
+                value={String(form.bodyLineHeight || 1)}
+                onChange={(e) => updateField('bodyLineHeight', Number(e.target.value))}
+              >
+                <option value="1">Line spacing: 1.0</option>
+                <option value="1.1">Line spacing: 1.1</option>
+                <option value="1.15">Line spacing: 1.15</option>
+                <option value="1.2">Line spacing: 1.2</option>
+                <option value="1.3">Line spacing: 1.3</option>
+                <option value="1.4">Line spacing: 1.4</option>
+              </select>
+            </div>
+            <p className="hint" style={{ margin: 0 }}>
+              Controls apply to the A4 preview and export.
+            </p>
+          </div>
 
           {showSectionOrder && (
             <div className="section-order">

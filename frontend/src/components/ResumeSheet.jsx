@@ -126,6 +126,8 @@ export default function ResumeSheet({ form }) {
   const safeForm = form && typeof form === 'object' ? form : {}
 
   const orderedKeys = useMemo(() => buildOrderedKeys(safeForm), [safeForm])
+  const bodyFontSize = Number(safeForm.bodyFontSizePt || 10)
+  const bodyLineHeight = Number(safeForm.bodyLineHeight || 1)
 
   const parsed = useMemo(
     () => ({
@@ -164,7 +166,13 @@ export default function ResumeSheet({ form }) {
   const sectionClass = `resume-section${safeForm.sectionUnderline ? ' has-underline' : ''}`
 
   return (
-    <article className="resume-sheet">
+    <article
+      className="resume-sheet"
+      style={{
+        '--resume-font-size': `${Number.isFinite(bodyFontSize) ? bodyFontSize : 10}pt`,
+        '--resume-line-height': `${Number.isFinite(bodyLineHeight) ? bodyLineHeight : 1}`,
+      }}
+    >
       <header className={`resume-head${safeForm.sectionUnderline ? ' no-divider' : ''}`}>
         <h2>{safeForm.fullName || 'Your Name'}</h2>
         <p className="resume-head-line">
@@ -349,4 +357,3 @@ export default function ResumeSheet({ form }) {
     </article>
   )
 }
-
