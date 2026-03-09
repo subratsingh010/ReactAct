@@ -1,4 +1,4 @@
-name: Production Deploy
+name: Deploy Docker App
 
 on:
   push:
@@ -6,28 +6,13 @@ on:
       - master
 
 jobs:
-  deploy-prod:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # Cache Python dependencies
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ hashFiles('backend/requirements.txt') }}
-
-      # Cache Node modules
-      - name: Cache npm
-        uses: actions/cache@v4
-        with:
-          path: frontend/node_modules
-          key: npm-${{ hashFiles('frontend/package-lock.json') }}
-
-      - name: Deploy to EC2
+      - name: Deploy to server
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.PROD_HOST }}
@@ -35,25 +20,6 @@ jobs:
           key: ${{ secrets.PROD_SSH_KEY }}
           script: |
             cd ~/ReactAct
-
-            echo "Pull latest code"
             git pull origin master
-
-            echo "Backend setup"
-            cd backend
-            source venv/bin/activate
-            pip install -r requirements.txt
-            python manage.py migrate
-            python manage.py collectstatic --noinput
-
-            echo "Frontend build"
-            cd ../frontend
-            npm install
-            npm run build
-
-            echo "Update Nginx web root"
-            sudo rm -rf /var/www/reactact/*
-            sudo cp -r dist/* /var/www/reactact/
-
-            echo "Reload backend"
-            sudo systemctl reload gunicorn || sudo systemctl restart gunicorn
+            sudo docker-compose down
+            sudo docker-compose up -d --build
