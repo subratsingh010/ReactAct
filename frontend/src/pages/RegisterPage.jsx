@@ -1,8 +1,9 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { signupUser } from '../api'
 
-function RegisterPage({ navigate }) {
+function RegisterPage() {
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -10,6 +11,7 @@ function RegisterPage({ navigate }) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -39,9 +41,9 @@ function RegisterPage({ navigate }) {
   }
 
   return (
-    <main className="page">
+    <main className="page mx-auto w-full max-w-2xl">
       <h1>Register</h1>
-      <form className="form" onSubmit={handleSubmit}>
+      <form className="form grid gap-3" onSubmit={handleSubmit}>
         <label htmlFor="register-username">Username</label>
         <input
           id="register-username"
@@ -81,7 +83,7 @@ function RegisterPage({ navigate }) {
         {error && <p className="error">{error}</p>}
         {success && <p className="success">{success}</p>}
 
-        <div className="actions">
+        <div className="actions flex flex-wrap gap-3">
           <button type="submit" disabled={loading}>
             {loading ? 'Creating account...' : 'Register'}
           </button>

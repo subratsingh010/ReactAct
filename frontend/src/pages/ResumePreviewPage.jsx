@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 
 import { fetchResume } from '../api'
 import ResumeSheet from '../components/ResumeSheet'
 
-function ResumePreviewPage({ navigate, resumeId }) {
+function ResumePreviewPage() {
   const [resume, setResume] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const navigate = useNavigate()
+  const { resumeId = '' } = useParams()
 
   useEffect(() => {
     const load = async () => {
@@ -88,4 +91,3 @@ function ResumePreviewPage({ navigate, resumeId }) {
 }
 
 export default ResumePreviewPage
-

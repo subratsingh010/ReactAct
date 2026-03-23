@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { fetchProfile } from '../api'
+import { useAuth } from '../contexts/useAuth'
 
-function HomePage({ navigate, isLoggedIn }) {
+function HomePage() {
   const [username, setUsername] = useState('')
+  const navigate = useNavigate()
+  const { isLoggedIn } = useAuth()
 
   useEffect(() => {
     const access = localStorage.getItem('access')
@@ -14,23 +18,23 @@ function HomePage({ navigate, isLoggedIn }) {
   }, [])
 
   return (
-    <main className="home-shell">
+    <main className="home-shell w-full">
       {username && (
         <div className="home-top">
-          <div className="home-top-inner">
+          <div className="home-top-inner mx-auto flex justify-center">
             <p className="home-welcome">Welcome {username} 🖐🏻!</p>
           </div>
         </div>
       )}
 
-      <div className="page page-wide home">
-        <div className="home-hero">
-        <div className="home-left">
+      <div className="page page-wide home mx-auto w-full">
+        <div className="home-hero grid items-start gap-5">
+        <div className="home-left flex flex-col gap-4">
           <h1>Resume Builder + ATS Score</h1>
           <p className="subtitle">
             Build an A4 resume, preview it live, export to PDF, and score it against role keywords.
           </p>
-            <div className="actions">
+            <div className="actions flex flex-wrap gap-3">
               {!isLoggedIn && (
                 <>
                   <button type="button" onClick={() => navigate('/login')}>
@@ -50,7 +54,7 @@ function HomePage({ navigate, isLoggedIn }) {
             </div>
           </div>
 
-          <div className="home-right">
+          <div className="home-right grid gap-3">
             <div className="home-card">
               <h2 className="home-card-title">What you get</h2>
               <ul className="home-list">

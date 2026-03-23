@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import RichTextarea from '../components/RichTextarea'
 import ResumeSheet from '../components/ResumeSheet'
@@ -410,7 +411,8 @@ function buildDocHtml(form) {
 </html>`
 }
 
-function ResumeBuilderPage({ navigate }) {
+function ResumeBuilderPage() {
+  const navigate = useNavigate()
   const [form, setForm] = useState({
     resumeTitle: 'My Resume',
     fullName: '',
@@ -880,7 +882,7 @@ function ResumeBuilderPage({ navigate }) {
                   />
                   <button
                     type="button"
-                    className="secondary"
+                    className="secondary inline-remove-btn"
                     onClick={() => removeCustomSection(section.id)}
                     title="Remove section"
                   >
@@ -1040,7 +1042,7 @@ function ResumeBuilderPage({ navigate }) {
                   </label>
                   <button
                     type="button"
-                    className="secondary"
+                    className="secondary inline-remove-btn"
                     onClick={() => removeExperience(index)}
                     disabled={(form.experiences || []).length <= 1}
                     title="Remove experience"
@@ -1096,7 +1098,7 @@ function ResumeBuilderPage({ navigate }) {
                 <div className="actions">
                   <button
                     type="button"
-                    className="secondary"
+                    className="secondary inline-remove-btn"
                     onClick={() => removeProject(index)}
                     disabled={(form.projects || []).length <= 1}
                   >
@@ -1214,7 +1216,7 @@ function ResumeBuilderPage({ navigate }) {
                 <div className="actions">
                   <button
                     type="button"
-                    className="secondary"
+                    className="secondary inline-remove-btn"
                     onClick={() => removeEducation(index)}
                     disabled={(form.educations || []).length <= 1}
                   >

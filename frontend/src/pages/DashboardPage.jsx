@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import {
   fetchAnalyses,
@@ -7,6 +8,7 @@ import {
   fetchResumes,
   runAnalysis,
 } from '../api'
+import { useAuth } from '../contexts/useAuth'
 
 function formatDate(value) {
   if (!value) return ''
@@ -70,11 +72,11 @@ function clip(value, max) {
 }
 
 function MiniLineChart({ values }) {
-  const width = 520
-  const height = 120
-  const padding = 10
-  const innerW = width - padding * 2
-  const innerH = height - padding * 2
+  const width = 640
+  const height = 240
+  const padding = { top: 18, right: 18, bottom: 28, left: 42 }
+  const innerW = width - padding.left - padding.right
+  const innerH = height - padding.top - padding.bottom
   const [hover, setHover] = useState(null) // { px, py, svgX, svgY, score, when }
 
   if (!values || values.length < 2) {
@@ -101,14 +103,15 @@ function MiniLineChart({ values }) {
   const ys = values.map((v) => v.y)
   const minY = Math.min(...ys, 0)
   const maxY = Math.max(...ys, 100)
+  const ticks = [100, 75, 50, 25, 0]
 
   const xStep = innerW / (values.length - 1)
 
   const pts = values
     .map((v, i) => {
-      const x = padding + i * xStep
+      const x = padding.left + i * xStep
       const yNorm = maxY === minY ? 0.5 : (v.y - minY) / (maxY - minY)
-      const y = padding + innerH - yNorm * innerH
+      const y = padding.top + innerH - yNorm * innerH
       return { x, y, key: v.key, ts: v.ts, score: v.y }
     })
   const points = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
@@ -117,7 +120,7 @@ function MiniLineChart({ values }) {
   const areaPath = (() => {
     const first = pts[0]
     const last = pts[pts.length - 1]
-    const baseY = padding + innerH
+    const baseY = padding.top + innerH
     const line = pts.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')
     return `${line} L ${last.x.toFixed(1)} ${baseY.toFixed(1)} L ${first.x.toFixed(1)} ${baseY.toFixed(1)} Z`
   })()
@@ -183,17 +186,45 @@ function MiniLineChart({ values }) {
       >
         <defs>
           <linearGradient id="atsLine" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#3658d3" />
-            <stop offset="100%" stopColor="#0ea5e9" />
+            <stop offset="0%" stopColor="#2563eb" />
+            <stop offset="55%" stopColor="#0f766e" />
+            <stop offset="100%" stopColor="#14b8a6" />
           </linearGradient>
           <linearGradient id="atsFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgba(54, 88, 211, 0.18)" />
-            <stop offset="100%" stopColor="rgba(54, 88, 211, 0)" />
+            <stop offset="0%" stopColor="rgba(37, 99, 235, 0.22)" />
+            <stop offset="100%" stopColor="rgba(37, 99, 235, 0.02)" />
           </linearGradient>
         </defs>
 
         {/* Ensure the full chart area captures hover/pointer events. */}
         <rect x="0" y="0" width={width} height={height} fill="transparent" />
+
+        {ticks.map((tick) => {
+          const yNorm = maxY === minY ? 0.5 : (tick - minY) / (maxY - minY)
+          const y = padding.top + innerH - yNorm * innerH
+          return (
+            <g key={tick}>
+              <line
+                x1={padding.left}
+                y1={y}
+                x2={width - padding.right}
+                y2={y}
+                stroke="rgba(148, 163, 184, 0.28)"
+                strokeWidth="1"
+                strokeDasharray={tick === 0 ? '0' : '4 5'}
+              />
+              <text
+                x={padding.left - 10}
+                y={y + 4}
+                textAnchor="end"
+                fontSize="11"
+                fill="rgba(100, 116, 139, 0.95)"
+              >
+                {tick}
+              </text>
+            </g>
+          )
+        })}
 
         <path d={areaPath} fill="url(#atsFill)" />
         <polyline
@@ -209,14 +240,14 @@ function MiniLineChart({ values }) {
           <>
             <line
               x1={hover.svgX}
-              y1={padding}
+              y1={padding.top}
               x2={hover.svgX}
-              y2={padding + innerH}
+              y2={padding.top + innerH}
               stroke="rgba(27, 34, 48, 0.16)"
               strokeWidth="1"
             />
-            <circle cx={hover.svgX} cy={hover.svgY} r="6.5" fill="rgba(54, 88, 211, 0.18)" />
-            <circle cx={hover.svgX} cy={hover.svgY} r="3.3" fill="#3658d3" />
+            <circle cx={hover.svgX} cy={hover.svgY} r="7" fill="rgba(37, 99, 235, 0.16)" />
+            <circle cx={hover.svgX} cy={hover.svgY} r="3.5" fill="#2563eb" />
           </>
         )}
 
@@ -224,15 +255,15 @@ function MiniLineChart({ values }) {
         <circle
           cx={pts[pts.length - 1].x}
           cy={pts[pts.length - 1].y}
-          r="4.2"
-          fill="#1b2230"
+          r="4.5"
+          fill="#0f172a"
         />
       </svg>
     </div>
   )
 }
 
-function DashboardPage({ navigate, logout }) {
+function DashboardPage() {
   const [profile, setProfile] = useState(null)
   const [selectedResumeId, setSelectedResumeId] = useState(null)
   const [hoverResumeId, setHoverResumeId] = useState(null)
@@ -249,6 +280,8 @@ function DashboardPage({ navigate, logout }) {
 
   const [keywords, setKeywords] = useState(() => localStorage.getItem('analysisCustomKeywords') || '')
   const [scopeLoading, setScopeLoading] = useState(false)
+  const navigate = useNavigate()
+  const { logout } = useAuth()
   const [profiles, setProfiles] = useState(() => {
     try {
       const raw = localStorage.getItem('analysisProfiles')
@@ -423,6 +456,19 @@ function DashboardPage({ navigate, logout }) {
         </div>
 
         <div className="ats-grid">
+          <div className="ats-chart">
+            <div className="ats-chart-head">
+              <div>
+                <div className="ats-chart-title">Score Trend</div>
+                <div className="ats-chart-note muted">Last {Math.min(trendData.length, 20)} runs</div>
+              </div>
+              <div className="ats-chart-summary">
+                <span className="ats-chart-summary-label">Current scope</span>
+                <strong>{activeTitle}</strong>
+              </div>
+            </div>
+            <MiniLineChart values={trendData.slice(-20).map((v) => ({ key: v.key, y: v.y, ts: v.ts }))} />
+          </div>
           <div className="ats-kpis">
             <div className="kpi">
               <div className="kpi-label">Best</div>
@@ -439,13 +485,6 @@ function DashboardPage({ navigate, logout }) {
               <div className="kpi-value">{activeStats.checks}</div>
               <div className="kpi-meta">Total runs</div>
             </div>
-          </div>
-          <div className="ats-chart">
-            <div className="ats-chart-head">
-              <div className="ats-chart-title">Score Trend</div>
-              <div className="ats-chart-note muted">Last {Math.min(trendData.length, 20)} runs</div>
-            </div>
-            <MiniLineChart values={trendData.slice(-20).map((v) => ({ key: v.key, y: v.y, ts: v.ts }))} />
           </div>
         </div>
       </section>

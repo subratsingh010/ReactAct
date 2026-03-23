@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { fetchProfile } from '../api'
+import { useAuth } from '../contexts/useAuth'
+import { useTheme } from '../contexts/useTheme'
 
-function NavBar({ navigate, onLogout, currentPath, theme, onToggleTheme }) {
+function NavBar() {
   const [open, setOpen] = useState(false)
   const [username, setUsername] = useState('')
+  const { logout } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { theme, toggleTheme } = useTheme()
+  const currentPath = location.pathname
 
   const items = useMemo(
     () => [
@@ -29,8 +37,8 @@ function NavBar({ navigate, onLogout, currentPath, theme, onToggleTheme }) {
   }, [])
 
   return (
-    <header className="nav">
-      <div className="nav-inner">
+    <header className="nav sticky top-0">
+      <div className="nav-inner mx-auto flex w-full items-center justify-between">
         <button type="button" className="nav-brand" onClick={() => go('/')}>
           ResumeBuilder
         </button>
@@ -65,7 +73,7 @@ function NavBar({ navigate, onLogout, currentPath, theme, onToggleTheme }) {
               className="nav-icon-btn"
               onClick={() => {
                 setOpen(false)
-                onToggleTheme()
+                toggleTheme()
               }}
               aria-label="Toggle dark mode"
               title="Toggle dark mode"
@@ -94,7 +102,7 @@ function NavBar({ navigate, onLogout, currentPath, theme, onToggleTheme }) {
               className="nav-link danger"
               onClick={() => {
                 setOpen(false)
-                onLogout()
+                logout()
                 navigate('/login')
               }}
             >
