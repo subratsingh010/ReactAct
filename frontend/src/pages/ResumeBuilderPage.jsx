@@ -97,6 +97,82 @@ function formToPlainText(form) {
   return parts.join('\n')
 }
 
+function collectAtsIssues(form) {
+  const safe = form && typeof form === 'object' ? form : {}
+  const issues = []
+
+  const fullName = String(safe.fullName || '').trim()
+  const email = String(safe.email || '').trim()
+  const phone = String(safe.phone || '').trim()
+  const skillsText = plainTextFromHtml(safe.skills || '')
+  const experiences = Array.isArray(safe.experiences) ? safe.experiences : []
+  const projects = Array.isArray(safe.projects) ? safe.projects : []
+  const summaryEnabled = Boolean(safe.summaryEnabled)
+  const summaryText = plainTextFromHtml(safe.summary || '')
+
+  if (!fullName) issues.push('Add full name.')
+
+  if (!email && !phone) {
+    issues.push('Add at least one contact detail: email or phone.')
+  }
+
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    issues.push('Use a valid email format.')
+  }
+
+  if (phone) {
+    const digits = phone.replace(/\D/g, '')
+    if (digits.length < 8) issues.push('Phone number looks too short.')
+  }
+
+  if (summaryEnabled && !summaryText) {
+    issues.push('Summary is enabled but empty.')
+  }
+
+  if (!skillsText) {
+    issues.push('Add key skills for ATS keyword matching.')
+  }
+
+  if (!experiences.length) {
+    issues.push('Add at least one experience entry.')
+  }
+
+  experiences.forEach((exp, index) => {
+    const idx = index + 1
+    const company = String(exp?.company || '').trim()
+    const title = String(exp?.title || '').trim()
+    const highlightsHtml = String(exp?.highlights || '')
+    const highlightsText = plainTextFromHtml(highlightsHtml)
+    const bulletCount = (highlightsHtml.match(/<li\b/gi) || []).length
+
+    if (!company) issues.push(`Experience ${idx}: add company.`)
+    if (!title) issues.push(`Experience ${idx}: add role/title.`)
+    if (!highlightsText) issues.push(`Experience ${idx}: add achievements.`)
+    if (highlightsText && bulletCount === 0) {
+      issues.push(`Experience ${idx}: use bullet points for better ATS parsing.`)
+    }
+  })
+
+  projects.forEach((proj, index) => {
+    const idx = index + 1
+    const name = String(proj?.name || '').trim()
+    const highlightsHtml = String(proj?.highlights || '')
+    const highlightsText = plainTextFromHtml(highlightsHtml)
+    if (!name && highlightsText) issues.push(`Project ${idx}: add project name.`)
+  })
+
+  ;(safe.links || []).forEach((item, index) => {
+    const idx = index + 1
+    const label = String(item?.label || '').trim()
+    const url = String(item?.url || '').trim()
+    if ((label && !url) || (!label && url)) {
+      issues.push(`Link ${idx}: keep both label and URL.`)
+    }
+  })
+
+  return issues
+}
+
 function parseToYearMonth(value, { isEnd }) {
   const raw = String(value || '').trim()
   if (!raw) return null
@@ -551,6 +627,7 @@ function ResumeBuilderPage() {
   const [resumeRecordId, setResumeRecordId] = useState(() => sessionStorage.getItem('builderResumeId'))
   const [saveState, setSaveState] = useState({ saving: false, message: '' })
   const [importState, setImportState] = useState({ importing: false, message: '' })
+  const [atsCheckState, setAtsCheckState] = useState(null)
   const pdfInputRef = useRef(null)
 
   useEffect(() => {
@@ -916,6 +993,15 @@ function ResumeBuilderPage() {
     })
   }
 
+  const runAtsCheck = () => {
+    const issues = collectAtsIssues(form)
+    if (issues.length) {
+      setAtsCheckState({ ok: false, issues })
+      return
+    }
+    setAtsCheckState({ ok: true, issues: [] })
+  }
+
   const saveResumeToAccount = async () => {
     const access = localStorage.getItem('access')
     if (!access) {
@@ -961,6 +1047,9 @@ function ResumeBuilderPage() {
       </button>
       <button type="button" className="secondary" onClick={downloadDoc}>
         Download DOC
+      </button>
+      <button type="button" className="secondary" onClick={runAtsCheck}>
+        ATS Check
       </button>
       <button type="button" className="secondary" onClick={downloadAtsPdf}>
         ATS PDF
@@ -1034,6 +1123,19 @@ function ResumeBuilderPage() {
             <p className={importState.message.startsWith('Imported') ? 'success' : 'error'}>
               {importState.message}
             </p>
+          )}
+          {atsCheckState?.ok && (
+            <p className="success">ATS check passed. Resume looks parser-friendly.</p>
+          )}
+          {atsCheckState && !atsCheckState.ok && (
+            <div className="error-box">
+              <strong>ATS check found items to fix:</strong>
+              <ul>
+                {atsCheckState.issues.map((issue) => (
+                  <li key={issue}>{issue}</li>
+                ))}
+              </ul>
+            </div>
           )}
 
           <div className="section-options">
