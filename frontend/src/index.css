@@ -621,40 +621,26 @@
   }
 
   .resume-tech-stack {
-    @apply flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[9.5pt] leading-snug;
+    @apply text-slate-800;
     font-family: var(--resume-font-family, Arial, Helvetica, sans-serif);
+    font-size: inherit;
+    line-height: inherit;
   }
 
   .resume-tech-stack--end {
     @apply mt-2;
   }
 
-  .resume-section.has-underline .resume-tech-stack--end {
-    @apply border-b border-slate-300 pb-0.5;
-  }
-
-  .resume-sheet.is-compact .resume-tech-stack {
-    @apply text-[9pt];
-  }
-
   .resume-sheet.is-compact .resume-tech-stack--end {
     @apply mt-1.5;
   }
 
-  .resume-sheet.is-compact .resume-section.has-underline .resume-tech-stack--end {
-    @apply pb-0.5;
-  }
-
   .resume-tech-stack-label {
-    @apply shrink-0 font-semibold tracking-wide text-slate-900;
-  }
-
-  .resume-tech-stack-sep {
-    @apply shrink-0 select-none text-slate-400;
+    @apply font-semibold tracking-wide text-slate-900;
   }
 
   .resume-tech-stack-items {
-    @apply min-w-0 flex-1 text-slate-600 [word-spacing:0.12em];
+    @apply font-semibold text-slate-800;
   }
 
   .resume-edu-inst {

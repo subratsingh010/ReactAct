@@ -257,6 +257,13 @@ function normalizeHttpUrl(value) {
   }
 }
 
+function normalizeTechStackText(value) {
+  return String(value || '')
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function renderLink(label, value) {
   const url = normalizeHttpUrl(value)
   if (!url) return null
@@ -329,9 +336,6 @@ function buildDocHtml(form) {
   const safeBodyFontFamily = String(form.bodyFontFamily || 'Arial, Helvetica, sans-serif')
   const marginIn = Number(form.pageMarginIn || 0.3)
   const safeMarginIn = Number.isFinite(marginIn) ? marginIn : 0.3
-  const techStackFootRule = form.sectionUnderline
-    ? 'padding-bottom:6px;border-bottom:1px solid #d1d5db;'
-    : ''
 
   const contact = [form.location, form.phone, form.email]
     .map((v) => String(v || '').trim())
@@ -349,11 +353,11 @@ function buildDocHtml(form) {
       const name = escapeHtml(p.name || '')
       const url = normalizeHttpUrl(p.url)
       const link = url ? ` <a href="${escapeHtml(url)}" style="color:#6b778f;text-decoration:none;">link</a>` : ''
-      const techRaw = String(p.techStack || '').trim()
+      const techRaw = normalizeTechStackText(p.techStack)
       const showTech = Boolean(p.showTechUsed ?? form.showProjectTechUsed)
       const techBlock =
         showTech && techRaw
-          ? `<p style="margin:10px 0 0;${techStackFootRule}display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;font-size:${safeFontSize}pt;line-height:${safeLineHeight};color:#475569;"><span style="flex:0 0 auto;font-weight:600;letter-spacing:0.03em;color:#0f172a;">Tech Stack</span><span style="flex:0 0 auto;color:#94a3b8;">·</span><span style="flex:1 1 160px;min-width:0;word-spacing:0.08em;">${escapeHtml(
+          ? `<p style="margin:6px 0 0;font-size:${safeFontSize}pt;line-height:${safeLineHeight};color:#1f2937;"><span style="font-weight:600;letter-spacing:0.03em;color:#111827;">Tech Stack:</span> <span style="font-weight:600;">${escapeHtml(
               techRaw,
             )}</span></p>`
           : ''
@@ -370,11 +374,11 @@ function buildDocHtml(form) {
         .map((v) => String(v || '').trim())
         .filter(Boolean)
         .join(' – ')
-      const techRaw = String(e.techStack || '').trim()
+      const techRaw = normalizeTechStackText(e.techStack)
       const showTech = Boolean(e.showTechUsed ?? form.showExperienceTechUsed)
       const techBlock =
         showTech && techRaw
-          ? `<p style="margin:10px 0 0;${techStackFootRule}display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;font-size:${safeFontSize}pt;line-height:${safeLineHeight};color:#475569;"><span style="flex:0 0 auto;font-weight:600;letter-spacing:0.03em;color:#0f172a;">Tech Stack</span><span style="flex:0 0 auto;color:#94a3b8;">·</span><span style="flex:1 1 160px;min-width:0;word-spacing:0.08em;">${escapeHtml(
+          ? `<p style="margin:6px 0 0;font-size:${safeFontSize}pt;line-height:${safeLineHeight};color:#1f2937;"><span style="font-weight:600;letter-spacing:0.03em;color:#111827;">Tech Stack:</span> <span style="font-weight:600;">${escapeHtml(
               techRaw,
             )}</span></p>`
           : ''

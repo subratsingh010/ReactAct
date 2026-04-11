@@ -53,6 +53,13 @@ function normalizeHttpUrl(value) {
   }
 }
 
+function normalizeTechStackText(value) {
+  return String(value || '')
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function renderContact(form) {
   const links = (form.links || [])
     .map((item) => {
@@ -77,9 +84,9 @@ function renderContact(form) {
 
 function renderTechStackLine(techStack, show) {
   if (!show) return ''
-  const text = String(techStack || '').trim()
+  const text = normalizeTechStackText(techStack)
   if (!text) return ''
-  return `<p class="entry-tech-stack entry-tech-stack--end"><span class="entry-tech-stack-label">Tech Stack</span><span class="entry-tech-stack-sep">·</span><span class="entry-tech-stack-items">${escapeHtml(text)}</span></p>`
+  return `<p class="entry-tech-stack entry-tech-stack--end"><span class="entry-tech-stack-label">Tech Stack:</span> <span class="entry-tech-stack-items">${escapeHtml(text)}</span></p>`
 }
 
 function renderExperienceItem(exp, form) {
@@ -354,12 +361,9 @@ export function buildAtsPdfHtml(form) {
     }
 
     .entry-tech-stack {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: 4pt 6pt;
-      font-size: 9.25pt;
-      line-height: 1.35;
+      display: block;
+      font-size: inherit;
+      line-height: inherit;
     }
 
     .entry-tech-stack--end {
@@ -370,20 +374,6 @@ export function buildAtsPdfHtml(form) {
       margin-top: 3pt;
     }
 
-    .section.has-underline .entry-tech-stack--end {
-      border-bottom: 0.35pt solid #d1d5db;
-      padding-bottom: 2pt;
-    }
-
-    body.compact .section.has-underline .entry-tech-stack--end {
-      padding-bottom: 1.5pt;
-    }
-
-    body.compact .entry-tech-stack {
-      font-size: 9pt;
-      line-height: 1.28;
-    }
-
     .entry-tech-stack-label {
       flex: 0 0 auto;
       font-weight: 600;
@@ -391,17 +381,9 @@ export function buildAtsPdfHtml(form) {
       color: #0f172a;
     }
 
-    .entry-tech-stack-sep {
-      flex: 0 0 auto;
-      color: #94a3b8;
-      font-weight: 400;
-    }
-
     .entry-tech-stack-items {
-      flex: 1 1 140pt;
-      min-width: 0;
-      color: #475569;
-      word-spacing: 0.08em;
+      color: #1f2937;
+      font-weight: 600;
     }
 
     ul {

@@ -100,14 +100,14 @@ function renderLink(label, value) {
 }
 
 function techStackBlock(techStack) {
-  const text = String(techStack || '').trim()
+  const text = String(techStack || '')
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/\s+/g, ' ')
+    .trim()
   if (!text) return null
   return (
     <p className="resume-tech-stack resume-tech-stack--end" role="group" aria-label="Tech stack">
-      <span className="resume-tech-stack-label">Tech Stack</span>
-      <span className="resume-tech-stack-sep" aria-hidden="true">
-        ·
-      </span>
+      <span className="resume-tech-stack-label">Tech Stack:</span>{' '}
       <span className="resume-tech-stack-items">{text}</span>
     </p>
   )
