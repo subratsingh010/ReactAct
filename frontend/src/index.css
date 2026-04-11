@@ -518,29 +518,49 @@
   }
 
   .resume-head {
-    @apply border-b border-slate-300 pb-4 text-center;
+    margin-bottom: 8pt;
+    padding-bottom: 6pt;
+    text-align: center;
+    border-bottom: 1px solid #d1d5db;
   }
 
   .resume-head.no-divider {
-    @apply border-b-0 pb-1;
+    border-bottom: 0;
   }
 
   .resume-head h2 {
-    @apply text-3xl font-bold uppercase tracking-wide;
+    margin: 0;
+    font-size: 20pt;
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
   }
 
   .resume-head-line,
   .resume-head-links {
-    @apply mt-2 text-sm text-slate-600;
+    color: #374151;
+  }
+
+  .resume-head-line {
+    margin-top: 3pt;
+    font-size: 9.5pt;
+    text-align: center;
   }
 
   .resume-head-links {
-    @apply mt-3;
+    margin-top: 7pt;
+    font-size: 9pt;
+    text-align: center;
+    word-break: break-word;
   }
 
   .resume-head-links a,
   .resume-link {
-    @apply text-sm font-medium text-slate-600 no-underline;
+    color: inherit;
+    text-decoration: none;
+    font-weight: 400;
+    font-size: 9pt;
   }
 
   .resume-project-link {
@@ -548,55 +568,60 @@
   }
 
   .resume-section {
-    @apply mt-4;
+    margin-top: 8pt;
   }
 
   .resume-sheet.is-compact .resume-head {
-    @apply pb-2;
+    margin-bottom: 8pt;
+    padding-bottom: 6pt;
   }
 
   .resume-sheet.is-compact .resume-head-line,
   .resume-sheet.is-compact .resume-head-links {
-    @apply mt-1;
+    margin-top: 3pt;
   }
 
   .resume-sheet.is-compact .resume-head-links {
-    @apply mt-2;
+    margin-top: 7pt;
   }
 
   .resume-sheet.is-compact .resume-section {
-    @apply mt-1;
+    margin-top: 4pt;
   }
 
   .resume-sheet.is-compact .resume-section h3 {
-    @apply mb-0.5;
+    margin: 0 0 1pt;
   }
 
   .resume-sheet.is-compact .resume-exp {
-    @apply mt-2;
-  }
-
-  .resume-sheet.is-compact .resume-rich p,
-  .resume-sheet.is-compact .resume-summary p,
-  .resume-sheet.is-compact .resume-rich li,
-  .resume-sheet.is-compact .resume-summary li {
-    @apply my-0.5;
+    margin-top: 2pt;
   }
 
   .resume-section.has-underline h3 {
-    @apply border-b border-slate-300 pb-0.5;
+    border-bottom: 1px solid #d1d5db;
+    padding-bottom: 1pt;
   }
 
   .resume-section h3 {
-    @apply mb-1 text-xs font-bold uppercase tracking-[0.22em] text-slate-700;
+    margin: 0 0 2pt;
+    font-size: 11pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #111827;
   }
 
   .resume-exp {
-    @apply mt-3;
+    margin-top: 4pt;
   }
 
   .resume-exp-head {
-    @apply flex items-start justify-between gap-4;
+    display: flex;
+    justify-content: space-between;
+    gap: 12pt;
+    align-items: baseline;
+    font-size: 9.75pt;
+    font-weight: 700;
   }
 
   .resume-exp-left {
@@ -604,43 +629,53 @@
   }
 
   .resume-exp-company {
-    @apply font-bold text-slate-900;
+    color: #111827;
+    font-weight: 700;
   }
 
   .resume-exp-title,
   .resume-exp-sep {
-    @apply text-slate-700;
+    color: #111827;
   }
 
   .resume-exp-right {
-    @apply shrink-0 whitespace-nowrap text-right text-slate-600;
+    flex-shrink: 0;
+    white-space: nowrap;
+    text-align: right;
+    font-weight: 400;
+    font-size: 9pt;
+    color: #374151;
   }
 
   .resume-exp-body {
-    @apply mt-0.5;
+    margin-top: 0;
   }
 
   .resume-tech-stack {
-    @apply text-slate-800;
+    display: block;
+    color: #1f2937;
     font-family: var(--resume-font-family, Arial, Helvetica, sans-serif);
     font-size: inherit;
     line-height: inherit;
   }
 
   .resume-tech-stack--end {
-    @apply mt-2;
+    margin-top: 5pt;
   }
 
   .resume-sheet.is-compact .resume-tech-stack--end {
-    @apply mt-1.5;
+    margin-top: 3pt;
   }
 
   .resume-tech-stack-label {
-    @apply font-semibold tracking-wide text-slate-900;
+    font-weight: 600;
+    color: #0f172a;
+    letter-spacing: 0.03em;
   }
 
   .resume-tech-stack-items {
-    @apply font-semibold text-slate-800;
+    color: #1f2937;
+    font-weight: 600;
   }
 
   .resume-edu-inst {
@@ -652,46 +687,76 @@
   }
 
   .resume-rich {
-    @apply text-slate-800;
+    color: #111827;
   }
 
   .resume-summary {
-    @apply text-slate-800;
+    color: #111827;
     font-family: var(--resume-font-family, Arial, Helvetica, sans-serif);
     font-size: var(--resume-font-size, 10pt);
     line-height: var(--resume-line-height, 1);
   }
 
-  .resume-rich p {
-    @apply my-1;
+  .resume-rich p,
+  .resume-summary p {
+    margin: 2pt 0 0;
+    font-size: 9.5pt;
+    line-height: 1.35;
   }
 
-  .resume-summary p {
-    @apply my-1;
+  .resume-sheet.is-compact .resume-rich p,
+  .resume-sheet.is-compact .resume-summary p {
+    margin: 1pt 0 0;
+    line-height: 1.25;
   }
 
   .resume-rich ul {
-    @apply my-1 list-disc pl-5;
+    margin: 4pt 0 0;
+    padding-left: 16pt;
+    list-style: disc;
   }
 
   .resume-summary ul {
-    @apply my-1 list-disc pl-5;
+    margin: 4pt 0 0;
+    padding-left: 16pt;
+    list-style: disc;
   }
 
   .resume-rich ol {
-    @apply my-1 list-decimal pl-5;
+    margin: 4pt 0 0;
+    padding-left: 16pt;
+    list-style: decimal;
   }
 
   .resume-summary ol {
-    @apply my-1 list-decimal pl-5;
+    margin: 4pt 0 0;
+    padding-left: 16pt;
+    list-style: decimal;
   }
 
   .resume-rich li {
-    @apply my-0.5;
+    margin: 1.5pt 0;
+    font-size: 9.5pt;
+    line-height: 1.3;
   }
 
   .resume-summary li {
-    @apply my-0.5;
+    margin: 1.5pt 0;
+    font-size: 9.5pt;
+    line-height: 1.3;
+  }
+
+  .resume-sheet.is-compact .resume-rich ul,
+  .resume-sheet.is-compact .resume-summary ul,
+  .resume-sheet.is-compact .resume-rich ol,
+  .resume-sheet.is-compact .resume-summary ol {
+    margin-top: 2pt;
+  }
+
+  .resume-sheet.is-compact .resume-rich li,
+  .resume-sheet.is-compact .resume-summary li {
+    margin: 1pt 0;
+    line-height: 1.2;
   }
 
   .resume-rich h1 {

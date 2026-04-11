@@ -61,7 +61,7 @@ function formToPlainText(form) {
     if (highlights) parts.push(highlights)
     const tech = String(exp.techStack || '').trim()
     const showTech = Boolean(exp.showTechUsed ?? f.showExperienceTechUsed)
-    if (tech && showTech) parts.push(`Tech Stack — ${tech}`)
+    if (tech && showTech) parts.push(`Tech Stack: ${tech}`)
   })
 
   ;(f.projects || []).forEach((proj) => {
@@ -71,7 +71,7 @@ function formToPlainText(form) {
     if (highlights) parts.push(highlights)
     const tech = String(proj.techStack || '').trim()
     const showTech = Boolean(proj.showTechUsed ?? f.showProjectTechUsed)
-    if (tech && showTech) parts.push(`Tech Stack — ${tech}`)
+    if (tech && showTech) parts.push(`Tech Stack: ${tech}`)
   })
 
   ;(f.educations || []).forEach((edu) => {
@@ -498,7 +498,7 @@ function ResumeBuilderPage() {
     bodyLineHeight: 1,
     pageMarginIn: 0.3,
     sectionOrder: ['summary', 'skills', 'experience', 'projects', 'education'],
-    sectionUnderline: false,
+    sectionUnderline: true,
     compactSpacing: true,
     isDefaultResume: false,
     customSections: [],
@@ -550,7 +550,7 @@ function ResumeBuilderPage() {
       try {
         const imported = JSON.parse(raw)
         if (imported && typeof imported === 'object') {
-          setForm((prev) => ({ ...prev, ...imported }))
+          setForm((prev) => ({ ...prev, ...imported, sectionUnderline: true }))
         }
       } catch {
         // ignore
@@ -574,6 +574,7 @@ function ResumeBuilderPage() {
       setForm((prev) => ({
         ...prev,
         ...(full.builder_data || {}),
+        sectionUnderline: true,
         isDefaultResume: Boolean(full.is_default),
       }))
       setResumeRecordId(String(full.id))
@@ -644,7 +645,7 @@ function ResumeBuilderPage() {
     try {
       setImportState({ importing: true, message: '' })
       const parsed = await parseResumePdf(file)
-      setForm((prev) => ({ ...prev, ...parsed }))
+      setForm((prev) => ({ ...prev, ...parsed, sectionUnderline: true }))
       setImportState({ importing: false, message: `Imported ${file.name}` })
     } catch (err) {
       setImportState({ importing: false, message: err.message || 'Import failed' })
@@ -993,10 +994,10 @@ function ResumeBuilderPage() {
           <label className="checkbox">
             <input
               type="checkbox"
-              checked={Number(form.pageMarginIn || 0.3) <= 0.2}
-              onChange={(e) => updateField('pageMarginIn', e.target.checked ? 0.2 : 0.3)}
+              checked={Number(form.pageMarginIn || 0.3) <= 0.1}
+              onChange={(e) => updateField('pageMarginIn', e.target.checked ? 0.1 : 0.3)}
             />
-            Narrow margin
+            Minimum margin
           </label>
 
           {saveState.message && <p className={saveState.message.startsWith('Saved') ? 'success' : 'error'}>{saveState.message}</p>}
@@ -1500,14 +1501,9 @@ function ResumeBuilderPage() {
           </div>
         </div>
 
-          <Actions className="builder-actions" includeHome />
-          <p className="builder-actions-hint">
-          Import a PDF to auto-fill the builder, then use ATS PDF or Download DOC to export.
-          </p>
       </section>
 
       <section className="preview-panel">
-        <Actions className="preview-actions" />
         <ResumeSheet form={form} />
       </section>
     </main>
