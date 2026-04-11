@@ -11,6 +11,8 @@ from .views import (
     ResumeListCreateView,
     RunAnalysisView,
     SignupView,
+    TailorResumeView,
+    OptimizeResumeQualityView,
 )
 
 urlpatterns = [
@@ -25,4 +27,6 @@ urlpatterns = [
     path('resumes/<int:resume_id>/', ResumeDetailView.as_view()),
     path('analyses/', ResumeAnalysisListView.as_view()),
     path('run-analysis/', RunAnalysisView.as_view()),
+    path('tailor-resume/', TailorResumeView.as_view()),
+    path('optimize-resume-quality/', OptimizeResumeQualityView.as_view()),
 ]

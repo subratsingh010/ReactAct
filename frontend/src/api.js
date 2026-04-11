@@ -174,3 +174,38 @@ export async function updateResume(accessToken, resumeId, payload) {
   )
   return parseResponse(response)
 }
+
+export async function tailorResume(accessToken, payload) {
+  const isFormData = payload instanceof FormData
+  const response = await authFetch(
+    `${API_BASE_URL}/tailor-resume/`,
+    {
+      method: 'POST',
+      ...(isFormData
+        ? { body: payload }
+        : {
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload || {}),
+          }),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function optimizeResumeQuality(accessToken, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/optimize-resume-quality/`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}

@@ -1,5 +1,9 @@
+import json
+import os
+import re
+
 from rest_framework import status
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,6 +15,17 @@ from .serializers import (
     ResumeAnalysisSerializer,
     ResumeSerializer,
     SignupSerializer,
+)
+from .tailor import (
+    builder_has_substance,
+    build_quality_optimized_builder,
+    build_tailored_builder,
+    builder_data_to_text,
+    extract_keywords_ai,
+    find_best_resume_match,
+    optimize_existing_resume_quality_ai,
+    sanitize_builder_data,
+    tailor_resume_with_ai,
 )
 
 def _plain_text_from_html(value: str) -> str:
@@ -467,6 +482,279 @@ class ResumeAnalysisListView(APIView):
             analyses = analyses.filter(resume_id=resume_id)
         serializer = ResumeAnalysisSerializer(analyses, many=True)
         return Response(serializer.data)
+
+
+class TailorResumeView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def _to_bool(self, value, default=False):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    def _enforce_resume_limit(self, user):
+        keep_ids = list(
+            Resume.objects.filter(user=user)
+            .order_by('-updated_at', '-created_at')
+            .values_list('id', flat=True)[:6]
+        )
+        default_id = (
+            Resume.objects.filter(user=user, is_default=True)
+            .order_by('-updated_at', '-created_at')
+            .values_list('id', flat=True)
+            .first()
+        )
+        if default_id and default_id not in keep_ids and keep_ids:
+            keep_ids = keep_ids[:-1] + [default_id]
+        Resume.objects.filter(user=user).exclude(id__in=keep_ids).delete()
+
+    def _pick_base_builder(self, request_builder, matched_resume, latest_resume):
+        if isinstance(request_builder, dict):
+            cleaned_request = sanitize_builder_data(request_builder)
+            if builder_has_substance(cleaned_request):
+                return cleaned_request
+
+        if matched_resume and isinstance(matched_resume.builder_data, dict):
+            cleaned_matched = sanitize_builder_data(matched_resume.builder_data)
+            if builder_has_substance(cleaned_matched):
+                return cleaned_matched
+
+        if latest_resume and isinstance(latest_resume.builder_data, dict):
+            cleaned_latest = sanitize_builder_data(latest_resume.builder_data)
+            if builder_has_substance(cleaned_latest):
+                return cleaned_latest
+
+        return sanitize_builder_data(request_builder or {})
+
+    def _tailored_title(self, jd_text, fallback_title="Tailored Resume"):
+        first_line = str(jd_text or "").strip().splitlines()[0:1]
+        if first_line:
+            line = str(first_line[0]).strip()
+            if len(line) > 80:
+                line = line[:80].rsplit(" ", 1)[0].strip() or line[:80]
+            if line:
+                return f"Tailored - {line}"
+        return fallback_title
+
+    def post(self, request):
+        jd_text = str(request.data.get('job_description') or '').strip()
+        if len(jd_text) < 40:
+            return Response({'detail': 'Please paste a fuller job description.'}, status=status.HTTP_400_BAD_REQUEST)
+        job_role = str(request.data.get('job_role') or '').strip()
+
+        # Strict requirement: do not proceed without AI API configured.
+        if not os.getenv('OPENAI_API_KEY', '').strip():
+            return Response(
+                {'detail': 'AI tailoring is required. Configure OPENAI_API_KEY on backend to continue.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        incoming_critical = request.data.get('critical_keywords')
+        critical_keywords = []
+        if isinstance(incoming_critical, str):
+            raw = incoming_critical.strip()
+            if raw.startswith('['):
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        critical_keywords = [str(x).strip().lower() for x in parsed if str(x).strip()]
+                except json.JSONDecodeError:
+                    critical_keywords = [x.strip().lower() for x in re.split(r"[,\n;]", incoming_critical) if x.strip()]
+            else:
+                critical_keywords = [x.strip().lower() for x in re.split(r"[,\n;]", incoming_critical) if x.strip()]
+        elif isinstance(incoming_critical, list):
+            critical_keywords = [str(x).strip().lower() for x in incoming_critical if str(x).strip()]
+
+        min_match = request.data.get('min_match', 0.70)
+        max_match = request.data.get('max_match', 0.80)
+        preview_only = self._to_bool(request.data.get('preview_only'), default=True)
+        try:
+            min_match = float(min_match)
+            max_match = float(max_match)
+        except Exception:  # noqa: BLE001
+            min_match, max_match = 0.70, 0.80
+
+        min_match = max(0.0, min(1.0, min_match))
+        max_match = max(min_match, min(1.0, max_match))
+
+        request_builder = request.data.get('builder_data')
+        if isinstance(request_builder, str):
+            try:
+                request_builder = json.loads(request_builder)
+            except json.JSONDecodeError:
+                request_builder = {}
+        if not isinstance(request_builder, dict):
+            request_builder = {}
+        request_builder = sanitize_builder_data(request_builder)
+
+        keywords, keyword_ai_used, keyword_note = extract_keywords_ai(jd_text)
+        # Continue with heuristic fallback keywords when AI is temporarily unavailable.
+        if critical_keywords:
+            merged = []
+            seen = set()
+            for kw in [*critical_keywords, *keywords]:
+                key = str(kw or '').strip().lower()
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                merged.append(key)
+            keywords = merged[:80]
+        if not keywords:
+            return Response({'detail': 'Could not extract JD keywords.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        resumes = list(Resume.objects.filter(user=request.user).order_by('-updated_at', '-created_at'))
+        best = find_best_resume_match(keywords, resumes)
+        latest_resume = resumes[0] if resumes else None
+
+        if best.resume and min_match <= best.score <= max_match:
+            payload = ResumeSerializer(best.resume).data
+            return Response(
+                {
+                    'mode': 'matched_existing',
+                    'resume': payload,
+                    'keywords': keywords,
+                    'matched_keywords': best.matched_keywords,
+                    'match_score': round(best.score, 4),
+                    'used_ai_keywords': bool(keyword_ai_used),
+                    'keyword_note': keyword_note,
+                    'preview_only': bool(preview_only),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        base_builder = self._pick_base_builder(request_builder, best.resume, latest_resume)
+        ai_payload, ai_used, ai_note = tailor_resume_with_ai(
+            base_builder,
+            jd_text,
+            keywords,
+            job_role=job_role,
+        )
+        if not ai_used:
+            return Response(
+                {'detail': f'AI rewrite failed. {ai_note or "Please try again."}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        tailored_builder = build_tailored_builder(base_builder, ai_payload, keywords, jd_text=jd_text)
+        plain_text = builder_data_to_text(tailored_builder)
+        title = self._tailored_title(jd_text, fallback_title=(base_builder.get('resumeTitle') or 'Tailored Resume'))
+
+        if preview_only:
+            preview_resume = {
+                'id': None,
+                'title': title,
+                'original_text': plain_text,
+                'optimized_text': '',
+                'builder_data': tailored_builder,
+                'is_default': False,
+                'status': 'optimized',
+                'created_at': None,
+                'updated_at': None,
+            }
+            return Response(
+                {
+                    'mode': 'preview_new',
+                    'resume': preview_resume,
+                    'keywords': keywords,
+                    'matched_keywords': best.matched_keywords,
+                    'match_score': round(best.score, 4),
+                    'used_ai_keywords': bool(keyword_ai_used),
+                    'used_ai_rewrite': bool(ai_used),
+                    'keyword_note': keyword_note,
+                    'rewrite_note': ai_note,
+                    'preview_only': True,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        created = Resume.objects.create(
+            user=request.user,
+            title=title,
+            original_text=plain_text,
+            builder_data=tailored_builder,
+            status='optimized',
+        )
+        self._enforce_resume_limit(request.user)
+
+        return Response(
+            {
+                'mode': 'created_new',
+                'resume': ResumeSerializer(created).data,
+                'keywords': keywords,
+                'matched_keywords': best.matched_keywords,
+                'match_score': round(best.score, 4),
+                'used_ai_keywords': bool(keyword_ai_used),
+                'used_ai_rewrite': bool(ai_used),
+                'keyword_note': keyword_note,
+                'rewrite_note': ai_note,
+                'preview_only': False,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class OptimizeResumeQualityView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def _to_bool(self, value, default=False):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    def post(self, request):
+        if not os.getenv('OPENAI_API_KEY', '').strip():
+            return Response(
+                {'detail': 'AI optimization is required. Configure OPENAI_API_KEY on backend to continue.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        request_builder = request.data.get('builder_data')
+        if isinstance(request_builder, str):
+            try:
+                request_builder = json.loads(request_builder)
+            except json.JSONDecodeError:
+                request_builder = {}
+        if not isinstance(request_builder, dict):
+            request_builder = {}
+        request_builder = sanitize_builder_data(request_builder)
+        if not builder_has_substance(request_builder):
+            return Response({'detail': 'Upload or import a resume first.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        ai_payload, ai_used, ai_note = optimize_existing_resume_quality_ai(request_builder)
+        if not ai_used:
+            return Response(
+                {'detail': f'AI quality optimization failed. {ai_note or "Please try again."}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        optimized_builder = build_quality_optimized_builder(request_builder, ai_payload)
+        plain_text = builder_data_to_text(optimized_builder)
+        title = str(optimized_builder.get('resumeTitle') or 'Optimized Resume').strip() or 'Optimized Resume'
+        preview_only = self._to_bool(request.data.get('preview_only'), default=True)
+
+        preview_resume = {
+            'id': None,
+            'title': title,
+            'original_text': plain_text,
+            'optimized_text': '',
+            'builder_data': optimized_builder,
+            'is_default': False,
+            'status': 'optimized',
+            'created_at': None,
+            'updated_at': None,
+        }
+        return Response(
+            {
+                'mode': 'optimized_quality_preview',
+                'resume': preview_resume,
+                'preview_only': bool(preview_only),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class RunAnalysisView(APIView):

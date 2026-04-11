@@ -10,6 +10,7 @@ export default function ResumeSheet({ form }) {
 
   const compactSpacing = true
   const sectionClass = `resume-section${model.sectionUnderline ? ' has-underline' : ''}`
+  const hasHtmlContent = (value) => String(value || '').replace(/<[^>]+>/g, '').trim().length > 0
   const getCustomByKey = (key) => {
     if (!key.startsWith(model.customKeyPrefix)) return null
     const id = key.slice(model.customKeyPrefix.length)
@@ -46,7 +47,7 @@ export default function ResumeSheet({ form }) {
 
       {model.orderedKeys.map((key) => {
         if (key === 'summary') {
-          if (!model.summaryEnabled) return null
+          if (!model.summaryEnabled || !hasHtmlContent(model.summaryHtml)) return null
           return (
             <div key="summary" className={sectionClass}>
               <h3>{model.summaryHeading || 'Summary'}</h3>
@@ -56,6 +57,7 @@ export default function ResumeSheet({ form }) {
         }
 
         if (key === 'skills') {
+          if (!hasHtmlContent(model.skillsHtml)) return null
           return (
             <div key="skills" className={sectionClass}>
               <h3>Skills</h3>
@@ -65,6 +67,7 @@ export default function ResumeSheet({ form }) {
         }
 
         if (key === 'experience') {
+          if (!model.experiences.length) return null
           return (
             <div key="experience" className={sectionClass}>
               <h3>Experience</h3>
@@ -92,6 +95,7 @@ export default function ResumeSheet({ form }) {
         }
 
         if (key === 'projects') {
+          if (!model.projects.length) return null
           return (
             <div key="projects" className={sectionClass}>
               <h3>Projects</h3>
@@ -124,6 +128,7 @@ export default function ResumeSheet({ form }) {
         }
 
         if (key === 'education') {
+          if (!model.educations.length) return null
           return (
             <div key="education" className={sectionClass}>
               <h3>Education</h3>
@@ -156,7 +161,7 @@ export default function ResumeSheet({ form }) {
 
         if (key.startsWith(model.customKeyPrefix)) {
           const custom = getCustomByKey(key)
-          if (!custom) return null
+          if (!custom || !hasHtmlContent(custom.content)) return null
           return (
             <div key={key} className={sectionClass}>
               <h3>{custom.title?.trim() || 'Custom section'}</h3>

@@ -3,7 +3,15 @@ import { useNavigate } from 'react-router-dom'
 
 import RichTextarea from '../components/RichTextarea'
 import ResumeSheet from '../components/ResumeSheet'
-import { createResume, fetchResume, fetchResumes, parseResumePdf, updateResume } from '../api'
+import {
+  createResume,
+  fetchResume,
+  fetchResumes,
+  optimizeResumeQuality,
+  parseResumePdf,
+  tailorResume,
+  updateResume,
+} from '../api'
 import { printAtsPdf } from '../utils/resumeExport'
 import {
   DEFAULT_PAGE_MARGIN_IN,
@@ -530,7 +538,16 @@ function buildDocHtml(form) {
 </html>`
 }
 
-function ResumeBuilderPage() {
+function ResumeBuilderPage({
+  pageTitle = 'Resume Builder',
+  subtitle = 'Fill inputs on left. Resume updates live on right.',
+  importSessionKey = 'builderImport',
+  resumeIdSessionKey = 'builderResumeId',
+  showJdBox = false,
+  jdSessionKey = 'builderJdText',
+  enableTailorFlow = false,
+  minimalTailorUi = false,
+}) {
   const navigate = useNavigate()
   const [form, setForm] = useState({
     resumeTitle: 'My Resume',
@@ -585,14 +602,33 @@ function ResumeBuilderPage() {
       },
     ],
   })
-  const [resumeRecordId, setResumeRecordId] = useState(() => sessionStorage.getItem('builderResumeId'))
+  const [resumeRecordId, setResumeRecordId] = useState(() => sessionStorage.getItem(resumeIdSessionKey))
   const [saveState, setSaveState] = useState({ saving: false, message: '' })
   const [importState, setImportState] = useState({ importing: false, message: '' })
   const [atsCheckState, setAtsCheckState] = useState(null)
+  const [jobDescription, setJobDescription] = useState(() => sessionStorage.getItem(jdSessionKey) || '')
+  const [tailorState, setTailorState] = useState({
+    loading: false,
+    mode: '',
+    message: '',
+    error: '',
+    keywords: [],
+    matchScore: null,
+  })
   const pdfInputRef = useRef(null)
 
   useEffect(() => {
-    const raw = sessionStorage.getItem('builderImport')
+    if (!showJdBox) return
+    const text = String(jobDescription || '')
+    if (text.trim()) {
+      sessionStorage.setItem(jdSessionKey, text)
+      return
+    }
+    sessionStorage.removeItem(jdSessionKey)
+  }, [jobDescription, jdSessionKey, showJdBox])
+
+  useEffect(() => {
+    const raw = sessionStorage.getItem(importSessionKey)
     if (raw) {
       try {
         const imported = JSON.parse(raw)
@@ -607,12 +643,12 @@ function ResumeBuilderPage() {
       } catch {
         // ignore
       }
-      sessionStorage.removeItem('builderImport')
+      sessionStorage.removeItem(importSessionKey)
     }
 
-    const id = sessionStorage.getItem('builderResumeId')
+    const id = sessionStorage.getItem(resumeIdSessionKey)
     if (id) setResumeRecordId(id)
-  }, [])
+  }, [importSessionKey, resumeIdSessionKey])
 
   useEffect(() => {
     let cancelled = false
@@ -631,14 +667,14 @@ function ResumeBuilderPage() {
         isDefaultResume: Boolean(full.is_default),
       }))
       setResumeRecordId(String(full.id))
-      sessionStorage.setItem('builderResumeId', String(full.id))
+      sessionStorage.setItem(resumeIdSessionKey, String(full.id))
     }
 
     const hydrateDefaultResume = async () => {
       const access = localStorage.getItem('access')
       if (!access) return
 
-      const storedId = sessionStorage.getItem('builderResumeId')
+      const storedId = sessionStorage.getItem(resumeIdSessionKey)
       if (storedId) {
         try {
           const full = await fetchResume(access, storedId)
@@ -659,7 +695,7 @@ function ResumeBuilderPage() {
         return
       }
 
-      if (sessionStorage.getItem('builderImport')) return
+      if (sessionStorage.getItem(importSessionKey)) return
 
       try {
         await loadDefaultFromList(access)
@@ -672,7 +708,7 @@ function ResumeBuilderPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [importSessionKey, resumeIdSessionKey])
 
   const updateField = (key, value) => {
     if (key === 'pageMarginIn') {
@@ -961,6 +997,158 @@ function ResumeBuilderPage() {
     setAtsCheckState({ ok: true, issues: [] })
   }
 
+  const runTailorAndSave = async () => {
+    if (!showJdBox || !enableTailorFlow) return
+    if (tailorState.loading) return
+
+    const jd = String(jobDescription || '').trim()
+    if (jd.length < 40) {
+      setTailorState({
+        loading: false,
+        mode: '',
+        message: '',
+        error: 'Paste full job description (at least 40 characters).',
+        keywords: [],
+        matchScore: null,
+      })
+      return
+    }
+
+    const access = localStorage.getItem('access')
+    if (!access) {
+      navigate('/login')
+      return
+    }
+
+    try {
+      setTailorState({
+        loading: true,
+        mode: 'tailor',
+        message: '',
+        error: '',
+        keywords: [],
+        matchScore: null,
+      })
+
+      const formData = new FormData()
+      formData.append('job_description', jd)
+      formData.append('job_role', String(form.role || '').trim())
+      formData.append('builder_data', JSON.stringify(form))
+      formData.append('min_match', '0.7')
+      formData.append('max_match', '0.8')
+      formData.append('preview_only', 'true')
+
+      const result = await tailorResume(access, formData)
+
+      const resume = result?.resume || {}
+      const incomingBuilder = resume?.builder_data && typeof resume.builder_data === 'object'
+        ? resume.builder_data
+        : null
+
+      if (incomingBuilder) {
+        setForm((prev) => ({
+          ...prev,
+          ...incomingBuilder,
+          pageMarginIn: normalizePageMarginIn(incomingBuilder.pageMarginIn ?? prev.pageMarginIn),
+          sectionUnderline: true,
+          isDefaultResume: Boolean(resume?.is_default),
+        }))
+      }
+
+      // Tailor action is preview-first. Keep save manual to avoid auto-overwrite.
+      setResumeRecordId(null)
+      sessionStorage.removeItem(resumeIdSessionKey)
+
+      const mode = String(result?.mode || '')
+      const score = Number(result?.match_score)
+      const scoreText = Number.isFinite(score) ? `${Math.round(score * 100)}%` : ''
+      const message = mode === 'matched_existing'
+        ? `Tailored preview ready from best match (${scoreText}). Review, then click Save.`
+        : 'Tailored preview ready. Review, then click Save.'
+
+      setTailorState({
+        loading: false,
+        mode: '',
+        message,
+        error: '',
+        keywords: Array.isArray(result?.keywords) ? result.keywords : [],
+        matchScore: Number.isFinite(score) ? score : null,
+      })
+    } catch (err) {
+      setTailorState({
+        loading: false,
+        mode: '',
+        message: '',
+        error: err.message || 'Tailoring failed',
+        keywords: [],
+        matchScore: null,
+      })
+    }
+  }
+
+  const runQualityOptimize = async () => {
+    if (!enableTailorFlow) return
+    if (tailorState.loading) return
+
+    const access = localStorage.getItem('access')
+    if (!access) {
+      navigate('/login')
+      return
+    }
+
+    try {
+      setTailorState({
+        loading: true,
+        mode: 'optimize',
+        message: '',
+        error: '',
+        keywords: [],
+        matchScore: null,
+      })
+
+      const result = await optimizeResumeQuality(access, {
+        builder_data: form,
+        preview_only: true,
+      })
+
+      const resume = result?.resume || {}
+      const incomingBuilder = resume?.builder_data && typeof resume.builder_data === 'object'
+        ? resume.builder_data
+        : null
+
+      if (incomingBuilder) {
+        setForm((prev) => ({
+          ...prev,
+          ...incomingBuilder,
+          pageMarginIn: normalizePageMarginIn(incomingBuilder.pageMarginIn ?? prev.pageMarginIn),
+          sectionUnderline: true,
+          isDefaultResume: Boolean(resume?.is_default),
+        }))
+      }
+
+      setResumeRecordId(null)
+      sessionStorage.removeItem(resumeIdSessionKey)
+
+      setTailorState({
+        loading: false,
+        mode: '',
+        message: 'Quality optimization ready. Review, then click Save.',
+        error: '',
+        keywords: [],
+        matchScore: null,
+      })
+    } catch (err) {
+      setTailorState({
+        loading: false,
+        mode: '',
+        message: '',
+        error: err.message || 'Quality optimization failed',
+        keywords: [],
+        matchScore: null,
+      })
+    }
+  }
+
   const saveResumeToAccount = async () => {
     const access = localStorage.getItem('access')
     if (!access) {
@@ -983,7 +1171,7 @@ function ResumeBuilderPage() {
         : await createResume(access, payload)
 
       setResumeRecordId(String(data.id))
-      sessionStorage.setItem('builderResumeId', String(data.id))
+      sessionStorage.setItem(resumeIdSessionKey, String(data.id))
       setForm((prev) => ({
         ...prev,
         isDefaultResume: Boolean(data.is_default),
@@ -996,7 +1184,7 @@ function ResumeBuilderPage() {
 
   const Actions = ({ className, includeHome }) => (
     <div className={className}>
-      {includeHome && (
+      {includeHome && (!minimalTailorUi || enableTailorFlow) && (
         <button type="button" className="secondary" onClick={openPdfPicker} disabled={importState.importing}>
           {importState.importing ? 'Importing...' : 'Import PDF'}
         </button>
@@ -1004,12 +1192,26 @@ function ResumeBuilderPage() {
       <button type="button" onClick={saveResumeToAccount} disabled={saveState.saving}>
         {saveState.saving ? 'Saving...' : 'Save'}
       </button>
-      <button type="button" className="secondary" onClick={downloadDoc}>
-        Download DOC
-      </button>
-      <button type="button" className="secondary" onClick={runAtsCheck}>
-        ATS Check
-      </button>
+      {!minimalTailorUi && (
+        <button type="button" className="secondary" onClick={downloadDoc}>
+          Download DOC
+        </button>
+      )}
+      {!minimalTailorUi && (
+        <button type="button" className="secondary" onClick={runAtsCheck}>
+          ATS Check
+        </button>
+      )}
+      {showJdBox && enableTailorFlow && (
+        <button type="button" className="secondary" onClick={runQualityOptimize} disabled={tailorState.loading}>
+          {tailorState.loading && tailorState.mode === 'optimize' ? 'Optimizing...' : 'Optimize Existing'}
+        </button>
+      )}
+      {showJdBox && enableTailorFlow && (
+        <button type="button" className="secondary" onClick={runTailorAndSave} disabled={tailorState.loading}>
+          {tailorState.loading && tailorState.mode === 'tailor' ? 'Tailoring...' : 'Tailor First'}
+        </button>
+      )}
       <button type="button" className="secondary" onClick={downloadAtsPdf}>
         ATS PDF
       </button>
@@ -1032,61 +1234,100 @@ function ResumeBuilderPage() {
           style={{ display: 'none' }}
         />
         <div className="builder-header">
-          <h1>Resume Builder</h1>
-          <p className="subtitle">Fill inputs on left. Resume updates live on right.</p>
+          <h1>{pageTitle}</h1>
+          <p className="subtitle">{subtitle}</p>
         </div>
 
         <Actions className="builder-actions builder-actions-top" includeHome />
 
         <div className="form">
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={showSectionOrder}
-              onChange={(e) => setShowSectionOrder(e.target.checked)}
-            />
-            Change section order
-          </label>
+          {showJdBox && (
+            <div className="exp-card">
+              <label htmlFor="job-description">Paste Job Description</label>
+              <textarea
+                id="job-description"
+                rows={10}
+                value={jobDescription}
+                onChange={(e) => setJobDescription(e.target.value)}
+                placeholder="Paste the full job description here..."
+              />
+              <p className="hint" style={{ margin: '8px 0 0' }}>
+                `Optimize Existing` works independently to improve quality (buzzword-free, duplicate-free, quantified) without JD.
+              </p>
+              {tailorState.message && (
+                <p className="success" style={{ margin: '8px 0 0' }}>
+                  {tailorState.message}
+                </p>
+              )}
+              {tailorState.error && (
+                <p className="error" style={{ margin: '8px 0 0' }}>
+                  {tailorState.error}
+                </p>
+              )}
+              {tailorState.keywords.length > 0 && (
+                <p className="hint" style={{ margin: '8px 0 0' }}>
+                  JD keywords: {tailorState.keywords.slice(0, 30).join(', ')}
+                </p>
+              )}
+            </div>
+          )}
 
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={Boolean(form.sectionUnderline)}
-              onChange={(e) => updateField('sectionUnderline', e.target.checked)}
-            />
-            Section underline
-          </label>
+          {!minimalTailorUi && (
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={showSectionOrder}
+                onChange={(e) => setShowSectionOrder(e.target.checked)}
+              />
+              Change section order
+            </label>
+          )}
 
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={Boolean(form.isDefaultResume)}
-              onChange={(e) => updateField('isDefaultResume', e.target.checked)}
-            />
-            Default resume
-          </label>
+          {!minimalTailorUi && (
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={Boolean(form.sectionUnderline)}
+                onChange={(e) => updateField('sectionUnderline', e.target.checked)}
+              />
+              Section underline
+            </label>
+          )}
 
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={normalizePageMarginIn(form.pageMarginIn) <= MIN_PAGE_MARGIN_IN}
-              onChange={(e) =>
-                updateField('pageMarginIn', e.target.checked ? MIN_PAGE_MARGIN_IN : DEFAULT_PAGE_MARGIN_IN)
-              }
-            />
-            Minimum margin
-          </label>
+          {!minimalTailorUi && (
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={Boolean(form.isDefaultResume)}
+                onChange={(e) => updateField('isDefaultResume', e.target.checked)}
+              />
+              Default resume
+            </label>
+          )}
+
+          {!minimalTailorUi && (
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={normalizePageMarginIn(form.pageMarginIn) <= MIN_PAGE_MARGIN_IN}
+                onChange={(e) =>
+                  updateField('pageMarginIn', e.target.checked ? MIN_PAGE_MARGIN_IN : DEFAULT_PAGE_MARGIN_IN)
+                }
+              />
+              Minimum margin
+            </label>
+          )}
 
           {saveState.message && <p className={saveState.message.startsWith('Saved') ? 'success' : 'error'}>{saveState.message}</p>}
-          {importState.message && (
+          {(!minimalTailorUi || enableTailorFlow) && importState.message && (
             <p className={importState.message.startsWith('Imported') ? 'success' : 'error'}>
               {importState.message}
             </p>
           )}
-          {atsCheckState?.ok && (
+          {!minimalTailorUi && atsCheckState?.ok && (
             <p className="success">ATS check passed. Resume looks parser-friendly.</p>
           )}
-          {atsCheckState && !atsCheckState.ok && (
+          {!minimalTailorUi && atsCheckState && !atsCheckState.ok && (
             <div className="error-box">
               <strong>ATS check found items to fix:</strong>
               <ul>
@@ -1097,7 +1338,8 @@ function ResumeBuilderPage() {
             </div>
           )}
 
-          <div className="section-options">
+          {!minimalTailorUi && (
+            <div className="section-options">
             <label>Typography</label>
             <div className="exp-row">
               <select
@@ -1139,9 +1381,10 @@ function ResumeBuilderPage() {
             <p className="hint" style={{ margin: 0 }}>
               Controls apply to the preview and export.
             </p>
-          </div>
+            </div>
+          )}
 
-          {showSectionOrder && (
+          {!minimalTailorUi && showSectionOrder && (
             <div className="section-order">
               <label>Section order (drag to reorder)</label>
               <div className="section-order-list">
@@ -1193,7 +1436,8 @@ function ResumeBuilderPage() {
             </div>
           )}
 
-          <div className="exp-editor">
+          {!minimalTailorUi && (
+            <div className="exp-editor">
             <div className="exp-editor-head">
               <label>Extra sections (optional)</label>
               <button type="button" className="secondary" onClick={addCustomSection}>
@@ -1227,15 +1471,17 @@ function ResumeBuilderPage() {
                 />
               </div>
             ))}
-          </div>
+            </div>
+          )}
 
-          <input value={form.fullName} onChange={(e) => updateField('fullName', e.target.value)} placeholder="Full name" />
-          <input value={form.role} onChange={(e) => updateField('role', e.target.value)} placeholder="Target role" />
-          <input value={form.email} onChange={(e) => updateField('email', e.target.value)} placeholder="Email" />
-          <input value={form.phone} onChange={(e) => updateField('phone', e.target.value)} placeholder="Phone" />
-          <input value={form.location} onChange={(e) => updateField('location', e.target.value)} placeholder="Location" />
+          {!minimalTailorUi && <input value={form.fullName} onChange={(e) => updateField('fullName', e.target.value)} placeholder="Full name" />}
+          {!minimalTailorUi && <input value={form.role} onChange={(e) => updateField('role', e.target.value)} placeholder="Target role" />}
+          {!minimalTailorUi && <input value={form.email} onChange={(e) => updateField('email', e.target.value)} placeholder="Email" />}
+          {!minimalTailorUi && <input value={form.phone} onChange={(e) => updateField('phone', e.target.value)} placeholder="Phone" />}
+          {!minimalTailorUi && <input value={form.location} onChange={(e) => updateField('location', e.target.value)} placeholder="Location" />}
 
-          <div className="exp-editor">
+          {!minimalTailorUi && (
+            <div className="exp-editor">
             <div className="exp-editor-head">
               <label>Profile Links (max 5)</label>
               <button
@@ -1271,9 +1517,11 @@ function ResumeBuilderPage() {
                 </div>
               </div>
             ))}
-          </div>
+            </div>
+          )}
 
-          <div className="section-options">
+          {!minimalTailorUi && (
+            <div className="section-options">
             <label className="checkbox">
               <input
                 type="checkbox"
@@ -1299,9 +1547,10 @@ function ResumeBuilderPage() {
               <option value="bullets">Bullets</option>
               <option value="numbered">Numbered</option>
             </select>
-          </div>
+            </div>
+          )}
 
-          {form.summaryEnabled && (
+          {!minimalTailorUi && form.summaryEnabled && (
             <RichTextarea
               id="summary"
               label={form.summaryHeading || 'Summary'}
@@ -1311,15 +1560,18 @@ function ResumeBuilderPage() {
             />
           )}
 
-          <RichTextarea
+          {!minimalTailorUi && (
+            <RichTextarea
             id="skills"
             label="Skills"
             value={form.skills}
             onChange={(value) => updateField('skills', value)}
             placeholder="Add skills"
-          />
+            />
+          )}
 
-          <div className="exp-editor">
+          {!minimalTailorUi && (
+            <div className="exp-editor">
             <div className="exp-editor-head">
               <label>Experience</label>
               <button type="button" className="secondary" onClick={addExperience}>
@@ -1389,9 +1641,11 @@ function ResumeBuilderPage() {
                 />
               </div>
             ))}
-          </div>
+            </div>
+          )}
 
-          <div className="exp-editor">
+          {!minimalTailorUi && (
+            <div className="exp-editor">
             <div className="exp-editor-head">
               <label>Projects</label>
               <button type="button" className="secondary" onClick={addProject}>
@@ -1436,9 +1690,11 @@ function ResumeBuilderPage() {
                 </div>
               </div>
             ))}
-          </div>
+            </div>
+          )}
 
-          <div className="edu-editor">
+          {!minimalTailorUi && (
+            <div className="edu-editor">
             <div className="exp-editor-head">
               <label>Education</label>
               <button type="button" className="secondary" onClick={addEducation}>
@@ -1554,7 +1810,8 @@ function ResumeBuilderPage() {
                 </div>
               </div>
             ))}
-          </div>
+            </div>
+          )}
         </div>
 
       </section>

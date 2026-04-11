@@ -6,6 +6,7 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import ResumeBuilderPage from './pages/ResumeBuilderPage'
 import ResumePreviewPage from './pages/ResumePreviewPage'
+import TailoredResumePage from './pages/TailoredResumePage'
 import ErrorBoundary from './components/ErrorBoundary'
 import NavBar from './components/NavBar'
 import { useAuth } from './contexts/useAuth'
@@ -48,6 +49,7 @@ function AppLayout() {
             <Route path="/" element={<RequireAuth><HomePage /></RequireAuth>} />
             <Route path="/dashboard" element={<RequireAuth><DashboardPage /></RequireAuth>} />
             <Route path="/builder" element={<RequireAuth><ResumeBuilderPage /></RequireAuth>} />
+            <Route path="/tailored-builder" element={<RequireAuth><TailoredResumePage /></RequireAuth>} />
             <Route path="/preview/:resumeId" element={<RequireAuth><ResumePreviewPage /></RequireAuth>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

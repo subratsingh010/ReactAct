@@ -51,6 +51,9 @@ function HomePage() {
               <button type="button" className="secondary" onClick={() => navigate('/builder')}>
                 Resume Builder
               </button>
+              <button type="button" className="secondary" onClick={() => navigate('/tailored-builder')}>
+                Tailored Builder
+              </button>
             </div>
           </div>
 

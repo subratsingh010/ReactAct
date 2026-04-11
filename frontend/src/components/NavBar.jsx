@@ -19,6 +19,7 @@ function NavBar() {
       { label: 'Home', path: '/' },
       { label: 'Dashboard', path: '/dashboard' },
       { label: 'Resume Builder', path: '/builder' },
+      { label: 'Tailored Builder', path: '/tailored-builder' },
     ],
     [],
   )

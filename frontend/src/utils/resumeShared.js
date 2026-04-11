@@ -11,6 +11,36 @@ const SECTION_META = [
 ]
 
 const CUSTOM_KEY_PREFIX = 'custom:'
+const PLACEHOLDER_SNIPPETS = [
+  'write 3+ bullets',
+  'write 3 bullets',
+  'add 2-3 bullet points',
+  'add 2-3 bullets',
+  'what you built',
+  'what impact',
+  'replace with your',
+  'lorem ipsum',
+]
+
+function plainTextFromHtml(value) {
+  return String(value || '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isPlaceholderText(value) {
+  const low = plainTextFromHtml(value).toLowerCase()
+  if (!low) return true
+  if (PLACEHOLDER_SNIPPETS.some((snippet) => low.includes(snippet))) return true
+  return /^(write|add|include|replace)\b[\w\s,+/%-]{0,90}$/.test(low)
+}
 
 export function normalizePageMarginIn(value) {
   const numeric = Number(value)
@@ -138,8 +168,10 @@ export function buildResumeViewModel(form, options = {}) {
   const pageMarginIn = normalizePageMarginIn(safeForm.pageMarginIn)
   const topPagePaddingIn = computeTopPagePaddingIn(pageMarginIn)
 
-  const summaryHtml = String(safeForm.summary || '')
-  const skillsHtml = String(safeForm.skills || '')
+  const rawSummaryHtml = String(safeForm.summary || '')
+  const rawSkillsHtml = String(safeForm.skills || '')
+  const summaryHtml = isPlaceholderText(rawSummaryHtml) ? '' : rawSummaryHtml
+  const skillsHtml = isPlaceholderText(rawSkillsHtml) ? '' : rawSkillsHtml
 
   const experiences = sortNewestFirst(
     (safeForm.experiences || []).map((exp) => ({
@@ -150,17 +182,40 @@ export function buildResumeViewModel(form, options = {}) {
       endDate: String(exp?.endDate || '').trim(),
       highlights: String(exp?.highlights || ''),
       isCurrent: Boolean(exp?.isCurrent),
-    })),
+    }))
+      .map((exp) => {
+        const highlightsText = plainTextFromHtml(exp.highlights)
+        return {
+          ...exp,
+          highlights: isPlaceholderText(highlightsText) ? '' : exp.highlights,
+        }
+      })
+      .filter((exp) => {
+        const highlightsText = plainTextFromHtml(exp.highlights)
+        return Boolean(exp.company || exp.title || highlightsText)
+      }),
     (e) => dateKey(e.endDate, e.isCurrent),
     (e) => dateKey(e.startDate, false),
   )
 
-  const projects = (safeForm.projects || []).map((proj) => ({
-    ...proj,
-    name: String(proj?.name || '').trim(),
-    normalizedUrl: normalizeHttpUrl(proj?.url),
-    highlights: String(proj?.highlights || ''),
-  }))
+  const projects = (safeForm.projects || [])
+    .map((proj) => ({
+      ...proj,
+      name: String(proj?.name || '').trim(),
+      normalizedUrl: normalizeHttpUrl(proj?.url),
+      highlights: String(proj?.highlights || ''),
+    }))
+    .map((proj) => {
+      const highlightsText = plainTextFromHtml(proj.highlights)
+      return {
+        ...proj,
+        highlights: isPlaceholderText(highlightsText) ? '' : proj.highlights,
+      }
+    })
+    .filter((proj) => {
+      const highlightsText = plainTextFromHtml(proj.highlights)
+      return Boolean(proj.name || highlightsText)
+    })
 
   const educations = sortNewestFirst(
     (safeForm.educations || []).map((edu) => ({
@@ -171,16 +226,22 @@ export function buildResumeViewModel(form, options = {}) {
       endDate: String(edu?.endDate || '').trim(),
       isCurrent: Boolean(edu?.isCurrent),
       scoreText: formatEducationScore(edu, { forceWhenValue: forceEducationScoreWhenValue }),
-    })),
+    }))
+      .filter((edu) => Boolean(edu.institution || edu.program || edu.scoreText)),
     (e) => dateKey(e.endDate, e.isCurrent),
     (e) => dateKey(e.startDate, false),
   )
 
-  const customSections = (safeForm.customSections || []).map((section) => ({
-    id: String(section?.id || ''),
-    title: String(section?.title || ''),
-    content: String(section?.content || ''),
-  }))
+  const customSections = (safeForm.customSections || [])
+    .map((section) => ({
+      id: String(section?.id || ''),
+      title: String(section?.title || ''),
+      content: String(section?.content || ''),
+    }))
+    .filter((section) => {
+      const contentText = plainTextFromHtml(section.content)
+      return Boolean(section.title.trim() || (contentText && !isPlaceholderText(contentText)))
+    })
 
   const links = (safeForm.links || [])
     .map((item) => ({
