@@ -19,6 +19,12 @@ from .views import (
     ProfileConfigView,
     ApplicationTrackingListCreateView,
     ApplicationTrackingDetailView,
+    CompanyListCreateView,
+    CompanyDetailView,
+    EmployeeListCreateView,
+    EmployeeDetailView,
+    JobListCreateView,
+    JobDetailView,
 )
 
 urlpatterns = [
@@ -41,4 +47,10 @@ urlpatterns = [
     path('tailored-job-runs/', TailoredJobRunListView.as_view()),
     path('tracking/', ApplicationTrackingListCreateView.as_view()),
     path('tracking/<int:tracking_id>/', ApplicationTrackingDetailView.as_view()),
+    path('companies/', CompanyListCreateView.as_view()),
+    path('companies/<int:company_id>/', CompanyDetailView.as_view()),
+    path('employees/', EmployeeListCreateView.as_view()),
+    path('employees/<int:employee_id>/', EmployeeDetailView.as_view()),
+    path('jobs/', JobListCreateView.as_view()),
+    path('jobs/<int:job_id>/', JobDetailView.as_view()),
 ]

@@ -1,129 +1,210 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-const initialCompanies = [
-  {
-    id: 1,
-    name: 'Walmart Global Tech',
-    careersUrl: 'https://walmart.wd5.myworkdayjobs.com/WalmartExternal',
-    emailPattern: 'firstname.lastname@walmart.com',
-    hrs: [
-      { id: 11, name: 'Riya Sharma', role: 'Senior Recruiter', location: 'Bengaluru, India', hasAboutData: true },
-      { id: 12, name: 'Amit Verma', role: 'Talent Acquisition Lead', location: 'Gurugram, India', hasAboutData: false },
-    ],
-  },
-  {
-    id: 2,
-    name: 'JPMorgan Chase',
-    careersUrl: '',
-    emailPattern: 'first_last@jpmorgan.com',
-    hrs: [
-      { id: 21, name: 'Neha Kapoor', role: 'HR Business Partner', location: 'Mumbai, India', hasAboutData: true },
-      { id: 22, name: 'Rohit Sinha', role: 'Technical Recruiter', location: 'Hyderabad, India', hasAboutData: true },
-      { id: 23, name: 'Anjali Mehta', role: 'Talent Acquisition', location: 'Bengaluru, India', hasAboutData: false },
-    ],
-  },
-]
+import {
+  createCompany,
+  createEmployee,
+  deleteCompany as deleteCompanyApi,
+  deleteEmployee as deleteEmployeeApi,
+  fetchCompanies,
+  fetchEmployees,
+  updateCompany as updateCompanyApi,
+  updateEmployee as updateEmployeeApi,
+} from '../api'
+
+function deriveEmailPattern(company) {
+  const configured = String(company?.mail_format || '').trim()
+  if (configured) return configured
+  const source = String(company?.workday_domain_url || company?.career_url || '').trim()
+  if (!source) return 'firstname.lastname@company.com'
+  try {
+    const host = new URL(source).hostname.replace(/^www\./i, '')
+    return `firstname.lastname@${host}`
+  } catch {
+    return 'firstname.lastname@company.com'
+  }
+}
 
 function CompanyPage() {
-  const [companies, setCompanies] = useState(initialCompanies)
+  const access = localStorage.getItem('access') || ''
+  const [companies, setCompanies] = useState([])
+  const [employees, setEmployees] = useState([])
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [companyForm, setCompanyForm] = useState(null)
+  const [employeeForm, setEmployeeForm] = useState(null)
 
-  const addCompany = () => {
-    setCompanies((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        name: `Company ${prev.length + 1}`,
-        careersUrl: '',
-        emailPattern: 'firstname.lastname@company.com',
-        hrs: [],
-      },
-    ])
+  const employeesByCompany = useMemo(() => {
+    const map = {}
+    for (const employee of employees) {
+      const key = String(employee.company || '')
+      if (!map[key]) map[key] = []
+      map[key].push(employee)
+    }
+    return map
+  }, [employees])
+
+  const load = async () => {
+    if (!access) {
+      setCompanies([])
+      setEmployees([])
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      const [companyRows, employeeRows] = await Promise.all([
+        fetchCompanies(access),
+        fetchEmployees(access),
+      ])
+      setCompanies(Array.isArray(companyRows) ? companyRows : [])
+      setEmployees(Array.isArray(employeeRows) ? employeeRows : [])
+    } catch (err) {
+      setError(err.message || 'Could not load company data.')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const addHr = () => {
-    setCompanies((prev) => {
-      if (!prev.length) return prev
-      const targetIndex = prev.length - 1
-      const target = prev[targetIndex]
-      const nextHrNumber = (target.hrs?.length || 0) + 1
-      const nextHr = {
-        id: Date.now(),
-        name: `HR ${nextHrNumber}`,
-        role: 'Recruiter',
-        location: 'India',
-        hasAboutData: false,
-      }
-      const nextCompanies = [...prev]
-      nextCompanies[targetIndex] = {
-        ...target,
-        hrs: [...(target.hrs || []), nextHr],
-      }
-      return nextCompanies
+  useEffect(() => {
+    load()
+  }, [access])
+
+  const openCreateCompanyForm = () => {
+    setCompanyForm({
+      id: null,
+      name: '',
+      mail_format: 'firstname.lastname@company.com',
+      career_url: '',
+      workday_domain_url: '',
     })
   }
 
-  const editCompany = (companyId) => {
-    setCompanies((prev) =>
-      prev.map((company) => {
-        if (company.id !== companyId) return company
-        const name = window.prompt('Company name', company.name)
-        if (name === null) return company
-        const careersUrl = window.prompt('Workday/Careers URL (optional)', company.careersUrl || '')
-        if (careersUrl === null) return company
-        const emailPattern = window.prompt('Email pattern', company.emailPattern || '')
-        if (emailPattern === null) return company
-        return {
-          ...company,
-          name: name.trim() || company.name,
-          careersUrl: careersUrl.trim(),
-          emailPattern: emailPattern.trim() || company.emailPattern,
-        }
-      }),
-    )
+  const openEditCompanyForm = (company) => {
+    setCompanyForm({
+      id: company.id,
+      name: company.name || '',
+      mail_format: company.mail_format || deriveEmailPattern(company),
+      career_url: company.career_url || '',
+      workday_domain_url: company.workday_domain_url || '',
+    })
   }
 
-  const editHr = (companyId, hrId) => {
-    setCompanies((prev) =>
-      prev.map((company) => {
-        if (company.id !== companyId) return company
-        const nextHrs = (company.hrs || []).map((hr) => {
-          if (hr.id !== hrId) return hr
-          const name = window.prompt('HR name', hr.name)
-          if (name === null) return hr
-          const role = window.prompt('HR role', hr.role)
-          if (role === null) return hr
-          const location = window.prompt('HR location', hr.location)
-          if (location === null) return hr
-          const aboutAnswer = window.prompt('Has about data? (yes/no)', hr.hasAboutData ? 'yes' : 'no')
-          if (aboutAnswer === null) return hr
-          const normalized = aboutAnswer.trim().toLowerCase()
-          return {
-            ...hr,
-            name: name.trim() || hr.name,
-            role: role.trim() || hr.role,
-            location: location.trim() || hr.location,
-            hasAboutData: normalized === 'yes' || normalized === 'y' || normalized === 'true',
-          }
+  const saveCompanyForm = async () => {
+    if (!companyForm) return
+    try {
+      if (companyForm.id) {
+        const updated = await updateCompanyApi(access, companyForm.id, {
+          name: companyForm.name,
+          mail_format: companyForm.mail_format,
+          career_url: companyForm.career_url,
+          workday_domain_url: companyForm.workday_domain_url,
         })
-        return { ...company, hrs: nextHrs }
-      }),
-    )
+        setCompanies((prev) => prev.map((row) => (row.id === companyForm.id ? updated : row)))
+      } else {
+        const created = await createCompany(access, {
+          name: companyForm.name || `Company ${companies.length + 1}`,
+          mail_format: companyForm.mail_format,
+          career_url: companyForm.career_url,
+          workday_domain_url: companyForm.workday_domain_url,
+        })
+        setCompanies((prev) => [...prev, created])
+      }
+      setCompanyForm(null)
+    } catch (err) {
+      setError(err.message || 'Could not save company.')
+    }
   }
 
-  const deleteCompany = (companyId) => {
-    setCompanies((prev) => prev.filter((company) => company.id !== companyId))
+  const removeCompany = async (companyId) => {
+    setCompanies((prev) => prev.filter((row) => row.id !== companyId))
+    setEmployees((prev) => prev.filter((row) => row.company !== companyId))
+    try {
+      await deleteCompanyApi(access, companyId)
+    } catch (err) {
+      setError(err.message || 'Could not delete company.')
+    }
   }
 
-  const deleteHr = (companyId, hrId) => {
-    setCompanies((prev) =>
-      prev.map((company) => {
-        if (company.id !== companyId) return company
-        return {
-          ...company,
-          hrs: (company.hrs || []).filter((hr) => hr.id !== hrId),
-        }
-      }),
-    )
+  const openCreateEmployeeForm = () => {
+    if (!companies.length) {
+      setError('Create at least one company first.')
+      return
+    }
+    const defaultCompanyId = String(companies[0].id)
+    setEmployeeForm({
+      id: null,
+      company: defaultCompanyId,
+      name: '',
+      department: '',
+      email: '',
+      location: '',
+      profile: '',
+      about: '',
+      personalized_template_helpful: 'partial_somewhat',
+    })
+  }
+
+  const openEditEmployeeForm = (employee) => {
+    setEmployeeForm({
+      id: employee.id,
+      company: String(employee.company || ''),
+      name: employee.name || '',
+      department: employee.department || '',
+      email: employee.email || '',
+      location: employee.location || '',
+      profile: employee.profile || '',
+      about: employee.about || '',
+      personalized_template_helpful: employee.personalized_template_helpful || 'partial_somewhat',
+    })
+  }
+
+  const saveEmployeeForm = async () => {
+    if (!employeeForm) return
+    const companyId = Number(employeeForm.company)
+    if (!companyId) {
+      setError('Select company for HR.')
+      return
+    }
+    try {
+      if (employeeForm.id) {
+        const updated = await updateEmployeeApi(access, employeeForm.id, {
+          company: companyId,
+          name: employeeForm.name,
+          department: employeeForm.department,
+          email: employeeForm.email,
+          location: employeeForm.location,
+          profile: employeeForm.profile,
+          about: employeeForm.about,
+          personalized_template_helpful: employeeForm.personalized_template_helpful,
+        })
+        setEmployees((prev) => prev.map((row) => (row.id === employeeForm.id ? updated : row)))
+      } else {
+        const created = await createEmployee(access, {
+          company: companyId,
+          name: employeeForm.name || 'HR',
+          department: employeeForm.department,
+          email: employeeForm.email,
+          location: employeeForm.location,
+          profile: employeeForm.profile,
+          about: employeeForm.about,
+          personalized_template_helpful: employeeForm.personalized_template_helpful,
+        })
+        setEmployees((prev) => [...prev, created])
+      }
+      setEmployeeForm(null)
+    } catch (err) {
+      setError(err.message || 'Could not save HR.')
+    }
+  }
+
+  const removeHr = async (employeeId) => {
+    setEmployees((prev) => prev.filter((row) => row.id !== employeeId))
+    try {
+      await deleteEmployeeApi(access, employeeId)
+    } catch (err) {
+      setError(err.message || 'Could not delete HR.')
+    }
   }
 
   return (
@@ -131,65 +212,110 @@ function CompanyPage() {
       <div className="company-head">
         <div>
           <h1>Companies</h1>
-          <p className="subtitle">Dummy company and HR data view. We can connect DB data later.</p>
+          <p className="subtitle">Database connected companies and HR records.</p>
         </div>
         <div className="actions">
-          <button type="button" onClick={addCompany}>Add Company</button>
-          <button type="button" className="secondary" onClick={addHr}>Add HRs</button>
+          <button type="button" onClick={openCreateCompanyForm}>Add Company</button>
+          <button type="button" className="secondary" onClick={openCreateEmployeeForm}>Add HRs</button>
+          <button type="button" className="secondary" onClick={load}>Refresh</button>
         </div>
       </div>
 
-      <div className="company-list">
-        {companies.map((company) => (
-          <section key={company.id} className="company-row">
-            <div className="company-action-stack">
-              <button type="button" className="company-edit-btn" onClick={() => editCompany(company.id)} title="Edit Company">
-                ✎
-              </button>
-              <button type="button" className="company-edit-btn company-delete-btn" onClick={() => deleteCompany(company.id)} title="Delete Company">
-                🗑
-              </button>
-            </div>
-            <div className="company-title-wrap">
-              <h2 className="company-title">{company.name}</h2>
-              {company.careersUrl ? <p className="company-subline">{company.careersUrl}</p> : null}
-              <p className="company-subline">{company.emailPattern}</p>
-            </div>
+      {error ? <p className="error">{error}</p> : null}
+      {loading ? <p className="hint">Loading companies...</p> : null}
 
-            <div className="company-hr-list">
-              {(company.hrs || []).map((hr) => (
-                <div key={hr.id} className="company-hr-item">
-                  <div className="company-action-stack company-action-stack-hr">
-                    <button
-                      type="button"
-                      className="company-edit-btn company-edit-btn-hr"
-                      onClick={() => editHr(company.id, hr.id)}
-                      title="Edit HR"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      type="button"
-                      className="company-edit-btn company-edit-btn-hr company-delete-btn"
-                      onClick={() => deleteHr(company.id, hr.id)}
-                      title="Delete HR"
-                    >
-                      🗑
-                    </button>
+      <div className="company-list">
+        {companies.map((company) => {
+          const hrs = employeesByCompany[String(company.id)] || []
+          return (
+            <section key={company.id} className="company-row">
+              <div className="company-action-stack">
+                <button type="button" className="company-edit-btn" onClick={() => openEditCompanyForm(company)} title="Edit Company">✎</button>
+                <button type="button" className="company-edit-btn company-delete-btn" onClick={() => removeCompany(company.id)} title="Delete Company">🗑</button>
+              </div>
+
+              <div className="company-title-wrap">
+                <h2 className="company-title">{company.name}</h2>
+                {company.workday_domain_url ? <p className="company-subline">{company.workday_domain_url}</p> : null}
+                {!company.workday_domain_url && company.career_url ? <p className="company-subline">{company.career_url}</p> : null}
+                <p className="company-subline">{deriveEmailPattern(company)}</p>
+              </div>
+
+              <div className="company-hr-list">
+                {hrs.map((hr) => (
+                  <div key={hr.id} className="company-hr-item">
+                    <div className="company-action-stack company-action-stack-hr">
+                      <button type="button" className="company-edit-btn company-edit-btn-hr" onClick={() => openEditEmployeeForm(hr)} title="Edit HR">✎</button>
+                      <button type="button" className="company-edit-btn company-edit-btn-hr company-delete-btn" onClick={() => removeHr(hr.id)} title="Delete HR">🗑</button>
+                    </div>
+                    <span className={`company-dot ${hr.about ? 'is-green' : 'is-red'}`} />
+                    <div>
+                      <p className="company-hr-name">{hr.name}</p>
+                      {hr.department ? <p className="company-hr-meta">{hr.department}</p> : null}
+                      {hr.email ? <p className="company-hr-meta">{hr.email}</p> : null}
+                      {hr.location ? <p className="company-hr-meta">{hr.location}</p> : null}
+                      {hr.profile ? <p className="company-hr-meta">{hr.profile}</p> : null}
+                    </div>
                   </div>
-                  <span className={`company-dot ${hr.hasAboutData ? 'is-green' : 'is-red'}`} />
-                  <div>
-                    <p className="company-hr-name">{hr.name}</p>
-                    <p className="company-hr-meta">{hr.role}</p>
-                    <p className="company-hr-meta">{hr.location}</p>
-                  </div>
-                </div>
-              ))}
-              {!company.hrs?.length ? <p className="hint">No HR records yet.</p> : null}
-            </div>
-          </section>
-        ))}
+                ))}
+                {!hrs.length ? <p className="hint">No HR records yet.</p> : null}
+              </div>
+            </section>
+          )
+        })}
+        {!loading && !companies.length ? <p className="hint">No companies found.</p> : null}
       </div>
+
+      {companyForm ? (
+        <div className="modal-overlay">
+          <div className="modal-panel">
+            <h2>{companyForm.id ? 'Edit Company' : 'Add Company'}</h2>
+            <label>Company Name<input value={companyForm.name} onChange={(event) => setCompanyForm((prev) => ({ ...prev, name: event.target.value }))} /></label>
+            <label>Mail Format<input value={companyForm.mail_format} onChange={(event) => setCompanyForm((prev) => ({ ...prev, mail_format: event.target.value }))} /></label>
+            <label>Career URL<input value={companyForm.career_url} onChange={(event) => setCompanyForm((prev) => ({ ...prev, career_url: event.target.value }))} /></label>
+            <label>Workday Domain URL<input value={companyForm.workday_domain_url} onChange={(event) => setCompanyForm((prev) => ({ ...prev, workday_domain_url: event.target.value }))} /></label>
+            <div className="actions">
+              <button type="button" onClick={saveCompanyForm}>Save</button>
+              <button type="button" className="secondary" onClick={() => setCompanyForm(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {employeeForm ? (
+        <div className="modal-overlay">
+          <div className="modal-panel">
+            <h2>{employeeForm.id ? 'Edit HR' : 'Add HR'}</h2>
+            <label>
+              Company
+              <select value={employeeForm.company} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, company: event.target.value }))}>
+                <option value="">Select company</option>
+                {companies.map((company) => (
+                  <option key={company.id} value={company.id}>{company.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>Name<input value={employeeForm.name} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, name: event.target.value }))} /></label>
+            <label>Department<input value={employeeForm.department} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, department: event.target.value }))} /></label>
+            <label>Email<input value={employeeForm.email} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, email: event.target.value }))} /></label>
+            <label>Location<input value={employeeForm.location} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, location: event.target.value }))} /></label>
+            <label>Profile<input value={employeeForm.profile} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, profile: event.target.value }))} /></label>
+            <label>About<textarea rows="4" value={employeeForm.about} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, about: event.target.value }))} /></label>
+            <label>
+              Template Helpful
+              <select value={employeeForm.personalized_template_helpful} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, personalized_template_helpful: event.target.value }))}>
+                <option value="good">Good</option>
+                <option value="partial_somewhat">Partial / Somewhat</option>
+                <option value="never">Never</option>
+              </select>
+            </label>
+            <div className="actions">
+              <button type="button" onClick={saveEmployeeForm}>Save</button>
+              <button type="button" className="secondary" onClick={() => setEmployeeForm(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   )
 }

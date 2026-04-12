@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .pdf_parser import parse_resume_pdf
-from .models import JobRole, Resume, ResumeAnalysis, TailoredJobRun, ApplicationTracking
+from .models import JobRole, Resume, ResumeAnalysis, TailoredJobRun, ApplicationTracking, Company, Employee, Job
 from .serializers import (
     JobRoleSerializer,
     ResumeAnalysisSerializer,
@@ -22,6 +22,9 @@ from .serializers import (
     SignupSerializer,
     TailoredJobRunSerializer,
     ApplicationTrackingSerializer,
+    CompanySerializer,
+    EmployeeSerializer,
+    JobSerializer,
 )
 from .tailor import (
     ALLOWED_AI_MODELS,
@@ -1379,6 +1382,169 @@ class ApplicationTrackingDetailView(APIView):
             row = self._get_object(request, tracking_id)
         except ApplicationTracking.DoesNotExist:
             return Response({'detail': 'Tracking row not found.'}, status=status.HTTP_404_NOT_FOUND)
+        row.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CompanyListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def get(self, request):
+        rows = Company.objects.filter(user=request.user).order_by('name')
+        return Response(CompanySerializer(rows, many=True).data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = CompanySerializer(data=request.data)
+        if serializer.is_valid():
+            created = serializer.save(user=request.user)
+            return Response(CompanySerializer(created).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CompanyDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def _get_object(self, request, company_id):
+        return Company.objects.get(id=company_id, user=request.user)
+
+    def put(self, request, company_id):
+        try:
+            row = self._get_object(request, company_id)
+        except Company.DoesNotExist:
+            return Response({'detail': 'Company not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = CompanySerializer(row, data=request.data, partial=True)
+        if serializer.is_valid():
+            updated = serializer.save()
+            return Response(CompanySerializer(updated).data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, company_id):
+        try:
+            row = self._get_object(request, company_id)
+        except Company.DoesNotExist:
+            return Response({'detail': 'Company not found.'}, status=status.HTTP_404_NOT_FOUND)
+        row.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class EmployeeListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def get(self, request):
+        company_id = request.query_params.get('company_id')
+        rows = Employee.objects.filter(user=request.user)
+        if company_id:
+            rows = rows.filter(company_id=company_id)
+        rows = rows.order_by('name')
+        return Response(EmployeeSerializer(rows, many=True).data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        payload = dict(request.data or {})
+        company_id = payload.get('company')
+        if not company_id:
+            return Response({'company': ['This field is required.']}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            company = Company.objects.get(id=company_id, user=request.user)
+        except Company.DoesNotExist:
+            return Response({'company': ['Company not found.']}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = EmployeeSerializer(data=payload)
+        if serializer.is_valid():
+            created = serializer.save(user=request.user, company=company)
+            return Response(EmployeeSerializer(created).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class EmployeeDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def _get_object(self, request, employee_id):
+        return Employee.objects.get(id=employee_id, user=request.user)
+
+    def put(self, request, employee_id):
+        try:
+            row = self._get_object(request, employee_id)
+        except Employee.DoesNotExist:
+            return Response({'detail': 'Employee not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = dict(request.data or {})
+        company_id = payload.get('company')
+        if company_id:
+            try:
+                company = Company.objects.get(id=company_id, user=request.user)
+            except Company.DoesNotExist:
+                return Response({'company': ['Company not found.']}, status=status.HTTP_400_BAD_REQUEST)
+            payload['company'] = company.id
+
+        serializer = EmployeeSerializer(row, data=payload, partial=True)
+        if serializer.is_valid():
+            updated = serializer.save()
+            return Response(EmployeeSerializer(updated).data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, employee_id):
+        try:
+            row = self._get_object(request, employee_id)
+        except Employee.DoesNotExist:
+            return Response({'detail': 'Employee not found.'}, status=status.HTTP_404_NOT_FOUND)
+        row.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class JobListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def get(self, request):
+        company_id = request.query_params.get('company_id')
+        rows = Job.objects.filter(user=request.user)
+        if company_id:
+            rows = rows.filter(company_id=company_id)
+        rows = rows.order_by('-date_of_posting', '-created_at')
+        return Response(JobSerializer(rows, many=True).data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        payload = dict(request.data or {})
+        company_id = payload.get('company')
+        if not company_id:
+            return Response({'company': ['This field is required.']}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            company = Company.objects.get(id=company_id, user=request.user)
+        except Company.DoesNotExist:
+            return Response({'company': ['Company not found.']}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = JobSerializer(data=payload)
+        if serializer.is_valid():
+            created = serializer.save(user=request.user, company=company)
+            return Response(JobSerializer(created).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class JobDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def _get_object(self, request, job_id):
+        return Job.objects.get(id=job_id, user=request.user)
+
+    def put(self, request, job_id):
+        try:
+            row = self._get_object(request, job_id)
+        except Job.DoesNotExist:
+            return Response({'detail': 'Job not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = JobSerializer(row, data=request.data, partial=True)
+        if serializer.is_valid():
+            updated = serializer.save()
+            return Response(JobSerializer(updated).data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, job_id):
+        try:
+            row = self._get_object(request, job_id)
+        except Job.DoesNotExist:
+            return Response({'detail': 'Job not found.'}, status=status.HTTP_404_NOT_FOUND)
         row.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

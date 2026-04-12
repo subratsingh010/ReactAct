@@ -1,7 +1,16 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
 
-from .models import JobRole, Resume, ResumeAnalysis, TailoredJobRun, ApplicationTracking
+from .models import (
+    JobRole,
+    Resume,
+    ResumeAnalysis,
+    TailoredJobRun,
+    ApplicationTracking,
+    Company,
+    Employee,
+    Job,
+)
 
 
 class SignupSerializer(serializers.ModelSerializer):
@@ -125,3 +134,68 @@ class ApplicationTrackingSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class EmployeeSerializer(serializers.ModelSerializer):
+    company_name = serializers.SerializerMethodField()
+
+    def get_company_name(self, obj):
+        return obj.company.name if getattr(obj, 'company', None) else ''
+
+    class Meta:
+        model = Employee
+        fields = [
+            'id',
+            'name',
+            'company',
+            'company_name',
+            'department',
+            'email',
+            'about',
+            'personalized_template_helpful',
+            'profile',
+            'location',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'company_name', 'created_at', 'updated_at']
+
+
+class CompanySerializer(serializers.ModelSerializer):
+    employees = EmployeeSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Company
+        fields = [
+            'id',
+            'name',
+            'mail_format',
+            'career_url',
+            'workday_domain_url',
+            'employees',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'employees', 'created_at', 'updated_at']
+
+
+class JobSerializer(serializers.ModelSerializer):
+    company_name = serializers.SerializerMethodField()
+
+    def get_company_name(self, obj):
+        return obj.company.name if getattr(obj, 'company', None) else ''
+
+    class Meta:
+        model = Job
+        fields = [
+            'id',
+            'job_id',
+            'role',
+            'job_link',
+            'company',
+            'company_name',
+            'date_of_posting',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'company_name', 'created_at', 'updated_at']

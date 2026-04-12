@@ -291,3 +291,86 @@ export async function deleteTrackingRow(accessToken, trackingId) {
   if (response.status === 204) return { ok: true }
   return parseResponse(response)
 }
+
+export async function fetchCompanies(accessToken) {
+  const response = await authFetch(`${API_BASE_URL}/companies/`, {}, accessToken)
+  return parseResponse(response)
+}
+
+export async function createCompany(accessToken, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/companies/`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function updateCompany(accessToken, companyId, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/companies/${companyId}/`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function deleteCompany(accessToken, companyId) {
+  const response = await authFetch(
+    `${API_BASE_URL}/companies/${companyId}/`,
+    { method: 'DELETE' },
+    accessToken,
+  )
+  if (response.status === 204) return { ok: true }
+  return parseResponse(response)
+}
+
+export async function fetchEmployees(accessToken, companyId = '') {
+  const suffix = companyId ? `?company_id=${encodeURIComponent(companyId)}` : ''
+  const response = await authFetch(`${API_BASE_URL}/employees/${suffix}`, {}, accessToken)
+  return parseResponse(response)
+}
+
+export async function createEmployee(accessToken, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/employees/`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function updateEmployee(accessToken, employeeId, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/employees/${employeeId}/`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function deleteEmployee(accessToken, employeeId) {
+  const response = await authFetch(
+    `${API_BASE_URL}/employees/${employeeId}/`,
+    { method: 'DELETE' },
+    accessToken,
+  )
+  if (response.status === 204) return { ok: true }
+  return parseResponse(response)
+}

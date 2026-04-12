@@ -3,6 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   createTrackingRow,
   deleteTrackingRow,
+  fetchEmployees,
   fetchTrackingRows,
   updateTrackingRow,
 } from '../api'
@@ -51,6 +52,7 @@ function nowDateTimeInput() {
 function TrackingPage() {
   const access = localStorage.getItem('access') || ''
   const [rows, setRows] = useState([])
+  const [employees, setEmployees] = useState([])
   const [selectedIds, setSelectedIds] = useState([])
   const [actionByRow, setActionByRow] = useState(() => readActionState())
   const [loading, setLoading] = useState(true)
@@ -64,6 +66,7 @@ function TrackingPage() {
     lastAction: 'all',
     orderByApplied: 'desc',
   })
+  const [editForm, setEditForm] = useState(null)
 
   useEffect(() => {
     localStorage.setItem(ACTION_STATE_KEY, JSON.stringify(actionByRow))
@@ -81,8 +84,10 @@ function TrackingPage() {
       setError('')
       try {
         const data = await fetchTrackingRows(access)
+        const employeeRows = await fetchEmployees(access)
         if (cancelled) return
         const list = Array.isArray(data) ? data : []
+        setEmployees(Array.isArray(employeeRows) ? employeeRows : [])
         setRows(list)
         setActionByRow((prev) => {
           const next = { ...prev }
@@ -111,14 +116,16 @@ function TrackingPage() {
     }
   }, [access])
 
-  const updateDbRow = async (rowId, patch) => {
-    setRows((prev) => prev.map((row) => (row.id === rowId ? { ...row, ...patch } : row)))
-    try {
-      await updateTrackingRow(access, rowId, patch)
-    } catch (err) {
-      setError(err.message || 'Could not save row update.')
+  const hrMapByCompanyName = useMemo(() => {
+    const map = {}
+    for (const employee of employees) {
+      const companyName = String(employee.company_name || '').trim()
+      if (!companyName) continue
+      if (!map[companyName]) map[companyName] = []
+      map[companyName].push(String(employee.name || '').trim())
     }
-  }
+    return map
+  }, [employees])
 
   const createRow = async () => {
     try {
@@ -145,6 +152,43 @@ function TrackingPage() {
       }))
     } catch (err) {
       setError(err.message || 'Could not create tracking row.')
+    }
+  }
+
+  const openEditForm = (row) => {
+    setEditForm({
+      id: row.id,
+      company_name: row.company_name || '',
+      job_id: row.job_id || '',
+      mailed: Boolean(row.mailed),
+      applied_date: toDateInput(row.applied_date),
+      posting_date: toDateInput(row.posting_date),
+      is_open: Boolean(row.is_open),
+      available_hrs: Array.isArray(row.available_hrs) ? row.available_hrs : [],
+      selected_hrs: Array.isArray(row.selected_hrs) ? row.selected_hrs : [],
+      got_replied: Boolean(row.got_replied),
+    })
+  }
+
+  const saveEditForm = async () => {
+    if (!editForm) return
+    const payload = {
+      company_name: editForm.company_name,
+      job_id: editForm.job_id,
+      mailed: editForm.mailed,
+      applied_date: editForm.applied_date || null,
+      posting_date: editForm.posting_date || null,
+      is_open: editForm.is_open,
+      available_hrs: editForm.available_hrs,
+      selected_hrs: editForm.selected_hrs,
+      got_replied: editForm.got_replied,
+    }
+    setRows((prev) => prev.map((row) => (row.id === editForm.id ? { ...row, ...payload } : row)))
+    try {
+      await updateTrackingRow(access, editForm.id, payload)
+      setEditForm(null)
+    } catch (err) {
+      setError(err.message || 'Could not save tracking row.')
     }
   }
 
@@ -294,6 +338,7 @@ function TrackingPage() {
               <th>Action</th>
               <th>Time / Date</th>
               <th>Send</th>
+              <th>Edit</th>
               <th>Remove</th>
             </tr>
           </thead>
@@ -302,34 +347,20 @@ function TrackingPage() {
               const rowAction = actionByRow[String(row.id)] || { actionType: 'fresh', sendMode: 'now', actionAt: '', milestones: [] }
               const canFollowUp = hasFreshMilestone(rowAction)
               const milestones = rowAction.milestones || []
-              const availableHrs = Array.isArray(row.available_hrs) ? row.available_hrs : []
-              const selectedHrs = Array.isArray(row.selected_hrs) ? row.selected_hrs : []
+              const availableHrs = hrMapByCompanyName[String(row.company_name || '').trim()] || (Array.isArray(row.available_hrs) ? row.available_hrs : [])
 
               return (
                 <Fragment key={`row-wrap-${row.id}`}>
                   <tr key={`data-${row.id}`}>
                     <td><input type="checkbox" checked={selectedIds.includes(row.id)} onChange={(event) => toggleSelect(row.id, event.target.checked)} /></td>
-                    <td><input value={row.company_name || ''} onChange={(event) => updateDbRow(row.id, { company_name: event.target.value })} /></td>
-                    <td><input value={row.job_id || ''} onChange={(event) => updateDbRow(row.id, { job_id: event.target.value })} /></td>
-                    <td><select value={row.mailed ? 'yes' : 'no'} onChange={(event) => updateDbRow(row.id, { mailed: event.target.value === 'yes' })}><option value="yes">Yes</option><option value="no">No</option></select></td>
-                    <td><input type="date" value={toDateInput(row.applied_date)} onChange={(event) => updateDbRow(row.id, { applied_date: event.target.value })} /></td>
-                    <td><input type="date" value={toDateInput(row.posting_date)} onChange={(event) => updateDbRow(row.id, { posting_date: event.target.value })} /></td>
-                    <td><select value={row.is_open ? 'yes' : 'no'} onChange={(event) => updateDbRow(row.id, { is_open: event.target.value === 'yes' })}><option value="yes">Yes</option><option value="no">No</option></select></td>
-                    <td>
-                      <select
-                        multiple
-                        value={selectedHrs}
-                        onChange={(event) => {
-                          const values = Array.from(event.target.selectedOptions).map((option) => option.value)
-                          updateDbRow(row.id, { selected_hrs: values })
-                        }}
-                      >
-                        {availableHrs.map((hr) => (
-                          <option key={hr} value={hr}>{hr}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td><select value={row.got_replied ? 'yes' : 'no'} onChange={(event) => updateDbRow(row.id, { got_replied: event.target.value === 'yes' })}><option value="yes">Yes</option><option value="no">No</option></select></td>
+                    <td>{row.company_name || '-'}</td>
+                    <td>{row.job_id || '-'}</td>
+                    <td>{row.mailed ? 'Yes' : 'No'}</td>
+                    <td>{toDateInput(row.applied_date) || '-'}</td>
+                    <td>{toDateInput(row.posting_date) || '-'}</td>
+                    <td>{row.is_open ? 'Yes' : 'No'}</td>
+                    <td>{availableHrs.length ? availableHrs.join(', ') : '-'}</td>
+                    <td>{row.got_replied ? 'Yes' : 'No'}</td>
                     <td>
                       <select
                         value={rowAction.actionType}
@@ -356,11 +387,12 @@ function TrackingPage() {
                         <button type="button" onClick={() => applyAction(row.id)}>Apply</button>
                       </div>
                     </td>
+                    <td><button type="button" className="secondary" onClick={() => openEditForm(row)}>Edit</button></td>
                     <td><button type="button" className="tracking-remove-inline" onClick={() => removeRow(row.id)}>Remove</button></td>
                   </tr>
                   <tr className="tracking-milestone-row">
                     <td />
-                    <td colSpan={12}>
+                    <td colSpan={13}>
                       <div className="tracking-dot-line">
                         {Array.from({ length: EMPTY_MILESTONE_DOTS }).map((_, index) => {
                           const milestone = milestones[index]
@@ -383,6 +415,41 @@ function TrackingPage() {
       </div>
 
       {!loading && !filteredRows.length ? <p className="hint">No rows found.</p> : null}
+
+      {editForm ? (
+        <div className="modal-overlay">
+          <div className="modal-panel">
+            <h2>Edit Tracking Row</h2>
+            <label>Company Name<input value={editForm.company_name} onChange={(event) => setEditForm((prev) => ({ ...prev, company_name: event.target.value }))} /></label>
+            <label>Job ID<input value={editForm.job_id} onChange={(event) => setEditForm((prev) => ({ ...prev, job_id: event.target.value }))} /></label>
+            <label>Mailed<select value={editForm.mailed ? 'yes' : 'no'} onChange={(event) => setEditForm((prev) => ({ ...prev, mailed: event.target.value === 'yes' }))}><option value="yes">Yes</option><option value="no">No</option></select></label>
+            <label>Applied Date<input type="date" value={editForm.applied_date || ''} onChange={(event) => setEditForm((prev) => ({ ...prev, applied_date: event.target.value }))} /></label>
+            <label>Posting Date<input type="date" value={editForm.posting_date || ''} onChange={(event) => setEditForm((prev) => ({ ...prev, posting_date: event.target.value }))} /></label>
+            <label>Is Open<select value={editForm.is_open ? 'yes' : 'no'} onChange={(event) => setEditForm((prev) => ({ ...prev, is_open: event.target.value === 'yes' }))}><option value="yes">Yes</option><option value="no">No</option></select></label>
+            <label>Available HRs (comma separated)<input value={editForm.available_hrs.join(', ')} onChange={(event) => setEditForm((prev) => ({ ...prev, available_hrs: event.target.value.split(',').map((x) => x.trim()).filter(Boolean) }))} /></label>
+            <label>
+              Selected HRs
+              <select
+                multiple
+                value={editForm.selected_hrs}
+                onChange={(event) => {
+                  const values = Array.from(event.target.selectedOptions).map((option) => option.value)
+                  setEditForm((prev) => ({ ...prev, selected_hrs: values }))
+                }}
+              >
+                {editForm.available_hrs.map((hr) => (
+                  <option key={hr} value={hr}>{hr}</option>
+                ))}
+              </select>
+            </label>
+            <label>Got Replied<select value={editForm.got_replied ? 'yes' : 'no'} onChange={(event) => setEditForm((prev) => ({ ...prev, got_replied: event.target.value === 'yes' }))}><option value="yes">Yes</option><option value="no">No</option></select></label>
+            <div className="actions">
+              <button type="button" onClick={saveEditForm}>Save</button>
+              <button type="button" className="secondary" onClick={() => setEditForm(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   )
 }

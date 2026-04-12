@@ -2,6 +2,14 @@ from django.db import models
 from django.contrib.auth.models import User
 
 
+class TimeStampedModel(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        abstract = True
+
+
 class JobRole(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='job_roles')
     title = models.CharField(max_length=120)
@@ -101,13 +109,12 @@ class TailoredJobRun(models.Model):
         return f'{title} ({self.user.username})'
 
 
-class Company(models.Model):
+class Company(TimeStampedModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='companies')
     name = models.CharField(max_length=180)
+    mail_format = models.CharField(max_length=180, blank=True)
     career_url = models.URLField(blank=True, max_length=1000)
     workday_domain_url = models.URLField(blank=True, max_length=1000)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['name']
@@ -116,7 +123,18 @@ class Company(models.Model):
         return f'{self.name} ({self.user.username})'
 
 
-class Employee(models.Model):
+class Employee(TimeStampedModel):
+    TEMPLATE_HELPFUL_CHOICES = [
+        ('good', 'Good'),
+        ('partial_somewhat', 'Partial / Somewhat'),
+        ('never', 'Never'),
+    ]
+    department_choices = [
+        ('Engineering', 'Engineering'),
+        ('HR', 'HR'),
+        ('Other', 'Other'),
+    ]
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='employees')
     name = models.CharField(max_length=180)
     company = models.ForeignKey(
@@ -124,10 +142,23 @@ class Employee(models.Model):
         on_delete=models.CASCADE,
         related_name='employees',
     )
+    JobRole = models.CharField(max_length=120, blank=True)
+    department = models.CharField(
+        max_length=120,
+        choices=department_choices,
+        blank=True
+    )
+    email = models.EmailField(blank=True, max_length=320)
+    about = models.TextField(blank=True)
+    helpful= models.CharField(
+        max_length=20,
+        choices=TEMPLATE_HELPFUL_CHOICES,
+        default='partial_somewhat',
+    )
+    personalized_template = models.TextField(blank=True)
     profile = models.URLField(blank=True, max_length=1000)
     location = models.CharField(max_length=180, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+
 
     class Meta:
         ordering = ['name']
@@ -136,7 +167,7 @@ class Employee(models.Model):
         return f'{self.name} ({self.company.name})'
 
 
-class Job(models.Model):
+class Job(TimeStampedModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='jobs')
     job_id = models.CharField(max_length=120)
     role = models.CharField(max_length=180)
@@ -147,9 +178,6 @@ class Job(models.Model):
         related_name='jobs',
     )
     date_of_posting = models.DateField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
     class Meta:
         ordering = ['-date_of_posting', '-created_at']
 
@@ -157,7 +185,7 @@ class Job(models.Model):
         return f'{self.role} ({self.company.name})'
 
 
-class Tracking(models.Model):
+class Tracking(TimeStampedModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tracking')
     company = models.ForeignKey(
         Company,
@@ -184,9 +212,6 @@ class Tracking(models.Model):
     applied_date = models.DateField(blank=True, null=True)
     is_open = models.BooleanField(default=True)
     got_replied = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
     class Meta:
         ordering = ['-applied_date', '-created_at']
 
@@ -195,7 +220,7 @@ class Tracking(models.Model):
         return f'Tracking ({company_name})'
 
 
-class ApplicationTracking(models.Model):
+class ApplicationTracking(TimeStampedModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tracking_rows')
     company_name = models.CharField(max_length=180)
     job_id = models.CharField(max_length=120, blank=True)
@@ -206,9 +231,6 @@ class ApplicationTracking(models.Model):
     available_hrs = models.JSONField(default=list, blank=True)
     selected_hrs = models.JSONField(default=list, blank=True)
     got_replied = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
     class Meta:
         ordering = ['-applied_date', '-created_at']
 
