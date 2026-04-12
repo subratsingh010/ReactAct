@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
 
-from .models import JobRole, Resume, ResumeAnalysis
+from .models import JobRole, Resume, ResumeAnalysis, TailoredJobRun
 
 
 class SignupSerializer(serializers.ModelSerializer):
@@ -76,6 +76,32 @@ class ResumeAnalysisSerializer(serializers.ModelSerializer):
             'matched_keywords',
             'missing_keywords',
             'ai_feedback',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
+class TailoredJobRunSerializer(serializers.ModelSerializer):
+    resume_title = serializers.SerializerMethodField()
+
+    def get_resume_title(self, obj):
+        if getattr(obj, 'resume', None) and getattr(obj.resume, 'title', None):
+            return obj.resume.title
+        return ''
+
+    class Meta:
+        model = TailoredJobRun
+        fields = [
+            'id',
+            'resume',
+            'resume_title',
+            'company_name',
+            'job_title',
+            'job_id',
+            'job_url',
+            'jd_text',
+            'match_score',
+            'keywords',
             'created_at',
         ]
         read_only_fields = fields

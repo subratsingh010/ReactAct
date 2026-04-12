@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Resume Tailor</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="brand">
+        <div class="brand-left">
+          <img src="assets/icon64.png" alt="Logo" />
+          <div>
+            <h1>Resume Tailor + AutoFill</h1>
+            <p>No-auth local mode</p>
+          </div>
+        </div>
+      </header>
+
+      <section class="card" id="apiSection">
+        <label>API Base URL</label>
+        <input id="apiBase" value="http://127.0.0.1:8000/api" />
+      </section>
+
+      <section class="card" id="tailorSection">
+        <h2>Tailor Resume</h2>
+        <label>Company</label>
+        <input id="companyName" placeholder="e.g. Walmart" />
+        <label>Job Title</label>
+        <input id="jobTitle" placeholder="e.g. Web Engineer" />
+        <label>Job ID</label>
+        <input id="jobId" placeholder="Optional" />
+        <label>Job URL</label>
+        <input id="jobUrl" placeholder="Optional" />
+
+        <div class="row">
+          <button id="fetchJdBtn" type="button">Fetch JD from Page</button>
+          <button id="tailorBtn" type="button">Tailor Resume</button>
+        </div>
+
+        <label>Reference Resume PDF</label>
+        <input id="resumeFile" type="file" accept="application/pdf,.pdf" />
+
+        <label>Job Description</label>
+        <textarea id="jdText" rows="8" placeholder="Paste JD here"></textarea>
+      </section>
+
+      <section class="card" id="autofillSection">
+        <h2>AutoFill Form</h2>
+        <label>Predefined Answers (JSON)</label>
+        <textarea id="predefinedAnswers" rows="8" placeholder='{"notice period":"30 days","current ctc":"15 LPA"}'></textarea>
+        <label class="check">
+          <input id="useAi" type="checkbox" checked />
+          Use AI for unanswered questions
+        </label>
+        <div class="row">
+          <button id="scanQuestionsBtn" type="button">Scan Questions</button>
+          <button id="autofillBtn" type="button">AutoFill Form</button>
+        </div>
+        <textarea id="questionsOut" rows="5" readonly placeholder="Detected questions"></textarea>
+      </section>
+
+      <p id="status" class="status"></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+  </html>

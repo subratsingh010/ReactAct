@@ -680,7 +680,7 @@ function ResumeBuilderPage({
   })
   const [tailorReferenceResumeId, setTailorReferenceResumeId] = useState(() => {
     if (!enableTailorFlow) return ''
-    return sessionStorage.getItem(referenceResumeIdSessionKey) || ''
+    return sessionStorage.getItem(referenceResumeIdSessionKey) || localStorage.getItem('jobApplicationReferenceResumeId') || ''
   })
   const pdfInputRef = useRef(null)
   const tailorReferenceLoaded = enableTailorFlow
@@ -704,6 +704,34 @@ function ResumeBuilderPage({
       sessionStorage.removeItem(referenceResumeIdSessionKey)
     }
   }, [enableTailorFlow, referenceResumeIdSessionKey, tailorReferenceResumeId])
+
+  useEffect(() => {
+    if (!enableTailorFlow) return
+    const preferredId = localStorage.getItem('jobApplicationReferenceResumeId') || ''
+    if (!preferredId || tailorReferenceBuilder || String(tailorReferenceResumeId || '').trim()) return
+
+    let cancelled = false
+    const access = localStorage.getItem('access')
+    if (!access) return undefined
+
+    const loadPreferredReference = async () => {
+      try {
+        const full = await fetchResume(access, preferredId)
+        if (cancelled) return
+        if (hasBuilderSubstance(full?.builder_data || {})) {
+          setTailorReferenceBuilder(cloneBuilderData(full.builder_data || {}))
+          setTailorReferenceResumeId(String(full.id))
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    loadPreferredReference()
+    return () => {
+      cancelled = true
+    }
+  }, [enableTailorFlow, tailorReferenceBuilder, tailorReferenceResumeId])
 
   useEffect(() => {
     if (!showJdBox) return

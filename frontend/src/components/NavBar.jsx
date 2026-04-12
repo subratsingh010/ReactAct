@@ -17,6 +17,7 @@ function NavBar() {
   const items = useMemo(
     () => [
       { label: 'Home', path: '/' },
+      { label: 'Profile', path: '/profile' },
       { label: 'Resume Builder', path: '/builder' },
       { label: 'Tailored Builder', path: '/tailored-builder' },
     ],

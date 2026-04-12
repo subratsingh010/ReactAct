@@ -3,21 +3,24 @@ import os
 import re
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .pdf_parser import parse_resume_pdf
-from .models import JobRole, Resume, ResumeAnalysis
+from .models import JobRole, Resume, ResumeAnalysis, TailoredJobRun
 from .serializers import (
     JobRoleSerializer,
     ResumeAnalysisSerializer,
     ResumeSerializer,
     SignupSerializer,
+    TailoredJobRunSerializer,
 )
 from .tailor import (
     ALLOWED_AI_MODELS,
@@ -208,6 +211,77 @@ def _render_pdf_from_html(html_text: str, output_pdf: Path):
             tmp_html_path.unlink(missing_ok=True)
         except Exception:  # noqa: BLE001
             pass
+
+
+def _resolve_openai_model() -> str:
+    value = str(os.getenv("OPENAI_MODEL", "gpt-4o") or "").strip()
+    return value or "gpt-4o"
+
+
+def _openai_question_answers(questions, profile_context: str = ""):
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return [], "OPENAI_API_KEY is not set"
+
+    safe_questions = [str(q or "").strip() for q in (questions or []) if str(q or "").strip()]
+    if not safe_questions:
+        return [], ""
+
+    system = (
+        "You are a job-application form assistant. Return strict JSON only. "
+        "Answer each question briefly, professionally, and specifically. "
+        "If unsure, return a conservative generic answer and avoid hallucinations. "
+        "Output format: {\"answers\":[{\"question\":\"...\",\"answer\":\"...\"}]}"
+    )
+    user = (
+        "Profile context:\n"
+        f"{str(profile_context or '').strip()[:5000]}\n\n"
+        "Questions:\n"
+        f"{json.dumps(safe_questions, ensure_ascii=False)}"
+    )
+    payload = {
+        "model": _resolve_openai_model(),
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.2,
+    }
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+        parsed = json.loads(content) if isinstance(content, str) else content
+        rows = parsed.get("answers") if isinstance(parsed, dict) else []
+        if not isinstance(rows, list):
+            return [], "AI response missing answers list"
+        out = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            q = str(row.get("question") or "").strip()
+            a = str(row.get("answer") or "").strip()
+            if q and a:
+                out.append({"question": q, "answer": a})
+        return out, ""
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8")
+        except Exception:  # noqa: BLE001
+            body = ""
+        return [], f"OpenAI request failed: {body or exc.reason}"
+    except Exception as exc:  # noqa: BLE001
+        return [], f"OpenAI request failed: {exc}"
 
 
 PRESET_KEYWORDS = {
@@ -615,7 +689,7 @@ class ResumeAnalysisListView(APIView):
 
 
 class TailorResumeView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser]
 
     def _to_bool(self, value, default=False):
@@ -695,10 +769,15 @@ class TailorResumeView(APIView):
         return sanitize_builder_data(merged)
 
     def post(self, request):
+        is_authenticated = bool(getattr(request.user, "is_authenticated", False))
         jd_text = str(request.data.get('job_description') or '').strip()
         if len(jd_text) < 40:
             return Response({'detail': 'Please paste a fuller job description.'}, status=status.HTTP_400_BAD_REQUEST)
         job_role = str(request.data.get('job_role') or '').strip()
+        company_name = str(request.data.get('company_name') or '').strip()
+        job_title = str(request.data.get('job_title') or '').strip()
+        job_id = str(request.data.get('job_id') or '').strip()
+        job_url = str(request.data.get('job_url') or '').strip()
         force_rewrite = self._to_bool(request.data.get('force_rewrite'), default=False)
         tailor_mode = str(request.data.get('tailor_mode') or 'partial').strip().lower()
         if tailor_mode not in {'partial', 'summary_experience', 'almost_complete', 'complete'}:
@@ -753,7 +832,7 @@ class TailorResumeView(APIView):
         request_builder = sanitize_builder_data(request_builder)
         reference_resume = None
         reference_resume_id = str(request.data.get('reference_resume_id') or '').strip()
-        if reference_resume_id:
+        if is_authenticated and reference_resume_id:
             try:
                 reference_resume = Resume.objects.get(id=int(reference_resume_id), user=request.user)
             except Exception:  # noqa: BLE001
@@ -774,11 +853,11 @@ class TailorResumeView(APIView):
         if not keywords:
             return Response({'detail': 'Could not extract JD keywords.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        resumes = list(Resume.objects.filter(user=request.user).order_by('-updated_at', '-created_at'))
+        resumes = list(Resume.objects.filter(user=request.user).order_by('-updated_at', '-created_at')) if is_authenticated else []
         best = find_best_resume_match(keywords, resumes)
         latest_resume = resumes[0] if resumes else None
 
-        if (not force_rewrite) and (reference_resume is None) and best.resume and min_match <= best.score <= max_match:
+        if is_authenticated and (not force_rewrite) and (reference_resume is None) and best.resume and min_match <= best.score <= max_match:
             payload = ResumeSerializer(best.resume).data
             return Response(
                 {
@@ -793,6 +872,9 @@ class TailorResumeView(APIView):
                 },
                 status=status.HTTP_200_OK,
             )
+
+        if not is_authenticated:
+            preview_only = True
 
         base_builder = self._pick_base_builder(request_builder, reference_resume, best.resume, latest_resume)
         ai_payload, ai_used, ai_note = tailor_resume_with_ai(
@@ -844,8 +926,15 @@ class TailorResumeView(APIView):
                     'rewrite_note': ai_note,
                     'tailor_mode': tailor_mode,
                     'preview_only': True,
+                    'anonymous_mode': not is_authenticated,
                 },
                 status=status.HTTP_200_OK,
+            )
+
+        if not is_authenticated:
+            return Response(
+                {'detail': 'Saving tailored resumes requires authentication. Use preview mode only.'},
+                status=status.HTTP_401_UNAUTHORIZED,
             )
 
         created = Resume.objects.create(
@@ -854,6 +943,17 @@ class TailorResumeView(APIView):
             original_text=plain_text,
             builder_data=tailored_builder,
             status='optimized',
+        )
+        TailoredJobRun.objects.create(
+            user=request.user,
+            resume=created,
+            company_name=company_name,
+            job_title=job_title or job_role,
+            job_id=job_id,
+            job_url=job_url,
+            jd_text=jd_text,
+            match_score=float(round(best.score, 4)),
+            keywords=keywords,
         )
         self._enforce_resume_limit(request.user)
 
@@ -985,6 +1085,33 @@ class ExportAtsPdfLocalView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class AutofillAnswersView(APIView):
+    permission_classes = [AllowAny]
+    parser_classes = [JSONParser]
+
+    def post(self, request):
+        questions = request.data.get("questions")
+        if not isinstance(questions, list):
+            return Response({"detail": "questions must be a list."}, status=status.HTTP_400_BAD_REQUEST)
+        safe_questions = [str(q or "").strip() for q in questions if str(q or "").strip()]
+        if not safe_questions:
+            return Response({"answers": []}, status=status.HTTP_200_OK)
+
+        profile_context = str(request.data.get("profile_context") or "").strip()
+        answers, error = _openai_question_answers(safe_questions[:80], profile_context=profile_context)
+        if error:
+            return Response({"detail": error}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({"answers": answers}, status=status.HTTP_200_OK)
+
+
+class TailoredJobRunListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        runs = TailoredJobRun.objects.filter(user=request.user).order_by('-created_at')[:50]
+        return Response(TailoredJobRunSerializer(runs, many=True).data, status=status.HTTP_200_OK)
 
 
 class RunAnalysisView(APIView):

@@ -14,6 +14,8 @@ from .views import (
     TailorResumeView,
     OptimizeResumeQualityView,
     ExportAtsPdfLocalView,
+    AutofillAnswersView,
+    TailoredJobRunListView,
 )
 
 urlpatterns = [
@@ -31,4 +33,6 @@ urlpatterns = [
     path('tailor-resume/', TailorResumeView.as_view()),
     path('optimize-resume-quality/', OptimizeResumeQualityView.as_view()),
     path('export-ats-pdf-local/', ExportAtsPdfLocalView.as_view()),
+    path('autofill-answers/', AutofillAnswersView.as_view()),
+    path('tailored-job-runs/', TailoredJobRunListView.as_view()),
 ]

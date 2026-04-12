@@ -1,0 +1,165 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #f1f5f9;
+  --card: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --line: #dbe6f3;
+  --primary: #2563eb;
+  --primary-2: #1d4ed8;
+  --ok: #0f766e;
+  --error: #b91c1c;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "SF Pro Text", -apple-system, sans-serif;
+  background: radial-gradient(circle at 25% 0%, #e7efff 0, var(--bg) 44%);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.app {
+  width: 100%;
+  max-width: 430px;
+  padding: 14px;
+}
+
+body.embedded .app {
+  max-width: none;
+}
+
+h1 {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: 0.1px;
+}
+
+.brand p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.brand {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin: 0 0 12px;
+}
+.brand-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand img {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.25);
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.05);
+}
+
+label {
+  display: block;
+  font-size: 12px;
+  margin: 7px 0 4px;
+  color: #334155;
+  font-weight: 500;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 1px solid #cfdced;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 12px;
+  outline: 0;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input:focus,
+textarea:focus {
+  border-color: #7aa2ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+button {
+  flex: 1;
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #3b82f6 0%, var(--primary) 100%);
+  color: white;
+  padding: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+button:hover {
+  filter: brightness(0.98);
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0);
+  background: var(--primary-2);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.check input {
+  width: auto;
+}
+
+.status {
+  margin: 8px 0 2px;
+  font-size: 12px;
+  color: var(--ok);
+  min-height: 16px;
+}
+
+.status.error {
+  color: var(--error);
+}

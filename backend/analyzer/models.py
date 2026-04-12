@@ -73,3 +73,29 @@ class ResumeAnalysis(models.Model):
 
     def __str__(self):
         return f'Analysis #{self.id} - {self.ats_score}'
+
+
+class TailoredJobRun(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tailored_job_runs')
+    resume = models.ForeignKey(
+        Resume,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='tailored_job_runs',
+    )
+    company_name = models.CharField(max_length=180, blank=True)
+    job_title = models.CharField(max_length=180, blank=True)
+    job_id = models.CharField(max_length=120, blank=True)
+    job_url = models.URLField(blank=True, max_length=1000)
+    jd_text = models.TextField(blank=True)
+    match_score = models.FloatField(default=0.0)
+    keywords = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        title = self.job_title or 'Tailored Job'
+        return f'{title} ({self.user.username})'

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import HomePage from './pages/HomePage'
 import LoginPage from './pages/LoginPage'
+import ProfilePage from './pages/ProfilePage'
 import RegisterPage from './pages/RegisterPage'
 import ResumeBuilderPage from './pages/ResumeBuilderPage'
 import ResumePreviewPage from './pages/ResumePreviewPage'
@@ -46,6 +47,7 @@ function AppLayout() {
             <Route path="/login" element={<PublicOnly><LoginPage /></PublicOnly>} />
             <Route path="/register" element={<PublicOnly><RegisterPage /></PublicOnly>} />
             <Route path="/" element={<RequireAuth><HomePage /></RequireAuth>} />
+            <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
             <Route path="/builder" element={<RequireAuth><ResumeBuilderPage /></RequireAuth>} />
             <Route path="/tailored-builder" element={<RequireAuth><TailoredResumePage /></RequireAuth>} />
             <Route path="/preview/:resumeId" element={<RequireAuth><ResumePreviewPage /></RequireAuth>} />
