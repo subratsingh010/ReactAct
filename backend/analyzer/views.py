@@ -14,13 +14,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .pdf_parser import parse_resume_pdf
-from .models import JobRole, Resume, ResumeAnalysis, TailoredJobRun
+from .models import JobRole, Resume, ResumeAnalysis, TailoredJobRun, ApplicationTracking
 from .serializers import (
     JobRoleSerializer,
     ResumeAnalysisSerializer,
     ResumeSerializer,
     SignupSerializer,
     TailoredJobRunSerializer,
+    ApplicationTrackingSerializer,
 )
 from .tailor import (
     ALLOWED_AI_MODELS,
@@ -289,6 +290,219 @@ PRESET_KEYWORDS = {
     "backend": ["python", "django", "drf", "rest", "api", "postgres", "redis", "celery", "auth", "jwt"],
     "fullstack": ["react", "python", "django", "drf", "rest", "api", "postgres", "aws", "docker", "git"],
 }
+
+PROFILE_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "profile_data.json"
+
+
+def _default_profile_config(username: str = "") -> dict:
+    return {
+        "personalInfo": {
+            "firstName": "subrat",
+            "lastName": "singh",
+            "preferredName": "subrat",
+            "suffixName": "singh",
+            "emailAddress": "subratsingh010@gmail.com",
+            "phoneNumber": "+918546075639",
+            "birthday": "2000-12-30",
+            "location": "Gurugram, HR, India",
+        },
+        "address": {
+            "address1": "2121, Sukhrali Rd, near Sector 17 A, Sukhrali, Market, Gurugram, Haryana 122007",
+            "address2": "-",
+            "address3": "-",
+            "postalCode": "122007",
+        },
+        "socialUrls": {
+            "linkedinUrl": "https://www.linkedin.com/in/subrat-s-81720a22a",
+            "githubUrl": "https://github.com/subrasinght010",
+            "portfolioUrl": "-",
+            "otherUrl": "https://leetcode.com/u/subrat010/",
+        },
+        "employmentInformation": {
+            "ethnicity": "South Asian",
+            "authorizedUs": "No",
+            "authorizedCanada": "No",
+            "authorizedUk": "No",
+            "visaSponsorship": "No",
+            "disability": "Yes",
+            "lgbtq": "No",
+            "gender": "Male",
+        },
+        "employmentQuestions": [
+            {"question": "Current employer", "answer": "Inspektlabs"},
+            {"question": "Notice period", "answer": "30 days"},
+        ],
+        "workExperiences": [
+            {
+                "company": "Inspektlabs",
+                "role": "Software Developer",
+                "employerName": "Inspektlabs",
+                "location": "Remote",
+                "startTime": "Mar 2025",
+                "endTime": "Present",
+                "currentWorking": "Yes",
+                "employmentType": "Full-Time",
+                "highlights": (
+                    "- Migrated API from Flask to FastAPI with async queues, raising throughput 95% from 1200 to 3000 RPM and cutting latency 34% from 320 ms to 210 ms.\n"
+                    "- Built support agent that cut query resolution 70% from 10 min to 3 min with WebSockets, TensorFlow VAD, and Whisper STT.\n"
+                    "- Developed fixed-camera pipeline for 1-12 channel NVR feeds, processing about 100 files per min with Celery and AWS Lambda inference.\n"
+                    "- Reduced results portal dashboard load time 40% from 5 s to 3 s by refining UI flows and trimming heavy client-side requests.\n"
+                    "- Launched inspection portal for damage detection, RC lookup, reports, and claim prediction, supporting 4 workflows tied to revenue growth."
+                ),
+            },
+            {
+                "company": "Staqu Technologies Pvt. Ltd.",
+                "role": "Software Developer",
+                "employerName": "Staqu Technologies Pvt. Ltd.",
+                "location": "Gurugram, HR, India",
+                "startTime": "Mar 2023",
+                "endTime": "Feb 2025",
+                "currentWorking": "No",
+                "employmentType": "Full-Time",
+                "highlights": (
+                    "- Designed CrimeGPT hybrid RAG pipeline across 2 data stores, adding text-to-SQL, NER, OCR, and Mistral services through FastAPI microservices.\n"
+                    "- Implemented Jarvis UI and backend modules, shipping an events panel with 20+ metrics across charts and KPI dashboards for daily monitoring.\n"
+                    "- Optimized PostgreSQL and TimescaleDB queries, cutting dashboard latency 79% from 7.5 s to 1.6 s.\n"
+                    "- Engineered 10+ event pipelines for Jarvis, supporting real-time video at 60 FPS across about 6 streams in a microservices setup."
+                ),
+            },
+            {
+                "company": "Across The Globe (ATG)",
+                "role": "Software Developer",
+                "employerName": "Across The Globe (ATG)",
+                "location": "Remote",
+                "startTime": "Jan 2023",
+                "endTime": "Apr 2023",
+                "currentWorking": "No",
+                "employmentType": "Full-Time",
+                "highlights": (
+                    "- Delivered the Raghav Tech full-stack Django project, from database design to template design, in 10 days.\n"
+                    "- Integrated Paytm, UPI, and Stripe across 3 payment paths to support transactions and strengthen revenue collection.\n"
+                    "- Automated CI/CD, reducing deploy time 67% from 30 min to 10 min and enabling 1 release per day."
+                ),
+            },
+        ],
+        "education": [
+            {
+                "school": "KIET Group of Institutions, Ghaziabad",
+                "degree": "Bachelor's",
+                "fieldOfStudy": "Computer Science",
+                "startTime": "Apr 2019",
+                "endTime": "Apr 2023",
+                "grade": "",
+            }
+        ],
+        "projects": [
+            {
+                "name": "Support Agent",
+                "location": "",
+                "link": "",
+                "highlights": (
+                    "Deployed support system that reduced query resolution 70% (10 min to 3 min) for document retrieval, reports, and scheduling.\n"
+                    "Enabled real-time text and voice support using WebSockets, with VAD (TensorFlow), Whisper STT, and PCM capture with 44.1 kHz to 16 kHz downsampling for dual interaction modes.\n"
+                    "Generated documents, meeting schedules, and Excel outputs via MCP, while using LangChain for 3 in-app tasks such as summarization."
+                ),
+            },
+            {
+                "name": "Video Analytics",
+                "location": "Gurugram, HR, India",
+                "link": "",
+                "highlights": (
+                    "Created video pipeline for RTSP live streams and recordings up to 1 hour, lowering processing cost 50% from 100 to 50 units versus real time.\n"
+                    "Orchestrated frame processor, publisher, and ML services as 3+ FastAPI microservices with queue-based communication.\n"
+                    "Assembled 10+ event pipelines like person tracking, face recognition, and gender detection, with a footfall insights panel for retail."
+                ),
+            },
+        ],
+        "skills": [
+            {"category": "Languages", "values": "Python, JavaScript, SQL"},
+            {"category": "Frameworks", "values": "FastAPI, Django, Flask, React"},
+            {"category": "Cloud & DevOps", "values": "AWS, Docker, Git, Linux"},
+            {"category": "Other", "values": "RAG, LLM, LangChain, LangGraph, MCP, Redis, MySQL, MongoDB, Prometheus, Grafana"},
+        ],
+        "extraQuestions": [
+            {"question": "Years of experience", "answer": "3+"},
+            {"question": "Current CTC", "answer": "Share when needed"},
+        ],
+        "referenceResumeId": "",
+        "resumeMeta": {
+            "resumeName": "subrat_singh_resume",
+            "owner": username or "user",
+        },
+    }
+
+
+def _profile_store_defaults() -> dict:
+    return {"profiles": {}}
+
+
+def _load_profile_store() -> dict:
+    if not PROFILE_CONFIG_PATH.exists():
+        PROFILE_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        data = _profile_store_defaults()
+        PROFILE_CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return data
+    try:
+        parsed = json.loads(PROFILE_CONFIG_PATH.read_text(encoding="utf-8"))
+        return parsed if isinstance(parsed, dict) else _profile_store_defaults()
+    except Exception:  # noqa: BLE001
+        return _profile_store_defaults()
+
+
+def _save_profile_store(store: dict) -> None:
+    PROFILE_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PROFILE_CONFIG_PATH.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _merge_profile_config(defaults: dict, incoming: dict) -> dict:
+    merged = dict(defaults)
+    for key, default_value in defaults.items():
+        value = incoming.get(key) if isinstance(incoming, dict) else None
+        if isinstance(default_value, dict):
+            merged[key] = dict(default_value)
+            if isinstance(value, dict):
+                for inner_key in default_value.keys():
+                    merged[key][inner_key] = str(value.get(inner_key, default_value[inner_key]) or "")
+        elif isinstance(default_value, list):
+            if isinstance(value, list):
+                clean_items = []
+                for item in value:
+                    if isinstance(item, dict):
+                        clean_items.append({k: str(v or "") for k, v in item.items()})
+                merged[key] = clean_items
+            else:
+                merged[key] = default_value
+        else:
+            merged[key] = str(value if value is not None else default_value)
+    return merged
+
+
+def _get_user_profile_config(user) -> dict:
+    store = _load_profile_store()
+    username = str(getattr(user, "username", "") or f"user_{getattr(user, 'id', 'unknown')}")
+    profiles = store.get("profiles")
+    if not isinstance(profiles, dict):
+        profiles = {}
+        store["profiles"] = profiles
+    existing = profiles.get(username) if isinstance(profiles.get(username), dict) else {}
+    merged = _merge_profile_config(_default_profile_config(username), existing)
+    if merged != existing:
+        profiles[username] = merged
+        _save_profile_store(store)
+    return merged
+
+
+def _set_user_profile_config(user, payload: dict) -> dict:
+    store = _load_profile_store()
+    username = str(getattr(user, "username", "") or f"user_{getattr(user, 'id', 'unknown')}")
+    profiles = store.get("profiles")
+    if not isinstance(profiles, dict):
+        profiles = {}
+        store["profiles"] = profiles
+    merged = _merge_profile_config(_default_profile_config(username), payload if isinstance(payload, dict) else {})
+    profiles[username] = merged
+    _save_profile_store(store)
+    return merged
 
 def _extract_bullets_from_html(value: str):
     """
@@ -568,6 +782,18 @@ class ProfileView(APIView):
                 'email': request.user.email,
             }
         )
+
+
+class ProfileConfigView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def get(self, request):
+        return Response(_get_user_profile_config(request.user))
+
+    def put(self, request):
+        saved = _set_user_profile_config(request.user, request.data if isinstance(request.data, dict) else {})
+        return Response(saved)
 
 
 class JobRoleListCreateView(APIView):
@@ -1112,6 +1338,49 @@ class TailoredJobRunListView(APIView):
     def get(self, request):
         runs = TailoredJobRun.objects.filter(user=request.user).order_by('-created_at')[:50]
         return Response(TailoredJobRunSerializer(runs, many=True).data, status=status.HTTP_200_OK)
+
+
+class ApplicationTrackingListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def get(self, request):
+        rows = ApplicationTracking.objects.filter(user=request.user).order_by('-applied_date', '-created_at')[:300]
+        return Response(ApplicationTrackingSerializer(rows, many=True).data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = ApplicationTrackingSerializer(data=request.data)
+        if serializer.is_valid():
+            created = serializer.save(user=request.user)
+            return Response(ApplicationTrackingSerializer(created).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ApplicationTrackingDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def _get_object(self, request, tracking_id):
+        return ApplicationTracking.objects.get(id=tracking_id, user=request.user)
+
+    def put(self, request, tracking_id):
+        try:
+            row = self._get_object(request, tracking_id)
+        except ApplicationTracking.DoesNotExist:
+            return Response({'detail': 'Tracking row not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ApplicationTrackingSerializer(row, data=request.data, partial=True)
+        if serializer.is_valid():
+            updated = serializer.save()
+            return Response(ApplicationTrackingSerializer(updated).data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, tracking_id):
+        try:
+            row = self._get_object(request, tracking_id)
+        except ApplicationTracking.DoesNotExist:
+            return Response({'detail': 'Tracking row not found.'}, status=status.HTTP_404_NOT_FOUND)
+        row.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class RunAnalysisView(APIView):

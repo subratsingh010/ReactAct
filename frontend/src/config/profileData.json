@@ -1,0 +1,307 @@
+{
+  "personalInfo": {
+    "firstName": "subrat",
+    "lastName": "singh",
+    "preferredName": "subrat",
+    "suffixName": "singh",
+    "emailAddress": "subratsingh010@gmail.com",
+    "countryCode": "+91",
+    "phoneNumber": "8546075639",
+    "phoneType": "Mobile",
+    "birthday": "2000-12-30",
+    "location": "Gurugram, HR, India"
+  },
+  "address": {
+    "address1": "2121, Sukhrali Rd, near Sector 17 A, Sukhrali",
+    "city": "Gurugram",
+    "state": "Haryana",
+    "country": "India",
+    "postalCode": "122007"
+  },
+  "socialUrls": {
+    "linkedinUrl": "https://www.linkedin.com/in/subrat-s-81720a22a",
+    "githubUrl": "https://github.com/subrasinght010",
+    "portfolioUrl": "-",
+    "otherUrl": "https://leetcode.com/u/subrat010/"
+  },
+  "employmentInformation": [
+    {
+      "question": "What is your ethnicity?",
+      "answer": "South Asian"
+    },
+    {
+      "question": "Are you authorized to work in the US?",
+      "answer": "No"
+    },
+    {
+      "question": "Are you authorized to work in Canada?",
+      "answer": "No"
+    },
+    {
+      "question": "Are you authorized to work in the United Kingdom?",
+      "answer": "No"
+    },
+    {
+      "question": "Will you now or in the future require sponsorship for employment visa status?",
+      "answer": "No"
+    },
+    {
+      "question": "Do you have a disability?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you identify as LGBTQ+?",
+      "answer": "No"
+    },
+    {
+      "question": "What is your gender?",
+      "answer": "Male"
+    },
+    {
+      "question": "What is your current employment status?",
+      "answer": "Employed"
+    },
+    {
+      "question": "What is your current notice period?",
+      "answer": "30 days"
+    },
+    {
+      "question": "What is your total years of experience?",
+      "answer": "3+ years"
+    },
+    {
+      "question": "What is your highest qualification?",
+      "answer": "B.Tech"
+    },
+    {
+      "question": "What is your current city?",
+      "answer": "Gurugram"
+    },
+    {
+      "question": "Are you open to relocation?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Are you open to remote work?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Are you open to hybrid work?",
+      "answer": "Yes"
+    },
+    {
+      "question": "What is your expected CTC?",
+      "answer": "As per role and market"
+    },
+    {
+      "question": "What is your current CTC?",
+      "answer": "Share when needed"
+    },
+    {
+      "question": "Do you have experience with international teams?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Can you work in rotational shifts?",
+      "answer": "No"
+    },
+    {
+      "question": "Can you join immediately?",
+      "answer": "No"
+    },
+    {
+      "question": "Do you require visa sponsorship now?",
+      "answer": "No"
+    },
+    {
+      "question": "Have you worked in a product company?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Have you worked in a startup?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you have client-facing experience?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Are you willing to travel for work?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you have a valid passport?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you have any active offers?",
+      "answer": "No"
+    },
+    {
+      "question": "Have you led a team before?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you have mentoring experience?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Are you comfortable with coding assessments?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Are you comfortable with system design rounds?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you prefer backend roles?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you prefer full-stack roles?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you have experience in cloud platforms?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you have experience in CI/CD?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you have experience with SQL?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you have experience with NoSQL?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you have production support experience?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Have you worked with Agile/Scrum?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you have documentation experience?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Have you collaborated with cross-functional teams?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Are you comfortable with ownership of modules?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Can you attend interviews on weekdays?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Can you submit assignment within timeline?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Do you have any gaps in employment?",
+      "answer": "No"
+    },
+    {
+      "question": "Do you need accommodation for interviews?",
+      "answer": "No"
+    },
+    {
+      "question": "Are you currently serving notice period?",
+      "answer": "No"
+    },
+    {
+      "question": "Do you have experience with APIs and microservices?",
+      "answer": "Yes"
+    },
+    {
+      "question": "Are you available for onsite interviews if needed?",
+      "answer": "Yes"
+    }
+  ],
+  "workExperiences": [
+    {
+      "company": "Inspektlabs",
+      "role": "Software Developer",
+      "employerName": "Inspektlabs",
+      "location": "Remote",
+      "startTime": "Mar 2025",
+      "endTime": "Present",
+      "currentWorking": "Yes",
+      "employmentType": "Full-Time",
+      "highlights": "- Migrated API from Flask to FastAPI with async queues, raising throughput 95% from 1200 to 3000 RPM and cutting latency 34% from 320 ms to 210 ms.\n- Built support agent that cut query resolution 70% from 10 min to 3 min with WebSockets, TensorFlow VAD, and Whisper STT.\n- Developed fixed-camera pipeline for 1-12 channel NVR feeds, processing about 100 files per min with Celery and AWS Lambda inference.\n- Reduced results portal dashboard load time 40% from 5 s to 3 s by refining UI flows and trimming heavy client-side requests.\n- Launched inspection portal for damage detection, RC lookup, reports, and claim prediction, supporting 4 workflows tied to revenue growth."
+    },
+    {
+      "company": "Staqu Technologies Pvt. Ltd.",
+      "role": "Software Developer",
+      "employerName": "Staqu Technologies Pvt. Ltd.",
+      "location": "Gurugram, HR, India",
+      "startTime": "Mar 2023",
+      "endTime": "Feb 2025",
+      "currentWorking": "No",
+      "employmentType": "Full-Time",
+      "highlights": "- Designed CrimeGPT hybrid RAG pipeline across 2 data stores, adding text-to-SQL, NER, OCR, and Mistral services through FastAPI microservices.\n- Implemented Jarvis UI and backend modules, shipping an events panel with 20+ metrics across charts and KPI dashboards for daily monitoring.\n- Optimized PostgreSQL and TimescaleDB queries, cutting dashboard latency 79% from 7.5 s to 1.6 s.\n- Engineered 10+ event pipelines for Jarvis, supporting real-time video at 60 FPS across about 6 streams in a microservices setup."
+    },
+    {
+      "company": "Across The Globe (ATG)",
+      "role": "Software Developer",
+      "employerName": "Across The Globe (ATG)",
+      "location": "Remote",
+      "startTime": "Jan 2023",
+      "endTime": "Apr 2023",
+      "currentWorking": "No",
+      "employmentType": "Full-Time",
+      "highlights": "- Delivered the Raghav Tech full-stack Django project, from database design to template design, in 10 days.\n- Integrated Paytm, UPI, and Stripe across 3 payment paths to support transactions and strengthen revenue collection.\n- Automated CI/CD, reducing deploy time 67% from 30 min to 10 min and enabling 1 release per day."
+    }
+  ],
+  "education": [
+    {
+      "school": "KIET Group of Institutions, Ghaziabad",
+      "degree": "Bachelor's",
+      "fieldOfStudy": "Computer Science",
+      "startTime": "Apr 2019",
+      "endTime": "Apr 2023",
+      "grade": ""
+    }
+  ],
+  "projects": [
+    {
+      "name": "Support Agent",
+      "highlights": "Deployed support system that reduced query resolution 70% (10 min to 3 min) for document retrieval, reports, and scheduling.\nEnabled real-time text and voice support using WebSockets, with VAD (TensorFlow), Whisper STT, and PCM capture with 44.1 kHz to 16 kHz downsampling for dual interaction modes.\nGenerated documents, meeting schedules, and Excel outputs via MCP, while using LangChain for 3 in-app tasks such as summarization."
+    },
+    {
+      "name": "Video Analytics",
+      "highlights": "Created video pipeline for RTSP live streams and recordings up to 1 hour, lowering processing cost 50% from 100 to 50 units versus real time.\nOrchestrated frame processor, publisher, and ML services as 3+ FastAPI microservices with queue-based communication.\nAssembled 10+ event pipelines like person tracking, face recognition, and gender detection, with a footfall insights panel for retail."
+    }
+  ],
+  "skills": [
+    "Python",
+    "JavaScript",
+    "SQL",
+    "FastAPI",
+    "Django",
+    "Flask",
+    "React",
+    "AWS",
+    "Docker",
+    "Git",
+    "Linux",
+    "RAG",
+    "LLM",
+    "LangChain",
+    "LangGraph",
+    "MCP",
+    "Redis",
+    "MySQL",
+    "MongoDB",
+    "Prometheus",
+    "Grafana"
+  ]
+}

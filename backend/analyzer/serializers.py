@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
 
-from .models import JobRole, Resume, ResumeAnalysis, TailoredJobRun
+from .models import JobRole, Resume, ResumeAnalysis, TailoredJobRun, ApplicationTracking
 
 
 class SignupSerializer(serializers.ModelSerializer):
@@ -105,3 +105,23 @@ class TailoredJobRunSerializer(serializers.ModelSerializer):
             'created_at',
         ]
         read_only_fields = fields
+
+
+class ApplicationTrackingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ApplicationTracking
+        fields = [
+            'id',
+            'company_name',
+            'job_id',
+            'mailed',
+            'applied_date',
+            'posting_date',
+            'is_open',
+            'available_hrs',
+            'selected_hrs',
+            'got_replied',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']

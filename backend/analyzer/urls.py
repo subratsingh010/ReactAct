@@ -16,6 +16,9 @@ from .views import (
     ExportAtsPdfLocalView,
     AutofillAnswersView,
     TailoredJobRunListView,
+    ProfileConfigView,
+    ApplicationTrackingListCreateView,
+    ApplicationTrackingDetailView,
 )
 
 urlpatterns = [
@@ -25,6 +28,7 @@ urlpatterns = [
     path('token/', TokenObtainPairView.as_view()),
     path('token/refresh/', TokenRefreshView.as_view()),
     path('profile/', ProfileView.as_view()),
+    path('profile-config/', ProfileConfigView.as_view()),
     path('job-roles/', JobRoleListCreateView.as_view()),
     path('resumes/', ResumeListCreateView.as_view()),
     path('resumes/<int:resume_id>/', ResumeDetailView.as_view()),
@@ -35,4 +39,6 @@ urlpatterns = [
     path('export-ats-pdf-local/', ExportAtsPdfLocalView.as_view()),
     path('autofill-answers/', AutofillAnswersView.as_view()),
     path('tailored-job-runs/', TailoredJobRunListView.as_view()),
+    path('tracking/', ApplicationTrackingListCreateView.as_view()),
+    path('tracking/<int:tracking_id>/', ApplicationTrackingDetailView.as_view()),
 ]

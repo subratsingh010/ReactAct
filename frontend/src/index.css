@@ -389,7 +389,7 @@
   }
 
   .profile-simple-section {
-    @apply mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/50;
+    @apply mt-5 border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900;
   }
 
   .profile-simple-grid {
@@ -408,8 +408,195 @@
     @apply grid gap-3;
   }
 
+  .profile-scroll-block {
+    max-height: 68vh;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+  }
+
   .profile-simple-qa {
-    @apply grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40;
+    @apply grid gap-3 border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40;
+  }
+
+  .profile-plain-entry {
+    @apply grid gap-3 border border-slate-200 p-4 dark:border-slate-800;
+  }
+
+  .profile-read-row {
+    @apply grid gap-1 border-b border-slate-100 py-2 last:border-b-0 dark:border-slate-800;
+  }
+
+  .profile-read-label {
+    @apply text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400;
+  }
+
+  .profile-read-value {
+    @apply text-sm text-slate-900 dark:text-slate-100;
+  }
+
+  .profile-read-pre {
+    white-space: pre-wrap;
+  }
+
+  .profile-json-preview {
+    @apply mt-3 overflow-auto border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-200;
+    max-height: 220px;
+  }
+
+  .company-head {
+    @apply mb-6 flex flex-col gap-3 md:flex-row md:items-start md:justify-between;
+  }
+
+  .company-list {
+    @apply grid gap-4;
+  }
+
+  .company-row {
+    @apply relative border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900;
+  }
+
+  .company-title-wrap {
+    @apply text-center;
+  }
+
+  .company-title {
+    @apply m-0 text-xl font-semibold;
+  }
+
+  .company-subline {
+    @apply mt-1 text-sm text-slate-600 dark:text-slate-300;
+    word-break: break-word;
+  }
+
+  .company-hr-list {
+    @apply mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4;
+  }
+
+  .company-hr-item {
+    @apply relative flex items-start gap-2 border border-slate-200 p-3 dark:border-slate-800;
+  }
+
+  .company-dot {
+    @apply mt-1 inline-block h-2.5 w-2.5 rounded-full;
+  }
+
+  .company-dot.is-green {
+    @apply bg-emerald-500;
+  }
+
+  .company-dot.is-red {
+    @apply bg-red-500;
+  }
+
+  .company-hr-name {
+    @apply text-sm font-semibold text-slate-900 dark:text-slate-100;
+  }
+
+  .company-hr-meta {
+    @apply text-xs text-slate-600 dark:text-slate-300;
+  }
+
+  .company-edit-btn {
+    @apply inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-xs text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800;
+  }
+
+  .company-edit-btn-hr {
+    @apply h-5 w-5 text-[10px];
+  }
+
+  .company-action-stack {
+    @apply absolute right-2 top-2 z-10 flex flex-col gap-0.5;
+  }
+
+  .company-action-stack-hr {
+    @apply right-1.5 top-1.5;
+  }
+
+  .company-delete-btn {
+    @apply border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/40;
+  }
+
+  .tracking-head {
+    @apply mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between;
+  }
+
+  .tracking-filters {
+    @apply grid gap-3 p-0 md:grid-cols-2 xl:grid-cols-4;
+  }
+
+  .tracking-check {
+    @apply flex items-center gap-2;
+  }
+
+  .tracking-table-wrap {
+    @apply mt-4 overflow-x-auto;
+  }
+
+  .tracking-table {
+    width: 100%;
+    min-width: 1600px;
+    border-collapse: collapse;
+  }
+
+  .tracking-table th,
+  .tracking-table td {
+    @apply p-2 align-top;
+  }
+
+  .tracking-table th {
+    @apply text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300;
+    white-space: nowrap;
+  }
+
+  .tracking-table td {
+    @apply text-sm;
+  }
+
+  .tracking-table td select[multiple] {
+    min-height: 86px;
+    min-width: 180px;
+  }
+
+  .tracking-send-cell {
+    @apply grid gap-2;
+    min-width: 140px;
+  }
+
+  .tracking-remove-inline {
+    @apply inline-flex h-7 items-center rounded-md px-2 text-xs font-semibold text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/40;
+  }
+
+  .tracking-milestone-inline {
+    @apply grid gap-1;
+    min-width: 220px;
+  }
+
+  .tracking-step {
+    @apply relative flex items-start gap-2 py-1;
+  }
+
+  .tracking-step-dot {
+    @apply mt-1 inline-block h-2.5 w-2.5 rounded-full bg-emerald-500;
+  }
+
+  .tracking-step-text {
+    @apply text-xs text-slate-700 dark:text-slate-200;
+  }
+
+  .tracking-milestone-row td {
+    @apply pt-0;
+  }
+
+  .tracking-dot-line {
+    @apply flex flex-wrap items-center gap-2 py-2;
+  }
+
+  .tracking-circle-dot {
+    @apply inline-block h-2.5 w-2.5 rounded-full border border-emerald-500/70 bg-transparent;
+  }
+
+  .tracking-circle-dot.is-on {
+    @apply bg-emerald-500;
   }
 
   .builder-layout {

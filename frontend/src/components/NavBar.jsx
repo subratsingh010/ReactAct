@@ -18,6 +18,8 @@ function NavBar() {
     () => [
       { label: 'Home', path: '/' },
       { label: 'Profile', path: '/profile' },
+      { label: 'Companies', path: '/companies' },
+      { label: 'Tracking', path: '/tracking' },
       { label: 'Resume Builder', path: '/builder' },
       { label: 'Tailored Builder', path: '/tailored-builder' },
     ],

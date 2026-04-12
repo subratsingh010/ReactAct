@@ -93,6 +93,26 @@ export async function fetchProfile(accessToken) {
   return parseResponse(response)
 }
 
+export async function fetchProfileConfig(accessToken) {
+  const response = await authFetch(`${API_BASE_URL}/profile-config/`, {}, accessToken)
+  return parseResponse(response)
+}
+
+export async function updateProfileConfig(accessToken, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/profile-config/`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
 export async function createJobRole(accessToken, payload) {
   const response = await authFetch(
     `${API_BASE_URL}/job-roles/`,
@@ -222,5 +242,52 @@ export async function exportAtsPdfLocal(accessToken, payload) {
     },
     accessToken,
   )
+  return parseResponse(response)
+}
+
+export async function fetchTrackingRows(accessToken) {
+  const response = await authFetch(`${API_BASE_URL}/tracking/`, {}, accessToken)
+  return parseResponse(response)
+}
+
+export async function createTrackingRow(accessToken, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/tracking/`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function updateTrackingRow(accessToken, trackingId, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/tracking/${trackingId}/`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function deleteTrackingRow(accessToken, trackingId) {
+  const response = await authFetch(
+    `${API_BASE_URL}/tracking/${trackingId}/`,
+    {
+      method: 'DELETE',
+    },
+    accessToken,
+  )
+  if (response.status === 204) return { ok: true }
   return parseResponse(response)
 }
