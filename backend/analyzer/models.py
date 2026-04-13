@@ -219,11 +219,15 @@ class MailTracking(TimeStampedModel):
     mailed = models.BooleanField(default=False)
     got_replied = models.BooleanField(default=False)
     mail_history = models.JSONField(default=list, blank=True)
-    maild_at = models.DateTimeField(blank=True, null=True)
+    mailed_at = models.DateTimeField(blank=True, null=True)
     replied_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['job', '-created_at']),
+        ]
 
     def __str__(self):
         company_name = self.company.name if self.company_id else 'Company'
@@ -235,7 +239,7 @@ class Tracking(TimeStampedModel):
         ('fresh', 'Fresh'),
         ('followed_up', 'Followed Up'),
     ]
-    Job = models.ForeignKey(
+    job = models.ForeignKey(
         Job,
         on_delete=models.SET_NULL,
         blank=True,
@@ -243,7 +247,18 @@ class Tracking(TimeStampedModel):
         related_name='application_tracking_rows',
     )
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tracking_rows')
+    resume = models.ForeignKey(
+        Resume,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='tracking_rows',
+    )
     schedule_time = models.DateTimeField(blank=True, null=True)
+    needs_tailored = models.BooleanField(default=False)
+    tailoring_scope = models.CharField(max_length=60, blank=True)
+    selected_department = models.CharField(max_length=120, blank=True)
+    selected_role = models.CharField(max_length=120, blank=True)
     mailed = models.BooleanField(default=False)
     got_replied = models.BooleanField(default=False)
     is_open = models.BooleanField(default=True)
@@ -255,6 +270,7 @@ class Tracking(TimeStampedModel):
     )
     is_freezed = models.BooleanField(default=False)
     freezed_at = models.DateTimeField(blank=True, null=True)
+    is_removed = models.BooleanField(default=False)
     mail_tracking = models.ForeignKey(
         MailTracking,
         on_delete=models.SET_NULL,
@@ -264,9 +280,15 @@ class Tracking(TimeStampedModel):
     )
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['job', '-created_at']),
+            models.Index(fields=['mail_tracking', '-created_at']),
+            models.Index(fields=['user', 'is_removed', '-created_at']),
+        ]
 
     def __str__(self):
-        job_name = self.Job.role if self.Job_id and getattr(self.Job, 'role', None) else 'Tracking'
+        job_name = self.job.role if self.job_id and getattr(self.job, 'role', None) else 'Tracking'
         return f'{job_name} ({self.user.username})'
 
 
@@ -291,3 +313,47 @@ class TrackingAction(TimeStampedModel):
 
     def __str__(self):
         return f'{self.action_type} ({self.tracking_id})'
+
+
+class MailTrackingEvent(TimeStampedModel):
+    MAIL_TYPE_CHOICES = [
+        ('fresh', 'Fresh'),
+        ('followup', 'Follow Up'),
+    ]
+    SEND_MODE_CHOICES = [
+        ('sent', 'Sent Now'),
+        ('scheduled', 'Scheduled'),
+    ]
+
+    mail_tracking = models.ForeignKey(MailTracking, on_delete=models.CASCADE, related_name='events')
+    tracking = models.ForeignKey(
+        Tracking,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='mail_events',
+    )
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='mail_tracking_events',
+    )
+    mail_type = models.CharField(max_length=20, choices=MAIL_TYPE_CHOICES)
+    send_mode = models.CharField(max_length=20, choices=SEND_MODE_CHOICES, default='sent')
+    action_at = models.DateTimeField()
+    got_replied = models.BooleanField(default=False)
+    notes = models.TextField(blank=True)
+    raw_payload = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['mail_tracking', '-created_at']),
+            models.Index(fields=['tracking', '-created_at']),
+            models.Index(fields=['employee', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.mail_type} ({self.mail_tracking_id})'
