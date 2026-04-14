@@ -950,14 +950,6 @@ class InterviewListCreateView(APIView):
             rows = rows.exclude(id=exclude_id)
         return rows.exists()
 
-    def _has_job_duplicate(self, request, job_id, exclude_id=None):
-        if not job_id:
-            return False
-        rows = Interview.objects.filter(user=request.user, job_id=job_id)
-        if exclude_id:
-            rows = rows.exclude(id=exclude_id)
-        return rows.exists()
-
     def _round_value(self, stage):
         raw = str(stage or '').strip().lower()
         if raw.startswith('round_'):
@@ -1024,13 +1016,14 @@ class InterviewListCreateView(APIView):
             except Location.DoesNotExist:
                 return Response({'detail': 'Location not found.'}, status=status.HTTP_400_BAD_REQUEST)
         if selected_job:
-            company_name = str(selected_job.company.name or '').strip() if selected_job.company_id else company_name
-            job_role = str(selected_job.role or '').strip() or job_role
-            job_code = str(selected_job.job_id or '').strip() or job_code
+            if not company_name and selected_job.company_id:
+                company_name = str(selected_job.company.name or '').strip()
+            if not job_role:
+                job_role = str(selected_job.role or '').strip() or job_role
+            if not job_code:
+                job_code = str(selected_job.job_id or '').strip() or job_code
         if self._has_duplicate(request, company_name, job_role):
             return Response({'detail': 'Interview with same company and job already exists.'}, status=status.HTTP_400_BAD_REQUEST)
-        if self._has_job_duplicate(request, selected_job.id if selected_job else None):
-            return Response({'detail': 'Interview with same job already exists.'}, status=status.HTTP_400_BAD_REQUEST)
         stage = str(payload.get('stage') or 'received_call').strip()
         requested_round = self._round_value(stage)
         if requested_round > 1:
@@ -1068,14 +1061,6 @@ class InterviewDetailView(APIView):
                 if 1 <= value <= 8:
                     return value
         return 0
-
-    def _has_job_duplicate(self, request, job_id, exclude_id=None):
-        if not job_id:
-            return False
-        rows = Interview.objects.filter(user=request.user, job_id=job_id)
-        if exclude_id:
-            rows = rows.exclude(id=exclude_id)
-        return rows.exists()
 
     def _append_milestone_event(self, row, stage, action):
         events = row.milestone_events if isinstance(row.milestone_events, list) else []
@@ -1136,16 +1121,17 @@ class InterviewDetailView(APIView):
             except Location.DoesNotExist:
                 return Response({'detail': 'Location not found.'}, status=status.HTTP_400_BAD_REQUEST)
         if selected_job:
-            company_name = selected_job.company.name if selected_job.company_id else company_name
-            job_role = selected_job.role or job_role
-            job_code = selected_job.job_id or job_code
+            if not str(company_name or '').strip() and selected_job.company_id:
+                company_name = selected_job.company.name
+            if not str(job_role or '').strip():
+                job_role = selected_job.role or job_role
+            if not str(job_code or '').strip():
+                job_code = selected_job.job_id or job_code
         company_key = str(company_name or '').strip().lower()
         job_key = str(job_role or '').strip().lower()
         duplicate = Interview.objects.filter(user=request.user, company_key=company_key, job_role_key=job_key).exclude(id=row.id).exists()
         if duplicate:
             return Response({'detail': 'Interview with same company and job already exists.'}, status=status.HTTP_400_BAD_REQUEST)
-        if self._has_job_duplicate(request, selected_job.id if selected_job else None, exclude_id=row.id):
-            return Response({'detail': 'Interview with same job already exists.'}, status=status.HTTP_400_BAD_REQUEST)
         next_stage = payload.get('stage', row.stage)
         stage_changed = str(next_stage or '').strip().lower() != str(row.stage or '').strip().lower()
         requested_round = self._round_value(next_stage)
@@ -2068,6 +2054,9 @@ class ApplicationTrackingListCreateView(APIView):
             'updated_at': tracking.updated_at.isoformat() if tracking.updated_at else '',
         }
 
+    def _has_company_mail_pattern(self, company):
+        return bool(company and str(getattr(company, 'mail_format', '') or '').strip())
+
     def get(self, request):
         queryset = (
             Tracking.objects.filter(user=request.user, is_removed=False)
@@ -2126,6 +2115,12 @@ class ApplicationTrackingListCreateView(APIView):
             tracking.tailored_resume = tailored
             tracking.save(update_fields=['tailored_resume', 'updated_at'])
         self._sync_selected_hrs(request, tracking, payload)
+        if not self._has_company_mail_pattern(company):
+            tracking.hard_delete()
+            return Response(
+                {'detail': 'Company mail pattern is required to create tracking.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         action_error = self._append_action(tracking, payload)
         if action_error:
             return Response({'detail': action_error}, status=status.HTTP_400_BAD_REQUEST)
@@ -2167,6 +2162,9 @@ class ApplicationTrackingDetailView(APIView):
         if text in {'false', '0', 'no', 'n', 'off'}:
             return False
         return default
+
+    def _has_company_mail_pattern(self, company):
+        return bool(company and str(getattr(company, 'mail_format', '') or '').strip())
 
     def _to_date(self, value):
         raw = str(value or '').strip()
@@ -2499,6 +2497,13 @@ class ApplicationTrackingDetailView(APIView):
             company_id_ref = row.job.company_id if row.job_id and row.job and row.job.company_id else None
             selected = Employee.objects.filter(user=request.user, company_id=company_id_ref, name__in=target_names)
             row.selected_hrs.set(selected)
+
+        company_ref = row.job.company if row.job_id and row.job and row.job.company_id else None
+        if not self._has_company_mail_pattern(company_ref):
+            return Response(
+                {'detail': 'Company mail pattern is required for this tracking row.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         append_action = payload.get('append_action')
         if isinstance(append_action, dict):

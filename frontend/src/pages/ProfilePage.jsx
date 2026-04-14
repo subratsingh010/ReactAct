@@ -141,26 +141,12 @@ function roundValue(stage) {
   return value
 }
 
-function stageTypeFromValue(stage) {
-  return roundValue(stage) > 0 ? 'round' : 'other'
-}
-
-function otherStageValue(stage) {
-  return String(stage || '').toLowerCase() === 'assignment' ? 'assignment' : 'received_call'
-}
-
 function isRoundSelectionDisabled(targetRound, rememberedRound, currentSelectedRound) {
   const safeRemembered = Math.max(Number(rememberedRound || 0), 0)
   const selected = Math.max(Number(currentSelectedRound || 0), 0)
   const nextAllowed = Math.min(safeRemembered + 1, 8)
   if (selected > 0 && targetRound === selected) return false
   return targetRound !== nextAllowed
-}
-
-function pickNextRound(rememberedRound, currentSelectedRound) {
-  const remembered = Math.max(Number(rememberedRound || 0), 0)
-  if (currentSelectedRound > remembered && currentSelectedRound <= 8) return currentSelectedRound
-  return Math.min(remembered + 1, 8)
 }
 
 function milestoneEventsForRow(row) {
@@ -247,8 +233,8 @@ function ProfilePage() {
   const [editingInterviewId, setEditingInterviewId] = useState(null)
   const [interviewForm, setInterviewForm] = useState(EMPTY_INTERVIEW)
   const [savingInterviewId, setSavingInterviewId] = useState(null)
-  const [rowStageTypeDraft, setRowStageTypeDraft] = useState({})
-  const [rowStageValueDraft, setRowStageValueDraft] = useState({})
+  const [rowOtherStageDraft, setRowOtherStageDraft] = useState({})
+  const [rowRoundStageDraft, setRowRoundStageDraft] = useState({})
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -446,12 +432,6 @@ function ProfilePage() {
     }
   }
 
-  const formRememberedRound = Number(interviewForm.max_round_reached || 0)
-  const formNextRound = Math.min(Math.max(formRememberedRound + 1, 1), 8)
-  const formRoundSelectValue = roundValue(interviewForm.stage) > formRememberedRound
-    ? interviewForm.stage
-    : `round_${formNextRound}`
-
   return (
     <main className="page page-wide mx-auto w-full">
       <div className="tracking-head">
@@ -597,62 +577,14 @@ function ProfilePage() {
                   ))}
                 </select>
               </label>
-              <label>Company<input value={interviewForm.company_name} readOnly /></label>
-              <label>Job Role<input value={interviewForm.job_role} readOnly /></label>
-              <label>Job ID<input value={interviewForm.job_code} readOnly /></label>
+              <label>Company<input value={interviewForm.company_name} onChange={(e) => setInterviewForm((p) => ({ ...p, company_name: e.target.value }))} /></label>
+              <label>Job Role<input value={interviewForm.job_role} onChange={(e) => setInterviewForm((p) => ({ ...p, job_role: e.target.value }))} /></label>
+              <label>Job ID<input value={interviewForm.job_code} onChange={(e) => setInterviewForm((p) => ({ ...p, job_code: e.target.value }))} /></label>
               <label>Location
                 <select value={interviewForm.location_ref} onChange={(e) => setInterviewForm((p) => ({ ...p, location_ref: e.target.value }))}>
                   <option value="">Select location</option>
                   {locationOptions.map((location) => (
                     <option key={location.id} value={location.id}>{location.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label>Stage Type
-                <select
-                  value={stageTypeFromValue(interviewForm.stage)}
-                  onChange={(e) => {
-                    const nextType = e.target.value
-                    if (nextType === 'round') {
-                      const rememberedRound = Number(interviewForm.max_round_reached || 0)
-                      const currentSelectedRound = roundValue(interviewForm.stage)
-                      const nextRound = pickNextRound(rememberedRound, currentSelectedRound)
-                      setInterviewForm((p) => ({ ...p, stage: `round_${nextRound}` }))
-                      return
-                    }
-                    setInterviewForm((p) => ({ ...p, stage: otherStageValue(p.stage) }))
-                  }}
-                >
-                  <option value="other">Other Stage</option>
-                  <option value="round">Round Stage</option>
-                </select>
-              </label>
-              <label>Stage
-                {stageTypeFromValue(interviewForm.stage) === 'round' ? (
-                  <select value={formRoundSelectValue} onChange={(e) => setInterviewForm((p) => ({ ...p, stage: e.target.value }))}>
-                    {Array.from({ length: 8 }, (_, idx) => {
-                      const targetRound = idx + 1
-                      const currentSelectedRound = roundValue(formRoundSelectValue)
-                      const isDisabled = isRoundSelectionDisabled(targetRound, formRememberedRound, currentSelectedRound)
-                      return (
-                        <option key={`form-round-${targetRound}`} value={`round_${targetRound}`} disabled={isDisabled}>
-                          {`Round ${targetRound}`}
-                        </option>
-                      )
-                    })}
-                  </select>
-                ) : (
-                  <select value={otherStageValue(interviewForm.stage)} onChange={(e) => setInterviewForm((p) => ({ ...p, stage: e.target.value }))}>
-                    {OTHER_INTERVIEW_STAGES.map((item) => (
-                      <option key={item.value} value={item.value}>{item.label}</option>
-                    ))}
-                  </select>
-                )}
-              </label>
-              <label>Action
-                <select value={interviewForm.action} onChange={(e) => setInterviewForm((p) => ({ ...p, action: e.target.value }))}>
-                  {INTERVIEW_ACTIONS.map((item) => (
-                    <option key={item.value} value={item.value}>{item.label}</option>
                   ))}
                 </select>
               </label>
@@ -668,14 +600,13 @@ function ProfilePage() {
 
         <div className="grid gap-4">
           {interviews.map((row) => {
-            const stageTypeDraft = String(rowStageTypeDraft[row.id] || '')
-            const effectiveStageType = stageTypeDraft || stageTypeFromValue(row.stage)
             const rememberedRound = Number(row.max_round_reached || 0)
             const nextRound = Math.min(Math.max(rememberedRound + 1, 1), 8)
-            const stageValueDraft = typeof rowStageValueDraft[row.id] === 'string' ? rowStageValueDraft[row.id] : ''
-            const stageSelectValue = stageValueDraft
+            const otherStageValueDraft = typeof rowOtherStageDraft[row.id] === 'string' ? rowOtherStageDraft[row.id] : ''
+            const roundStageValueDraft = typeof rowRoundStageDraft[row.id] === 'string' ? rowRoundStageDraft[row.id] : ''
             const action = String(row.action || 'active').toLowerCase()
             const isHold = action === 'hold'
+            const isLanded = action === 'landed_job'
             const isFailure = ['rejected', 'no_response', 'no_feedback', 'ghosted', 'skipped'].includes(action)
             const isActive = action === 'active'
             const showFutureDots = isActive || isHold
@@ -693,63 +624,65 @@ function ProfilePage() {
                   </div>
                 </div>
                 <div className="grid gap-2 md:grid-cols-2">
-                  <label>Stage Type
+                  <label>Other Stage
                     <select
-                      value={effectiveStageType}
-                      disabled={savingInterviewId === row.id || String(row.action || 'active').toLowerCase() !== 'active'}
-                      onChange={(e) => {
-                        const nextType = e.target.value
-                        setRowStageTypeDraft((prev) => ({ ...prev, [row.id]: nextType }))
-                        setRowStageValueDraft((prev) => ({ ...prev, [row.id]: '' }))
-                      }}
-                    >
-                      <option value="other">Other Stage</option>
-                      <option value="round">Round Stage</option>
-                    </select>
-                  </label>
-                  <label>Stage
-                    <select
-                      value={stageSelectValue}
+                      value={otherStageValueDraft}
                       disabled={savingInterviewId === row.id || String(row.action || 'active').toLowerCase() !== 'active'}
                       onChange={(e) => {
                         const nextStage = e.target.value
                         if (!nextStage) return
-                        setRowStageValueDraft((prev) => ({ ...prev, [row.id]: nextStage }))
+                        setRowOtherStageDraft((prev) => ({ ...prev, [row.id]: nextStage }))
                         inlineUpdateInterview(row, { stage: nextStage })
-                        setRowStageTypeDraft((prev) => {
+                        setRowOtherStageDraft((prev) => {
                           const next = { ...prev }
                           delete next[row.id]
                           return next
                         })
-                        setRowStageValueDraft((prev) => {
+                        setRowRoundStageDraft((prev) => {
                           const next = { ...prev }
                           delete next[row.id]
                           return next
                         })
                       }}
                     >
-                      {effectiveStageType === 'round' ? (
-                        <>
-                          <option value="">Select round</option>
-                          {Array.from({ length: 8 }, (_, idx) => {
-                            const targetRound = idx + 1
-                            const currentSelectedRound = roundValue(stageSelectValue || `round_${nextRound}`)
-                            const isDisabled = isRoundSelectionDisabled(targetRound, rememberedRound, currentSelectedRound)
-                            return (
-                              <option key={`row-${row.id}-round-${targetRound}`} value={`round_${targetRound}`} disabled={isDisabled}>
-                                {`Round ${targetRound}`}
-                              </option>
-                            )
-                          })}
-                        </>
-                      ) : (
-                        <>
-                          <option value="">Select stage</option>
-                          {OTHER_INTERVIEW_STAGES.map((item) => (
-                            <option key={`row-${row.id}-${item.value}`} value={item.value}>{item.label}</option>
-                          ))}
-                        </>
-                      )}
+                      <option value="">Select stage</option>
+                      {OTHER_INTERVIEW_STAGES.map((item) => (
+                        <option key={`row-${row.id}-${item.value}`} value={item.value}>{item.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>Round Stage
+                    <select
+                      value={roundStageValueDraft}
+                      disabled={savingInterviewId === row.id || String(row.action || 'active').toLowerCase() !== 'active'}
+                      onChange={(e) => {
+                        const nextStage = e.target.value
+                        if (!nextStage) return
+                        setRowRoundStageDraft((prev) => ({ ...prev, [row.id]: nextStage }))
+                        inlineUpdateInterview(row, { stage: nextStage })
+                        setRowRoundStageDraft((prev) => {
+                          const next = { ...prev }
+                          delete next[row.id]
+                          return next
+                        })
+                        setRowOtherStageDraft((prev) => {
+                          const next = { ...prev }
+                          delete next[row.id]
+                          return next
+                        })
+                      }}
+                    >
+                      <option value="">Select round</option>
+                      {Array.from({ length: 8 }, (_, idx) => {
+                        const targetRound = idx + 1
+                        const currentSelectedRound = roundValue(roundStageValueDraft || `round_${nextRound}`)
+                        const isDisabled = isRoundSelectionDisabled(targetRound, rememberedRound, currentSelectedRound)
+                        return (
+                          <option key={`row-${row.id}-round-${targetRound}`} value={`round_${targetRound}`} disabled={isDisabled}>
+                            {`Round ${targetRound}`}
+                          </option>
+                        )
+                      })}
                     </select>
                   </label>
                 </div>
@@ -781,7 +714,9 @@ function ProfilePage() {
                             return ''
                           })(),
                         ].join(' ').trim()}
-                      />
+                      >
+                        {index === currentDotIndex && isLanded ? '✅' : ''}
+                      </span>
                       <span className="profile-milestone-label">{eventSteps[index]?.label || ''}</span>
                       <span className="profile-milestone-date">{milestoneDateText(eventSteps[index]?.at)}</span>
                       {index < totalDots - 1 ? (

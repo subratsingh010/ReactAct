@@ -450,9 +450,12 @@ class Interview(BaseModel):
 
     def save(self, *args, **kwargs):
         if self.job:
-            self.company_name = str(self.job.company.name or '').strip() if self.job.company_id else self.company_name
-            self.job_role = str(self.job.role or '').strip() or self.job_role
-            self.job_code = str(self.job.job_id or '').strip() or self.job_code
+            if not str(self.company_name or '').strip() and self.job.company_id:
+                self.company_name = str(self.job.company.name or '').strip()
+            if not str(self.job_role or '').strip():
+                self.job_role = str(self.job.role or '').strip() or self.job_role
+            if not str(self.job_code or '').strip():
+                self.job_code = str(self.job.job_id or '').strip() or self.job_code
         self.company_name = str(self.company_name or '').strip()
         self.job_role = str(self.job_role or '').strip()
         self.job_code = str(self.job_code or '').strip()
