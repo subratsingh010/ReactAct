@@ -8,7 +8,6 @@ import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from django.contrib.auth import get_user_model
 from django.db.models import Q
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -79,8 +78,7 @@ def _resolve_extension_user(request):
     user = getattr(request, 'user', None)
     if getattr(user, 'is_authenticated', False):
         return user
-    User = get_user_model()
-    return User.objects.order_by('id').first()
+    return None
 
 def _plain_text_from_html(value: str) -> str:
     import re
@@ -3337,7 +3335,7 @@ class ExtensionCompanySearchView(APIView):
     def get(self, request):
         actor = _resolve_extension_user(request)
         if not actor:
-            return Response({'detail': 'No user found for extension context.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Please login in web app'}, status=status.HTTP_401_UNAUTHORIZED)
         q = str(request.query_params.get('q') or '').strip()
         rows = Company.objects.filter(user=actor)
         if q:
@@ -3409,7 +3407,7 @@ class ExtensionJobCreateView(APIView):
         payload = request.data or {}
         actor = _resolve_extension_user(request)
         if not actor:
-            return Response({'detail': 'No user found for extension context.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Please login in web app'}, status=status.HTTP_401_UNAUTHORIZED)
 
         company, company_error = self._resolve_company(actor, payload)
         if company_error:
@@ -3506,7 +3504,7 @@ class ExtensionEmployeeCreateView(APIView):
         payload = dict(request.data or {})
         actor = _resolve_extension_user(request)
         if not actor:
-            return Response({'detail': 'No user found for extension context.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Please login in web app'}, status=status.HTTP_401_UNAUTHORIZED)
 
         company, company_error = self._resolve_company(actor, payload)
         if company_error:

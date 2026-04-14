@@ -90,6 +90,10 @@ class Company(BaseModel):
     class Meta:
         ordering = ['name']
 
+    def save(self, *args, **kwargs):
+        self.name = ' '.join(str(self.name or '').split()).lower()
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f'{self.name} ({self.user.username})'
 

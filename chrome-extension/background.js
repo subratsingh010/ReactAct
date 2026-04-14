@@ -77,6 +77,9 @@ async function apiFetch(path, options = {}) {
   if (!token) {
     token = await tryAutoTokenFromOpenAppTabs()
   }
+  if (options.requireAuth && !token) {
+    throw new Error('Please login in web app')
+  }
 
   const apiBase = normalizeApiBase(options.apiBase)
   const url = `${apiBase}${path}`
@@ -170,6 +173,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'EXTENSION_SAVE_JOB') {
     apiFetch('/extension/jobs/', {
       method: 'POST',
+      requireAuth: true,
       apiBase: msg?.apiBase,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(msg?.payload || {}),
@@ -182,6 +186,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'EXTENSION_SAVE_EMPLOYEE') {
     apiFetch('/extension/employees/', {
       method: 'POST',
+      requireAuth: true,
       apiBase: msg?.apiBase,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(msg?.payload || {}),

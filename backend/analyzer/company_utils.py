@@ -8,16 +8,16 @@ from .models import Company
 
 
 def normalize_company_name(raw: str | None) -> str:
-    """Strip edges and collapse internal whitespace to a single space."""
-    return ' '.join(str(raw or '').split())
+    """Strip edges, collapse internal whitespace, and lowercase for canonical compare/store."""
+    return ' '.join(str(raw or '').split()).lower()
 
 
 def find_company_by_normalized_name(user, normalized: str) -> Company | None:
-    key = normalized.lower()
+    key = normalize_company_name(normalized)
     if not key:
         return None
     for company in Company.objects.filter(user=user).only('id', 'name'):
-        if normalize_company_name(company.name).lower() == key:
+        if normalize_company_name(company.name) == key:
             return company
     return None
 
@@ -25,8 +25,8 @@ def find_company_by_normalized_name(user, normalized: str) -> Company | None:
 @transaction.atomic
 def get_or_create_company_normalized(user, raw_name: str) -> tuple[Company, bool]:
     """
-    Return (company, created). Name stored normalized (no extra spaces).
-    Matches existing rows case-insensitively after normalizing whitespace.
+    Return (company, created). Name stored normalized (strip + collapse spaces + lowercase).
+    Matches existing rows using the same canonical normalization.
     """
     norm = normalize_company_name(raw_name)
     if not norm:
