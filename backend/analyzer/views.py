@@ -18,7 +18,7 @@ from django.utils import timezone
 
 from .pdf_parser import parse_resume_pdf
 from .company_utils import normalize_company_name, resolve_company_for_job
-from .models import Resume, TailoredResume, MailTracking, MailTrackingEvent, Company, Employee, Job, Tracking, TrackingAction, UserProfile, Achievement, Interview
+from .models import Resume, TailoredResume, MailTracking, MailTrackingEvent, Company, Employee, Job, Tracking, TrackingAction, UserProfile, Achievement, Interview, Location
 from .serializers import (
     ResumeSerializer,
     TailoredResumeSerializer,
@@ -30,6 +30,7 @@ from .serializers import (
     UserProfileSerializer,
     AchievementSerializer,
     InterviewSerializer,
+    LocationSerializer,
 )
 from .tailor import (
     ALLOWED_AI_MODELS,
@@ -853,7 +854,16 @@ class ProfileInfoView(APIView):
 
     def put(self, request):
         profile = self._get_or_create(request)
-        serializer = UserProfileSerializer(profile, data=request.data, partial=True)
+        payload = dict(request.data or {})
+        location_ref_raw = str(payload.get('location_ref') or '').strip()
+        if location_ref_raw:
+            try:
+                location = Location.objects.get(id=location_ref_raw)
+                payload['location_ref'] = location.id
+                payload['location'] = location.name
+            except Location.DoesNotExist:
+                return Response({'detail': 'Location not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = UserProfileSerializer(profile, data=payload, partial=True)
         if serializer.is_valid():
             updated = serializer.save()
             return Response(UserProfileSerializer(updated).data, status=status.HTTP_200_OK)
@@ -906,6 +916,29 @@ class AchievementDetailView(APIView):
 class InterviewListCreateView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [JSONParser]
+    STAGE_LABELS = {
+        'received_call': 'Received Call',
+        'assignment': 'Assignment',
+        'round_1': 'Round 1',
+        'round_2': 'Round 2',
+        'round_3': 'Round 3',
+        'round_4': 'Round 4',
+        'round_5': 'Round 5',
+        'round_6': 'Round 6',
+        'round_7': 'Round 7',
+        'round_8': 'Round 8',
+        'landed_job': 'Landed Job',
+    }
+    ACTION_LABELS = {
+        'active': 'Active',
+        'landed_job': 'Landed Job',
+        'rejected': 'Rejected',
+        'hold': 'Hold',
+        'no_response': 'No Response',
+        'no_feedback': 'No Feedback',
+        'ghosted': 'Ghosted',
+        'skipped': 'Skipped',
+    }
 
     def _has_duplicate(self, request, company_name, job_role, exclude_id=None):
         company_key = str(company_name or '').strip().lower()
@@ -917,19 +950,102 @@ class InterviewListCreateView(APIView):
             rows = rows.exclude(id=exclude_id)
         return rows.exists()
 
+    def _has_job_duplicate(self, request, job_id, exclude_id=None):
+        if not job_id:
+            return False
+        rows = Interview.objects.filter(user=request.user, job_id=job_id)
+        if exclude_id:
+            rows = rows.exclude(id=exclude_id)
+        return rows.exists()
+
+    def _round_value(self, stage):
+        raw = str(stage or '').strip().lower()
+        if raw.startswith('round_'):
+            suffix = raw.replace('round_', '', 1)
+            if suffix.isdigit():
+                value = int(suffix)
+                if 1 <= value <= 8:
+                    return value
+        return 0
+
+    def _append_milestone_event(self, row, stage, action):
+        events = row.milestone_events if isinstance(row.milestone_events, list) else []
+        stage_key = str(stage or row.stage or 'received_call').strip().lower() or 'received_call'
+        action_key = str(action or row.action or 'active').strip().lower() or 'active'
+        stage_label = self.STAGE_LABELS.get(stage_key, stage_key.replace('_', ' ').title())
+        action_label = self.ACTION_LABELS.get(action_key, action_key.replace('_', ' ').title())
+        events.append({
+            'stage': stage_key,
+            'action': action_key,
+            'label': f'{stage_label} | {action_label}',
+            'at': timezone.now().isoformat(),
+        })
+        row.milestone_events = events[-10:]
+        row.save(update_fields=['milestone_events', 'updated_at'])
+
+    def _update_last_milestone_action(self, row, action):
+        events = row.milestone_events if isinstance(row.milestone_events, list) else []
+        if not events:
+            self._append_milestone_event(row, row.stage, action)
+            return
+        action_key = str(action or row.action or 'active').strip().lower() or 'active'
+        action_label = self.ACTION_LABELS.get(action_key, action_key.replace('_', ' ').title())
+        last = dict(events[-1] or {})
+        stage_key = str(last.get('stage') or row.stage or 'received_call').strip().lower() or 'received_call'
+        stage_label = self.STAGE_LABELS.get(stage_key, stage_key.replace('_', ' ').title())
+        last['action'] = action_key
+        last['label'] = f'{stage_label} | {action_label}'
+        events[-1] = last
+        row.milestone_events = events[-10:]
+        row.save(update_fields=['milestone_events', 'updated_at'])
+
     def get(self, request):
         rows = Interview.objects.filter(user=request.user).order_by('-updated_at', '-created_at')
         return Response(InterviewSerializer(rows, many=True).data, status=status.HTTP_200_OK)
 
     def post(self, request):
         payload = dict(request.data or {})
+        payload['action'] = str(payload.get('action') or payload.get('section') or 'active').strip().lower() or 'active'
+        raw_job_id = str(payload.get('job') or '').strip()
+        selected_job = None
+        if raw_job_id:
+            try:
+                selected_job = Job.objects.get(id=raw_job_id, user=request.user, is_removed=False)
+            except Job.DoesNotExist:
+                return Response({'detail': 'Selected job not found.'}, status=status.HTTP_400_BAD_REQUEST)
         company_name = str(payload.get('company_name') or '').strip()
         job_role = str(payload.get('job_role') or '').strip()
+        job_code = str(payload.get('job_code') or '').strip()
+        location_ref_raw = str(payload.get('location_ref') or '').strip()
+        selected_location = None
+        if location_ref_raw:
+            try:
+                selected_location = Location.objects.get(id=location_ref_raw)
+            except Location.DoesNotExist:
+                return Response({'detail': 'Location not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        if selected_job:
+            company_name = str(selected_job.company.name or '').strip() if selected_job.company_id else company_name
+            job_role = str(selected_job.role or '').strip() or job_role
+            job_code = str(selected_job.job_id or '').strip() or job_code
         if self._has_duplicate(request, company_name, job_role):
             return Response({'detail': 'Interview with same company and job already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        if self._has_job_duplicate(request, selected_job.id if selected_job else None):
+            return Response({'detail': 'Interview with same job already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        stage = str(payload.get('stage') or 'received_call').strip()
+        requested_round = self._round_value(stage)
+        if requested_round > 1:
+            return Response({'detail': 'You must complete previous rounds in order before selecting this round.'}, status=status.HTTP_400_BAD_REQUEST)
+        payload['company_name'] = company_name
+        payload['job_role'] = job_role
+        payload['job_code'] = job_code
+        if selected_location:
+            payload['location_ref'] = selected_location.id
+        if selected_job:
+            payload['job'] = selected_job.id
         serializer = InterviewSerializer(data=payload)
         if serializer.is_valid():
-            created = serializer.save(user=request.user)
+            created = serializer.save(user=request.user, max_round_reached=requested_round if requested_round else 0)
+            self._append_milestone_event(created, created.stage, created.action)
             return Response(InterviewSerializer(created).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -937,26 +1053,128 @@ class InterviewListCreateView(APIView):
 class InterviewDetailView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [JSONParser]
+    STAGE_LABELS = InterviewListCreateView.STAGE_LABELS
+    ACTION_LABELS = InterviewListCreateView.ACTION_LABELS
 
     def _get_object(self, request, interview_id):
         return Interview.objects.get(id=interview_id, user=request.user)
+
+    def _round_value(self, stage):
+        raw = str(stage or '').strip().lower()
+        if raw.startswith('round_'):
+            suffix = raw.replace('round_', '', 1)
+            if suffix.isdigit():
+                value = int(suffix)
+                if 1 <= value <= 8:
+                    return value
+        return 0
+
+    def _has_job_duplicate(self, request, job_id, exclude_id=None):
+        if not job_id:
+            return False
+        rows = Interview.objects.filter(user=request.user, job_id=job_id)
+        if exclude_id:
+            rows = rows.exclude(id=exclude_id)
+        return rows.exists()
+
+    def _append_milestone_event(self, row, stage, action):
+        events = row.milestone_events if isinstance(row.milestone_events, list) else []
+        stage_key = str(stage or row.stage or 'received_call').strip().lower() or 'received_call'
+        action_key = str(action or row.action or 'active').strip().lower() or 'active'
+        stage_label = self.STAGE_LABELS.get(stage_key, stage_key.replace('_', ' ').title())
+        action_label = self.ACTION_LABELS.get(action_key, action_key.replace('_', ' ').title())
+        events.append({
+            'stage': stage_key,
+            'action': action_key,
+            'label': f'{stage_label} | {action_label}',
+            'at': timezone.now().isoformat(),
+        })
+        row.milestone_events = events[-10:]
+        row.save(update_fields=['milestone_events', 'updated_at'])
+
+    def _update_last_milestone_action(self, row, action):
+        events = row.milestone_events if isinstance(row.milestone_events, list) else []
+        if not events:
+            self._append_milestone_event(row, row.stage, action)
+            return
+        action_key = str(action or row.action or 'active').strip().lower() or 'active'
+        action_label = self.ACTION_LABELS.get(action_key, action_key.replace('_', ' ').title())
+        last = dict(events[-1] or {})
+        stage_key = str(last.get('stage') or row.stage or 'received_call').strip().lower() or 'received_call'
+        stage_label = self.STAGE_LABELS.get(stage_key, stage_key.replace('_', ' ').title())
+        last['action'] = action_key
+        last['label'] = f'{stage_label} | {action_label}'
+        events[-1] = last
+        row.milestone_events = events[-10:]
+        row.save(update_fields=['milestone_events', 'updated_at'])
 
     def put(self, request, interview_id):
         try:
             row = self._get_object(request, interview_id)
         except Interview.DoesNotExist:
             return Response({'detail': 'Interview not found.'}, status=status.HTTP_404_NOT_FOUND)
+        prev_stage = row.stage
+        prev_action = row.action
         payload = dict(request.data or {})
+        stage_explicitly_sent = 'stage' in payload
+        payload['action'] = str(payload.get('action') or payload.get('section') or row.action or 'active').strip().lower() or 'active'
+        raw_job_id = str(payload.get('job') or '').strip()
+        selected_job = row.job if row.job_id else None
+        if raw_job_id:
+            try:
+                selected_job = Job.objects.get(id=raw_job_id, user=request.user, is_removed=False)
+            except Job.DoesNotExist:
+                return Response({'detail': 'Selected job not found.'}, status=status.HTTP_400_BAD_REQUEST)
         company_name = payload.get('company_name', row.company_name)
         job_role = payload.get('job_role', row.job_role)
+        job_code = payload.get('job_code', row.job_code)
+        location_ref_raw = str(payload.get('location_ref') or '').strip()
+        selected_location = row.location_ref if getattr(row, 'location_ref_id', None) else None
+        if location_ref_raw:
+            try:
+                selected_location = Location.objects.get(id=location_ref_raw)
+            except Location.DoesNotExist:
+                return Response({'detail': 'Location not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        if selected_job:
+            company_name = selected_job.company.name if selected_job.company_id else company_name
+            job_role = selected_job.role or job_role
+            job_code = selected_job.job_id or job_code
         company_key = str(company_name or '').strip().lower()
         job_key = str(job_role or '').strip().lower()
         duplicate = Interview.objects.filter(user=request.user, company_key=company_key, job_role_key=job_key).exclude(id=row.id).exists()
         if duplicate:
             return Response({'detail': 'Interview with same company and job already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        if self._has_job_duplicate(request, selected_job.id if selected_job else None, exclude_id=row.id):
+            return Response({'detail': 'Interview with same job already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        next_stage = payload.get('stage', row.stage)
+        stage_changed = str(next_stage or '').strip().lower() != str(row.stage or '').strip().lower()
+        requested_round = self._round_value(next_stage)
+        current_round = self._round_value(row.stage)
+        base_max_round = max(int(row.max_round_reached or 0), current_round)
+        if stage_changed and requested_round and requested_round <= base_max_round:
+            return Response({'detail': 'Round stage must move forward. You cannot select same or lower round again.'}, status=status.HTTP_400_BAD_REQUEST)
+        if requested_round and requested_round > (base_max_round + 1):
+            return Response({'detail': 'You must complete previous rounds in order before selecting this round.'}, status=status.HTTP_400_BAD_REQUEST)
+        next_max_round = max(base_max_round, requested_round)
+        payload['company_name'] = str(company_name or '').strip()
+        payload['job_role'] = str(job_role or '').strip()
+        payload['job_code'] = str(job_code or '').strip()
+        payload['job'] = selected_job.id if selected_job else None
+        payload['location_ref'] = selected_location.id if selected_location else None
         serializer = InterviewSerializer(row, data=payload, partial=True)
         if serializer.is_valid():
-            updated = serializer.save()
+            updated = serializer.save(max_round_reached=next_max_round)
+            stage_changed = str(updated.stage or '').strip().lower() != str(prev_stage or '').strip().lower()
+            action_changed = str(updated.action or '').strip().lower() != str(prev_action or '').strip().lower()
+            requested_non_round_repeat = (
+                stage_explicitly_sent
+                and not requested_round
+                and not stage_changed
+            )
+            if stage_changed or requested_non_round_repeat:
+                self._append_milestone_event(updated, updated.stage, updated.action)
+            elif action_changed:
+                self._update_last_milestone_action(updated, updated.action)
             return Response(InterviewSerializer(updated).data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -979,6 +1197,14 @@ class ProfileConfigView(APIView):
     def put(self, request):
         saved = _set_user_profile_config(request.user, request.data if isinstance(request.data, dict) else {})
         return Response(saved)
+
+
+class LocationListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        rows = Location.objects.all().order_by('name')
+        return Response(LocationSerializer(rows, many=True).data, status=status.HTTP_200_OK)
 
 
 class ResumeListCreateView(APIView):

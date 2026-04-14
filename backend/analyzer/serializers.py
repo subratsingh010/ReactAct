@@ -8,6 +8,7 @@ from .models import (
     Company,
     Employee,
     Job,
+    Location,
     UserProfile,
     Achievement,
     Interview,
@@ -195,12 +196,18 @@ class MailTrackingSerializer(serializers.ModelSerializer):
 
 class EmployeeSerializer(serializers.ModelSerializer):
     company_name = serializers.SerializerMethodField()
+    location_name = serializers.SerializerMethodField()
     # Backward-compatible API keys for existing frontend payload/response shape.
     role = serializers.CharField(source='JobRole', required=False, allow_blank=True)
     personalized_template_helpful = serializers.CharField(source='helpful', required=False, allow_blank=True)
 
     def get_company_name(self, obj):
         return obj.company.name if getattr(obj, 'company', None) else ''
+
+    def get_location_name(self, obj):
+        if getattr(obj, 'location_ref_id', None) and getattr(obj, 'location_ref', None):
+            return obj.location_ref.name
+        return str(getattr(obj, 'location', '') or '')
 
     class Meta:
         model = Employee
@@ -218,6 +225,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'personalized_template',
             'profile',
             'location',
+            'location_ref',
+            'location_name',
             'created_at',
             'updated_at',
         ]
@@ -314,6 +323,13 @@ ApplicationTrackingSerializer = MailTrackingSerializer
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    location_name = serializers.SerializerMethodField()
+
+    def get_location_name(self, obj):
+        if getattr(obj, 'location_ref_id', None) and getattr(obj, 'location_ref', None):
+            return obj.location_ref.name
+        return str(getattr(obj, 'location', '') or '')
+
     class Meta:
         model = UserProfile
         fields = [
@@ -327,6 +343,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'current_employer',
             'years_of_experience',
             'location',
+            'location_ref',
+            'location_name',
             'summary',
             'created_at',
             'updated_at',
@@ -349,16 +367,44 @@ class AchievementSerializer(serializers.ModelSerializer):
 
 
 class InterviewSerializer(serializers.ModelSerializer):
+    job_label = serializers.SerializerMethodField()
+    location_name = serializers.SerializerMethodField()
+
+    def get_job_label(self, obj):
+        if not getattr(obj, 'job_id', None) or not obj.job:
+            return ''
+        company_name = obj.job.company.name if obj.job.company_id else ''
+        return f"{obj.job.job_id} | {company_name} | {obj.job.role}"
+
+    def get_location_name(self, obj):
+        if getattr(obj, 'location_ref_id', None) and getattr(obj, 'location_ref', None):
+            return obj.location_ref.name
+        return ''
+
     class Meta:
         model = Interview
         fields = [
             'id',
+            'job',
+            'job_label',
+            'location_ref',
+            'location_name',
             'company_name',
             'job_role',
+            'job_code',
             'stage',
+            'action',
+            'max_round_reached',
+            'milestone_events',
             'interview_at',
             'notes',
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'max_round_reached', 'milestone_events', 'created_at', 'updated_at']
+
+
+class LocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Location
+        fields = ['id', 'name']

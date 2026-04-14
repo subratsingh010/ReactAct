@@ -837,6 +837,40 @@
     @apply mt-3 flex min-w-0 items-start gap-0 overflow-x-auto pb-2;
   }
 
+  .profile-resume-grid {
+    @apply grid gap-3;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
+  @media (min-width: 640px) {
+    .profile-resume-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .profile-resume-grid {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+  }
+
+  .profile-ach-grid {
+    @apply grid gap-3;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
+  @media (min-width: 768px) {
+    .profile-ach-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1200px) {
+    .profile-ach-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
   .profile-milestone-node {
     @apply relative flex min-w-[72px] flex-col items-center;
   }
@@ -849,6 +883,14 @@
     @apply border-emerald-600 bg-emerald-500;
   }
 
+  .profile-milestone-dot.is-blue {
+    @apply border-blue-600 bg-blue-500;
+  }
+
+  .profile-milestone-dot.is-red {
+    @apply border-red-600 bg-red-500;
+  }
+
   .profile-milestone-line {
     @apply absolute left-1/2 top-2 h-[2px] w-[72px] bg-slate-300;
     transform: translateX(8px);
@@ -858,8 +900,20 @@
     @apply bg-emerald-500;
   }
 
+  .profile-milestone-line.is-blue {
+    @apply bg-blue-500;
+  }
+
+  .profile-milestone-line.is-red {
+    @apply bg-red-500;
+  }
+
   .profile-milestone-label {
     @apply mt-2 text-center text-[10px] text-slate-600;
+  }
+
+  .profile-milestone-date {
+    @apply mt-1 text-center text-[9px] text-slate-500;
   }
 
   .modal-overlay {
@@ -903,6 +957,10 @@
 
   .builder-header {
     @apply mb-5 flex flex-col gap-3;
+  }
+
+  .builder-header-top {
+    @apply flex items-start justify-between gap-3;
   }
 
   .builder-header h1 {

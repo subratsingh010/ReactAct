@@ -293,6 +293,11 @@ export async function fetchInterviews(accessToken) {
   return parseResponse(response)
 }
 
+export async function fetchLocations(accessToken) {
+  const response = await authFetch(`${API_BASE_URL}/locations/`, {}, accessToken)
+  return parseResponse(response)
+}
+
 export async function createInterview(accessToken, payload) {
   const response = await authFetch(
     `${API_BASE_URL}/interviews/`,

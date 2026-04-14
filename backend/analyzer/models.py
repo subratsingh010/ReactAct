@@ -94,6 +94,16 @@ class Company(BaseModel):
         return f'{self.name} ({self.user.username})'
 
 
+class Location(BaseModel):
+    name = models.CharField(max_length=180, unique=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
 class Employee(BaseModel):
     TEMPLATE_HELPFUL_CHOICES = [
         ('good', 'Good'),
@@ -130,6 +140,13 @@ class Employee(BaseModel):
     personalized_template = models.TextField(blank=True)
     profile = models.URLField(blank=True, max_length=1000)
     location = models.CharField(max_length=180, blank=True)
+    location_ref = models.ForeignKey(
+        Location,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='employees',
+    )
 
 
     class Meta:
@@ -337,6 +354,13 @@ class UserProfile(BaseModel):
     current_employer = models.CharField(max_length=180, blank=True)
     years_of_experience = models.CharField(max_length=60, blank=True)
     location = models.CharField(max_length=180, blank=True)
+    location_ref = models.ForeignKey(
+        Location,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='profiles',
+    )
     summary = models.TextField(blank=True)
 
     class Meta:
@@ -375,18 +399,42 @@ class Interview(BaseModel):
         ('round_7', 'Round 7'),
         ('round_8', 'Round 8'),
         ('landed_job', 'Landed Job'),
+    ]
+    ACTION_CHOICES = [
+        ('active', 'Active'),
+        ('landed_job', 'Landed Job'),
+        ('rejected', 'Rejected'),
         ('hold', 'Hold'),
         ('no_response', 'No Response'),
-        ('rejected', 'Rejected'),
+        ('no_feedback', 'No Feedback'),
+        ('ghosted', 'Ghosted'),
         ('skipped', 'Skipped'),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='interviews')
+    job = models.ForeignKey(
+        Job,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='interviews',
+    )
+    location_ref = models.ForeignKey(
+        Location,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='interviews',
+    )
     company_name = models.CharField(max_length=180)
     job_role = models.CharField(max_length=180)
+    job_code = models.CharField(max_length=120, blank=True, default='')
     company_key = models.CharField(max_length=180, editable=False)
     job_role_key = models.CharField(max_length=180, editable=False)
     stage = models.CharField(max_length=40, choices=STAGE_CHOICES, default='received_call')
+    action = models.CharField(max_length=40, choices=ACTION_CHOICES, default='active')
+    max_round_reached = models.PositiveSmallIntegerField(default=0)
+    milestone_events = models.JSONField(default=list, blank=True)
     interview_at = models.DateTimeField(blank=True, null=True)
     notes = models.TextField(blank=True)
 
@@ -401,8 +449,13 @@ class Interview(BaseModel):
         ]
 
     def save(self, *args, **kwargs):
+        if self.job:
+            self.company_name = str(self.job.company.name or '').strip() if self.job.company_id else self.company_name
+            self.job_role = str(self.job.role or '').strip() or self.job_role
+            self.job_code = str(self.job.job_id or '').strip() or self.job_code
         self.company_name = str(self.company_name or '').strip()
         self.job_role = str(self.job_role or '').strip()
+        self.job_code = str(self.job_code or '').strip()
         self.company_key = self.company_name.lower()
         self.job_role_key = self.job_role.lower()
         super().save(*args, **kwargs)

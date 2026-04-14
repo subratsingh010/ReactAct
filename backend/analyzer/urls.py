@@ -27,6 +27,7 @@ from .views import (
     AchievementDetailView,
     InterviewListCreateView,
     InterviewDetailView,
+    LocationListView,
 )
 
 urlpatterns = [
@@ -42,6 +43,7 @@ urlpatterns = [
     path('achievements/<int:achievement_id>/', AchievementDetailView.as_view()),
     path('interviews/', InterviewListCreateView.as_view()),
     path('interviews/<int:interview_id>/', InterviewDetailView.as_view()),
+    path('locations/', LocationListView.as_view()),
     path('resumes/', ResumeListCreateView.as_view()),
     path('tailored-resumes/', TailoredResumeListCreateView.as_view()),
     path('resumes/<int:resume_id>/', ResumeDetailView.as_view()),

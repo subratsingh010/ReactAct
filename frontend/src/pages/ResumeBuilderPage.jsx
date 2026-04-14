@@ -1494,16 +1494,6 @@ function ResumeBuilderPage({
           Edit In Builder
         </button>
       )}
-      {enableTailorFlow && (
-        <>
-          <button type="button" className="secondary" onClick={() => navigate('/profile/templates')}>
-            Back Templates
-          </button>
-          <button type="button" className="secondary" onClick={() => navigate('/profile')}>
-            Resume Management
-          </button>
-        </>
-      )}
       <button type="button" className="secondary" onClick={downloadAtsPdf}>
         ATS PDF
       </button>
@@ -1536,7 +1526,12 @@ function ResumeBuilderPage({
           style={{ display: 'none' }}
         />
         <div className="builder-header">
-          <h1>{pageTitle}</h1>
+          <div className="builder-header-top">
+            <h1>{pageTitle}</h1>
+            <button type="button" className="secondary" onClick={() => navigate('/profile')}>
+              Back to Profile
+            </button>
+          </div>
           <p className="subtitle">{subtitle}</p>
         </div>
 

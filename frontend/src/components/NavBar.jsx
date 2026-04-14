@@ -21,8 +21,6 @@ function NavBar() {
       { label: 'Companies', path: '/companies' },
       { label: 'Tracking', path: '/tracking' },
       { label: 'Jobs', path: '/jobs' },
-      { label: 'Resume Builder', path: '/builder' },
-      { label: 'Tailored Builder', path: '/tailored-builder' },
     ],
     [],
   )
