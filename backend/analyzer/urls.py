@@ -23,6 +23,8 @@ from .views import (
     EmployeeDetailView,
     JobListCreateView,
     JobDetailView,
+    BulkUploadEmployeesView,
+    BulkUploadJobsView,
     AchievementListCreateView,
     AchievementDetailView,
     InterviewListCreateView,
@@ -59,4 +61,6 @@ urlpatterns = [
     path('employees/<int:employee_id>/', EmployeeDetailView.as_view()),
     path('jobs/', JobListCreateView.as_view()),
     path('jobs/<int:job_id>/', JobDetailView.as_view()),
+    path('bulk-upload/employees/', BulkUploadEmployeesView.as_view()),
+    path('bulk-upload/jobs/', BulkUploadJobsView.as_view()),
 ]

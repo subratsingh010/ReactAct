@@ -200,6 +200,10 @@ class EmployeeSerializer(serializers.ModelSerializer):
     # Backward-compatible API keys for existing frontend payload/response shape.
     role = serializers.CharField(source='JobRole', required=False, allow_blank=True)
     personalized_template_helpful = serializers.CharField(source='helpful', required=False, allow_blank=True)
+    name = serializers.CharField(required=False, allow_blank=True)
+    first_name = serializers.CharField(required=False, allow_blank=True)
+    middle_name = serializers.CharField(required=False, allow_blank=True)
+    last_name = serializers.CharField(required=False, allow_blank=True)
 
     def get_company_name(self, obj):
         return obj.company.name if getattr(obj, 'company', None) else ''
@@ -209,16 +213,43 @@ class EmployeeSerializer(serializers.ModelSerializer):
             return obj.location_ref.name
         return str(getattr(obj, 'location', '') or '')
 
+    def validate(self, attrs):
+        first_name = str(attrs.get('first_name') or '').strip()
+        middle_name = str(attrs.get('middle_name') or '').strip()
+        last_name = str(attrs.get('last_name') or '').strip()
+        name = str(attrs.get('name') or '').strip()
+
+        if first_name or middle_name or last_name:
+            merged = ' '.join(part for part in [first_name, middle_name, last_name] if part).strip()
+            attrs['name'] = merged
+            attrs['first_name'] = first_name
+            attrs['middle_name'] = middle_name
+            attrs['last_name'] = last_name
+            return attrs
+
+        if name:
+            attrs['name'] = name
+            return attrs
+
+        if self.instance and str(getattr(self.instance, 'name', '') or '').strip():
+            return attrs
+
+        raise serializers.ValidationError({'name': ['Provide name or first/middle/last name.']})
+
     class Meta:
         model = Employee
         fields = [
             'id',
             'name',
+            'first_name',
+            'middle_name',
+            'last_name',
             'company',
             'company_name',
             'role',
             'department',
             'email',
+            'working_mail',
             'contact_number',
             'about',
             'personalized_template_helpful',

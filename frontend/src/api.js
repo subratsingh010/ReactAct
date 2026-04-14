@@ -1,11 +1,67 @@
 const API_BASE_URL = 'http://127.0.0.1:8000/api'
 
+function collectMessagesFromApiPayload(payload, bucket = []) {
+  if (payload === null || payload === undefined) return bucket
+  if (typeof payload === 'string' || typeof payload === 'number' || typeof payload === 'boolean') {
+    const text = String(payload).trim()
+    if (text) bucket.push(text)
+    return bucket
+  }
+  if (Array.isArray(payload)) {
+    payload.forEach((item) => collectMessagesFromApiPayload(item, bucket))
+    return bucket
+  }
+  if (typeof payload === 'object') {
+    for (const [key, value] of Object.entries(payload)) {
+      if (key === 'warning' || key === 'warnings') continue
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        const text = String(value).trim()
+        if (text) bucket.push(`${key}: ${text}`)
+      } else if (Array.isArray(value)) {
+        value.forEach((item) => {
+          const text = String(item ?? '').trim()
+          if (text) bucket.push(`${key}: ${text}`)
+        })
+      } else {
+        collectMessagesFromApiPayload(value, bucket)
+      }
+    }
+    return bucket
+  }
+  return bucket
+}
+
+function extractWarningText(data) {
+  if (!data || typeof data !== 'object') return ''
+  const raw = data.warning ?? data.warnings ?? ''
+  if (!raw) return ''
+  if (typeof raw === 'string') return raw.trim()
+  if (Array.isArray(raw)) return raw.map((x) => String(x ?? '').trim()).filter(Boolean).join(' | ')
+  return String(raw).trim()
+}
+
+function buildApiErrorMessage(data) {
+  if (data && typeof data === 'object') {
+    const detail = String(data.detail || '').trim()
+    if (detail) return detail
+    const message = String(data.message || '').trim()
+    if (message) return message
+  }
+  const messages = collectMessagesFromApiPayload(data, [])
+  if (messages.length) return messages.join(' | ')
+  return 'Request failed'
+}
+
 async function parseResponse(response) {
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
-    let message = data.detail || data.message || 'Request failed'
+    let message = buildApiErrorMessage(data)
     if (typeof message === 'string' && message.toLowerCase().includes('token not valid')) {
       message = 'Session expired. Please log in again.'
+    }
+    const warning = extractWarningText(data)
+    if (warning) {
+      message = `${message} | Warning: ${warning}`
     }
     throw new Error(message)
   }
@@ -41,13 +97,22 @@ async function refreshAccessToken() {
 }
 
 async function authFetch(url, options = {}, accessToken) {
+  const toNetworkError = (err) => {
+    const msg = String(err?.message || '').trim()
+    return new Error(msg || 'Network error. Please check API/server and try again.')
+  }
   const makeHeaders = (token) => ({
     ...(options.headers || {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   })
 
   const token = accessToken || localStorage.getItem('access') || ''
-  const first = await fetch(url, { ...options, headers: makeHeaders(token) })
+  let first
+  try {
+    first = await fetch(url, { ...options, headers: makeHeaders(token) })
+  } catch (err) {
+    throw toNetworkError(err)
+  }
   if (first.status !== 401) return first
 
   // Try refresh once, then retry.
@@ -56,7 +121,11 @@ async function authFetch(url, options = {}, accessToken) {
     clearTokens()
     return first
   }
-  return fetch(url, { ...options, headers: makeHeaders(nextAccess) })
+  try {
+    return await fetch(url, { ...options, headers: makeHeaders(nextAccess) })
+  } catch (err) {
+    throw toNetworkError(err)
+  }
 }
 
 export async function loginUser(username, password) {
@@ -609,5 +678,50 @@ export async function deleteJob(accessToken, jobPk, options = {}) {
     accessToken,
   )
   if (response.status === 204) return { ok: true }
+  return parseResponse(response)
+}
+
+
+export async function bulkUploadEmployees(accessToken, payloadOrFile, options = {}) {
+  const isFile = Boolean(options?.isFile)
+  const response = await authFetch(
+    `${API_BASE_URL}/bulk-upload/employees/`,
+    {
+      method: 'POST',
+      ...(isFile
+        ? (() => {
+            const formData = new FormData()
+            formData.append('file', payloadOrFile)
+            return { body: formData }
+          })()
+        : {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payloadOrFile || {}),
+          }),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function bulkUploadJobs(accessToken, payloadOrFile, options = {}) {
+  const isFile = Boolean(options?.isFile)
+  const response = await authFetch(
+    `${API_BASE_URL}/bulk-upload/jobs/`,
+    {
+      method: 'POST',
+      ...(isFile
+        ? (() => {
+            const formData = new FormData()
+            formData.append('file', payloadOrFile)
+            return { body: formData }
+          })()
+        : {
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payloadOrFile || {}),
+          }),
+    },
+    accessToken,
+  )
   return parseResponse(response)
 }

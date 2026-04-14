@@ -67,6 +67,23 @@ function toDateInput(value) {
   return date.toISOString().slice(0, 10)
 }
 
+function nowDateTimeLocalValue() {
+  const d = new Date(Date.now() - (new Date().getTimezoneOffset() * 60000))
+  return d.toISOString().slice(0, 16)
+}
+
+function toDateTimeLocalInput(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  const local = new Date(d.getTime() - (d.getTimezoneOffset() * 60000))
+  return local.toISOString().slice(0, 16)
+}
+
+function isFollowUpTemplate(choice) {
+  return ['follow_up_applied', 'follow_up_call', 'follow_up_interview'].includes(String(choice || '').trim())
+}
+
 function formatMilestoneLabel(item) {
   if (!item) return '--'
   const type = item.type === 'followup' ? 'Follow Up' : 'Fresh'
@@ -101,8 +118,65 @@ const TEMPLATE_CHOICES = [
   { value: 'cold_applied', label: 'Cold Applied' },
   { value: 'referral', label: 'Referral' },
   { value: 'job_inquire', label: 'Job Inquire' },
+  { value: 'follow_up_applied', label: 'Follow Up (Applied)' },
+  { value: 'follow_up_call', label: 'Follow Up (After Call)' },
+  { value: 'follow_up_interview', label: 'Follow Up (After Interview)' },
   { value: 'custom', label: 'Custom' },
 ]
+
+const TEMPLATE_DEPARTMENT_RULES = {
+  cold_applied: ['hr'],
+  follow_up_applied: ['hr'],
+  follow_up_call: ['hr'],
+  follow_up_interview: ['hr'],
+  referral: ['engineering'],
+  job_inquire: ['hr', 'engineering'],
+}
+
+function departmentBucket(value) {
+  const text = String(value || '').trim().toLowerCase()
+  if (!text) return 'other'
+  if (text.includes('hr') || text.includes('talent') || text.includes('recruit') || text.includes('human resource')) return 'hr'
+  if (text.includes('engineer') || text.includes('developer') || text.includes('sde') || text.includes('software') || text.includes('devops') || text.includes('qa') || text.includes('data')) return 'engineering'
+  return 'other'
+}
+
+function departmentBucketForEmployee(employee) {
+  const dept = String(employee?.department || '').trim()
+  const role = String(employee?.JobRole || '').trim()
+  return departmentBucket(`${dept} ${role}`.trim())
+}
+
+function resolveDepartmentBuckets({ department, selectedIds, employees }) {
+  const selectedSet = new Set((Array.isArray(selectedIds) ? selectedIds : []).map((id) => String(id)))
+  const selectedEmployees = (Array.isArray(employees) ? employees : []).filter((emp) => selectedSet.has(String(emp.id)))
+  if (selectedEmployees.length) {
+    return Array.from(new Set(selectedEmployees.map((emp) => departmentBucketForEmployee(emp))))
+  }
+  const fromDepartment = departmentBucket(department)
+  return fromDepartment === 'other' && !String(department || '').trim() ? [] : [fromDepartment]
+}
+
+function isTemplateAllowedForBuckets(templateChoice, buckets) {
+  const normalizedChoice = String(templateChoice || '').trim()
+  const allowed = TEMPLATE_DEPARTMENT_RULES[normalizedChoice]
+  if (!allowed || !Array.isArray(buckets) || !buckets.length) return true
+  return buckets.every((bucket) => allowed.includes(bucket))
+}
+
+function getTemplateOptionsForBuckets(buckets) {
+  if (!Array.isArray(buckets) || !buckets.length) return TEMPLATE_CHOICES
+  return TEMPLATE_CHOICES.filter((item) => isTemplateAllowedForBuckets(item.value, buckets))
+}
+
+function getTemplateRestrictionError(templateChoice, buckets) {
+  const normalizedChoice = String(templateChoice || '').trim()
+  if (!normalizedChoice) return ''
+  if (isTemplateAllowedForBuckets(normalizedChoice, buckets)) return ''
+  const allowed = TEMPLATE_DEPARTMENT_RULES[normalizedChoice] || []
+  const allowedText = allowed.map((item) => (item === 'hr' ? 'HR' : 'Engineering')).join(', ')
+  return `Template "${normalizedChoice}" is only allowed for ${allowedText} department contacts.`
+}
 
 function TrackingPage() {
   const access = localStorage.getItem('access') || ''
@@ -219,6 +293,8 @@ function TrackingPage() {
       template_name: '',
       template_subject: '',
       template_choice: '',
+      hardcoded_follow_up: true,
+      schedule_time: '',
       has_attachment: false,
       resume_id: '',
       tailored_resume_id: '',
@@ -252,6 +328,17 @@ function TrackingPage() {
       : ''
     const resolvedTemplateChoice = String(createForm.template_choice || '').trim() || 'cold_applied'
     const resolvedTemplateMessage = resolvedTemplateChoice === 'custom' ? resolvedTemplate : ''
+    const templateRestrictionError = getTemplateRestrictionError(resolvedTemplateChoice, createDepartmentBuckets)
+    if (templateRestrictionError) {
+      setError(templateRestrictionError)
+      return
+    }
+    const resolvedHardcodedFollowUp = isFollowUpTemplate(resolvedTemplateChoice)
+      ? Boolean(createForm.hardcoded_follow_up)
+      : true
+    const resolvedScheduleTime = isFollowUpTemplate(resolvedTemplateChoice)
+      ? (createForm.schedule_time || nowDateTimeLocalValue())
+      : null
     try {
       const payload = {
         company: createForm.company || null,
@@ -263,6 +350,8 @@ function TrackingPage() {
         template_choice: resolvedTemplateChoice,
         template_subject: resolvedTemplateSubject,
         template_message: resolvedTemplateMessage,
+        hardcoded_follow_up: resolvedHardcodedFollowUp,
+        schedule_time: resolvedScheduleTime,
         template_name: resolvedTemplate,
         resume: createForm.has_attachment ? (createForm.resume_id || null) : null,
         tailored_resume: createForm.has_attachment ? (createForm.tailored_resume_id || null) : null,
@@ -285,10 +374,10 @@ function TrackingPage() {
 
   const openEditForm = (row) => {
     const incomingTemplateChoice = String(row.template_choice || '').trim()
-    const computedChoice = ['cold_applied', 'referral', 'job_inquire', 'custom'].includes(incomingTemplateChoice)
+    const computedChoice = ['cold_applied', 'referral', 'job_inquire', 'follow_up_applied', 'follow_up_call', 'follow_up_interview', 'custom'].includes(incomingTemplateChoice)
       ? incomingTemplateChoice
       : (
-        ['cold_applied', 'referral', 'job_inquire'].includes(String(row.template_name || '').trim())
+        ['cold_applied', 'referral', 'job_inquire', 'follow_up_applied', 'follow_up_call', 'follow_up_interview'].includes(String(row.template_name || '').trim())
           ? String(row.template_name || '').trim()
           : 'custom'
       )
@@ -310,6 +399,8 @@ function TrackingPage() {
       template_name: customTemplateText,
       template_subject: customTemplateSubject,
       template_choice: computedChoice,
+      hardcoded_follow_up: Boolean(row.hardcoded_follow_up ?? true),
+      schedule_time: toDateTimeLocalInput(row.schedule_time),
       has_attachment: Boolean(row.resume_preview || row.tailored_resume),
       resume_id: row.resume_preview?.id ? String(row.resume_preview.id) : '',
       tailored_resume_id: row.tailored_resume ? String(row.tailored_resume) : '',
@@ -344,6 +435,17 @@ function TrackingPage() {
       : ''
     const resolvedTemplateChoice = String(editForm.template_choice || '').trim() || 'cold_applied'
     const resolvedTemplateMessage = resolvedTemplateChoice === 'custom' ? resolvedTemplate : ''
+    const templateRestrictionError = getTemplateRestrictionError(resolvedTemplateChoice, editDepartmentBuckets)
+    if (templateRestrictionError) {
+      setError(templateRestrictionError)
+      return
+    }
+    const resolvedHardcodedFollowUp = isFollowUpTemplate(resolvedTemplateChoice)
+      ? Boolean(editForm.hardcoded_follow_up)
+      : true
+    const resolvedScheduleTime = isFollowUpTemplate(resolvedTemplateChoice)
+      ? (editForm.schedule_time || nowDateTimeLocalValue())
+      : null
     const selectedHrIds = Array.isArray(editForm.selected_hr_ids) ? editForm.selected_hr_ids : []
     const basePayload = {
       company: editForm.company || null,
@@ -355,6 +457,8 @@ function TrackingPage() {
       template_choice: resolvedTemplateChoice,
       template_subject: resolvedTemplateSubject,
       template_message: resolvedTemplateMessage,
+      hardcoded_follow_up: resolvedHardcodedFollowUp,
+      schedule_time: resolvedScheduleTime,
       template_name: resolvedTemplate,
       resume: editForm.resume_id || null,
       tailored_resume: editForm.tailored_resume_id || null,
@@ -496,8 +600,67 @@ function TrackingPage() {
     })
     return options
   }, [resumeOptions])
+  const activeEmployeeOptions = useMemo(
+    () => (Array.isArray(employeeOptions) ? employeeOptions.filter((emp) => emp?.working_mail !== false) : []),
+    [employeeOptions],
+  )
+
+  const createDepartmentBuckets = useMemo(
+    () => resolveDepartmentBuckets({
+      department: createForm?.department || '',
+      selectedIds: createForm?.selected_hr_ids || [],
+      employees: activeEmployeeOptions,
+    }),
+    [createForm?.department, createForm?.selected_hr_ids, activeEmployeeOptions],
+  )
+  const editDepartmentBuckets = useMemo(
+    () => resolveDepartmentBuckets({
+      department: editForm?.department || '',
+      selectedIds: editForm?.selected_hr_ids || [],
+      employees: activeEmployeeOptions,
+    }),
+    [editForm?.department, editForm?.selected_hr_ids, activeEmployeeOptions],
+  )
+  const createTemplateOptions = useMemo(
+    () => getTemplateOptionsForBuckets(createDepartmentBuckets),
+    [createDepartmentBuckets],
+  )
+  const editTemplateOptions = useMemo(
+    () => getTemplateOptionsForBuckets(editDepartmentBuckets),
+    [editDepartmentBuckets],
+  )
 
   const allSelected = filteredRows.length > 0 && filteredRows.every((row) => selectedIds.includes(row.id))
+  useEffect(() => {
+    if (!createForm) return
+    const currentChoice = String(createForm.template_choice || '').trim()
+    if (!currentChoice) return
+    if (isTemplateAllowedForBuckets(currentChoice, createDepartmentBuckets)) return
+    setCreateForm((prev) => ({
+      ...prev,
+      template_choice: '',
+      template_subject: '',
+      template_name: '',
+      schedule_time: '',
+      hardcoded_follow_up: true,
+    }))
+  }, [createForm, createDepartmentBuckets])
+
+  useEffect(() => {
+    if (!editForm) return
+    const currentChoice = String(editForm.template_choice || '').trim()
+    if (!currentChoice) return
+    if (isTemplateAllowedForBuckets(currentChoice, editDepartmentBuckets)) return
+    setEditForm((prev) => ({
+      ...prev,
+      template_choice: '',
+      template_subject: '',
+      template_name: '',
+      schedule_time: '',
+      hardcoded_follow_up: true,
+    }))
+  }, [editForm, editDepartmentBuckets])
+
   const toggleSelect = (rowId, checked) => {
     setSelectedIds((prev) => {
       if (checked) return Array.from(new Set([...prev, rowId]))
@@ -559,6 +722,7 @@ function TrackingPage() {
               <th>Company</th>
               <th>Job ID</th>
               <th>Employee</th>
+              <th>Delivery Status</th>
               <th>Mailed</th>
               <th>Replied</th>
               <th>Mail Type</th>
@@ -588,6 +752,7 @@ function TrackingPage() {
                     <td>{row.company_name || '-'}</td>
                     <td>{row.job_id || '-'}</td>
                     <td>{selectedHrValues.length ? selectedHrValues.join(', ') : '-'}</td>
+                    <td>{String(row.mail_delivery_status || 'pending').replaceAll('_', ' ')}</td>
                     <td>{row.mailed ? 'Yes' : 'No'}</td>
                     <td>{row.got_replied ? 'Yes' : 'No'}</td>
                     <td>{rowLastActionType(row) || '-'}</td>
@@ -617,7 +782,7 @@ function TrackingPage() {
                     </td>
                   </tr>
                   <tr className="tracking-milestone-row">
-                    <td colSpan={12}>
+                    <td colSpan={13}>
                       <div className="tracking-wave-wrap">
                         <svg className="tracking-wave-svg" viewBox="0 0 1000 44" preserveAspectRatio="none" aria-hidden="true">
                           <path
@@ -681,7 +846,7 @@ function TrackingPage() {
               <SingleSelectDropdown
                 value={createForm.department || ''}
                 placeholder="Select department"
-                options={Array.from(new Set(employeeOptions.map((emp) => String(emp.department || '').trim()).filter(Boolean))).map((dept) => ({ value: dept, label: dept }))}
+                options={Array.from(new Set(activeEmployeeOptions.map((emp) => String(emp.department || '').trim()).filter(Boolean))).map((dept) => ({ value: dept, label: dept }))}
                 onChange={(nextValue) => setCreateForm((prev) => ({ ...prev, department: nextValue, selected_hr_ids: [] }))}
               />
             </label>
@@ -690,7 +855,7 @@ function TrackingPage() {
               <MultiSelectDropdown
                 values={Array.isArray(createForm.selected_hr_ids) ? createForm.selected_hr_ids : []}
                 placeholder="Select employee(s)"
-                options={employeeOptions
+                options={activeEmployeeOptions
                   .filter((emp) => !createForm.department || String(emp.department || '') === String(createForm.department || ''))
                   .map((emp) => ({ value: String(emp.id), label: String(emp.name || '') }))}
                 onChange={(nextValues) => setCreateForm((prev) => ({ ...prev, selected_hr_ids: Array.isArray(nextValues) ? nextValues : [] }))}
@@ -723,15 +888,41 @@ function TrackingPage() {
               <SingleSelectDropdown
                 value={createForm.template_choice || ''}
                 placeholder="Select template"
-                options={TEMPLATE_CHOICES}
+                options={createTemplateOptions}
                 onChange={(nextValue) => setCreateForm((prev) => ({
                   ...prev,
                   template_choice: nextValue || '',
+                  hardcoded_follow_up: isFollowUpTemplate(nextValue) ? Boolean(prev.hardcoded_follow_up ?? true) : true,
+                  schedule_time: isFollowUpTemplate(nextValue) ? (prev.schedule_time || nowDateTimeLocalValue()) : '',
                   template_subject: nextValue === 'custom' ? prev.template_subject : '',
                   template_name: nextValue === 'custom' ? prev.template_name : '',
                 }))}
               />
             </label>
+            {!createTemplateOptions.length ? (
+              <p className="hint">No template available for selected department/employee.</p>
+            ) : null}
+            {isFollowUpTemplate(createForm.template_choice) ? (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={Boolean(createForm.hardcoded_follow_up)}
+                  onChange={(event) => setCreateForm((prev) => ({ ...prev, hardcoded_follow_up: event.target.checked }))}
+                />
+                {' '}
+                Hardcoded Follow Up
+              </label>
+            ) : null}
+            {isFollowUpTemplate(createForm.template_choice) ? (
+              <label>
+                Follow Up Date & Time
+                <input
+                  type="datetime-local"
+                  value={createForm.schedule_time || ''}
+                  onChange={(event) => setCreateForm((prev) => ({ ...prev, schedule_time: event.target.value }))}
+                />
+              </label>
+            ) : null}
             {createForm.template_choice === 'custom' ? (
               <>
                 <label>
@@ -848,7 +1039,7 @@ function TrackingPage() {
               <SingleSelectDropdown
                 value={editForm.department || ''}
                 placeholder="Select department"
-                options={Array.from(new Set(employeeOptions.map((emp) => String(emp.department || '').trim()).filter(Boolean))).map((dept) => ({ value: dept, label: dept }))}
+                options={Array.from(new Set(activeEmployeeOptions.map((emp) => String(emp.department || '').trim()).filter(Boolean))).map((dept) => ({ value: dept, label: dept }))}
                 onChange={(value) => setEditForm((prev) => ({ ...prev, department: value, selected_hr_ids: [] }))}
               />
             </label>
@@ -857,7 +1048,7 @@ function TrackingPage() {
               <MultiSelectDropdown
                 values={Array.isArray(editForm.selected_hr_ids) ? editForm.selected_hr_ids : []}
                 placeholder="Select employee(s)"
-                options={employeeOptions
+                options={activeEmployeeOptions
                   .filter((emp) => !editForm.department || String(emp.department || '') === String(editForm.department || ''))
                   .map((emp) => ({ value: String(emp.id), label: String(emp.name || '') }))}
                 onChange={(nextValues) => {
@@ -899,15 +1090,41 @@ function TrackingPage() {
               <SingleSelectDropdown
                 value={editForm.template_choice || 'cold_applied'}
                 placeholder="Select template"
-                options={TEMPLATE_CHOICES}
+                options={editTemplateOptions}
                 onChange={(value) => setEditForm((prev) => ({
                   ...prev,
                   template_choice: value || 'cold_applied',
+                  hardcoded_follow_up: isFollowUpTemplate(value) ? Boolean(prev.hardcoded_follow_up ?? true) : true,
+                  schedule_time: isFollowUpTemplate(value) ? (prev.schedule_time || nowDateTimeLocalValue()) : '',
                   template_subject: value === 'custom' ? prev.template_subject : '',
                   template_name: value === 'custom' ? prev.template_name : '',
                 }))}
               />
             </label>
+            {!editTemplateOptions.length ? (
+              <p className="hint">No template available for selected department/employee.</p>
+            ) : null}
+            {isFollowUpTemplate(editForm.template_choice) ? (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={Boolean(editForm.hardcoded_follow_up)}
+                  onChange={(event) => setEditForm((prev) => ({ ...prev, hardcoded_follow_up: event.target.checked }))}
+                />
+                {' '}
+                Hardcoded Follow Up
+              </label>
+            ) : null}
+            {isFollowUpTemplate(editForm.template_choice) ? (
+              <label>
+                Follow Up Date & Time
+                <input
+                  type="datetime-local"
+                  value={editForm.schedule_time || ''}
+                  onChange={(event) => setEditForm((prev) => ({ ...prev, schedule_time: event.target.value }))}
+                />
+              </label>
+            ) : null}
             {editForm.template_choice === 'custom' ? (
               <>
                 <label>

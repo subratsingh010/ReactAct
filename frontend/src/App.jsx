@@ -10,6 +10,7 @@ import TrackingDetailPage from './pages/TrackingDetailPage'
 import JobsPage from './pages/JobsPage'
 import ResumeBuilderPage from './pages/ResumeBuilderPage'
 import ResumePreviewPage from './pages/ResumePreviewPage'
+import BulkUploadPage from './pages/BulkUploadPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import NavBar from './components/NavBar'
 import { useAuth } from './contexts/useAuth'
@@ -55,6 +56,7 @@ function AppLayout() {
             <Route path="/tracking" element={<RequireAuth><TrackingPage /></RequireAuth>} />
             <Route path="/tracking/:trackingId" element={<RequireAuth><TrackingDetailPage /></RequireAuth>} />
             <Route path="/jobs" element={<RequireAuth><JobsPage /></RequireAuth>} />
+            <Route path="/bulk-upload" element={<RequireAuth><BulkUploadPage /></RequireAuth>} />
             <Route
               path="/builder"
               element={(

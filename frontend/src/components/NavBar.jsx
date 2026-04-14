@@ -21,6 +21,7 @@ function NavBar() {
       { label: 'Companies', path: '/companies' },
       { label: 'Tracking', path: '/tracking' },
       { label: 'Jobs', path: '/jobs' },
+      { label: 'Bulk Upload', path: '/bulk-upload' },
     ],
     [],
   )

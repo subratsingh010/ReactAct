@@ -138,6 +138,63 @@ def _section_presence_from_builder(builder_data: dict) -> dict:
     }
 
 
+def _department_bucket_from_text(value: str) -> str:
+    text = str(value or '').strip().lower()
+    if not text:
+        return 'other'
+    if any(token in text for token in ['hr', 'human resource', 'talent', 'recruit', 'people ops', 'people operation']):
+        return 'hr'
+    if any(token in text for token in ['engineer', 'developer', 'sde', 'software', 'devops', 'architect', 'qa', 'data']):
+        return 'engineering'
+    return 'other'
+
+
+def _employee_department_bucket(employee) -> str:
+    dept = str(getattr(employee, 'department', '') or '').strip()
+    role = str(getattr(employee, 'JobRole', '') or '').strip()
+    merged = f'{dept} {role}'.strip()
+    return _department_bucket_from_text(merged)
+
+
+def _allowed_department_buckets_for_template(choice: str):
+    normalized = str(choice or '').strip().lower()
+    rules = {
+        'cold_applied': {'hr'},
+        'follow_up_applied': {'hr'},
+        'follow_up_call': {'hr'},
+        'follow_up_interview': {'hr'},
+        'referral': {'engineering'},
+        'job_inquire': {'hr', 'engineering'},
+    }
+    return rules.get(normalized)
+
+
+def _validate_template_against_employees(choice: str, employees) -> str:
+    allowed = _allowed_department_buckets_for_template(choice)
+    selected = list(employees or [])
+    if not allowed or not selected:
+        return ''
+
+    allowed_labels = {
+        'hr': 'HR',
+        'engineering': 'Engineering',
+    }
+    invalid = []
+    for emp in selected:
+        bucket = _employee_department_bucket(emp)
+        if bucket not in allowed:
+            emp_name = str(getattr(emp, 'name', '') or '').strip() or f'Employee #{getattr(emp, "id", "")}'
+            emp_dept = str(getattr(emp, 'department', '') or '').strip() or 'Unknown'
+            invalid.append(f'{emp_name} ({emp_dept})')
+
+    if not invalid:
+        return ''
+
+    allowed_text = ', '.join([allowed_labels.get(item, item.title()) for item in sorted(allowed)])
+    joined_invalid = '; '.join(invalid[:5])
+    return f'Template "{choice}" is only allowed for {allowed_text} contacts. Remove invalid selections: {joined_invalid}.'
+
+
 def _restrict_to_reference_sections(reference_builder: dict, result_builder: dict) -> dict:
     reference = sanitize_builder_data(reference_builder or {})
     result = sanitize_builder_data(result_builder or {})
@@ -1803,7 +1860,15 @@ class ApplicationTrackingListCreateView(APIView):
             return None
 
     def _extract_template_fields(self, payload):
-        allowed = {'cold_applied', 'referral', 'job_inquire', 'custom'}
+        allowed = {
+            'cold_applied',
+            'referral',
+            'job_inquire',
+            'follow_up_applied',
+            'follow_up_call',
+            'follow_up_interview',
+            'custom',
+        }
         choice = str(payload.get('template_choice') or '').strip().lower()
         subject = str(payload.get('template_subject') or payload.get('custom_subject') or '').strip()
         message = str(payload.get('template_message') or '').strip()
@@ -1825,6 +1890,9 @@ class ApplicationTrackingListCreateView(APIView):
             subject = ''
             message = ''
         return choice, subject, message
+
+    def _is_follow_up_template(self, choice):
+        return str(choice or '').strip().lower() in {'follow_up_applied', 'follow_up_call', 'follow_up_interview'}
 
     def _resolve_company(self, request, payload):
         company_id = payload.get('company')
@@ -1927,11 +1995,12 @@ class ApplicationTrackingListCreateView(APIView):
             selected_names = [x.strip() for x in selected_names.split(',') if x.strip()]
 
         if isinstance(selected_ids, list) and selected_ids:
-            targets = Employee.objects.filter(user=request.user, id__in=selected_ids)
+            targets = Employee.objects.filter(user=request.user, id__in=selected_ids, working_mail=True)
         elif isinstance(selected_names, list) and selected_names and tracking.job_id and tracking.job and tracking.job.company_id:
             targets = Employee.objects.filter(
                 user=request.user,
                 company_id=tracking.job.company_id,
+                working_mail=True,
                 name__in=[str(name or '').strip() for name in selected_names if str(name or '').strip()],
             )
         if selected_ids is not None or selected_names is not None:
@@ -2045,6 +2114,7 @@ class ApplicationTrackingListCreateView(APIView):
             'is_closed': bool(job.is_closed) if job else False,
             'is_removed': bool(job.is_removed) if job else False,
             'mailed': bool(tracking.mailed),
+            'mail_delivery_status': str(tracking.mail_delivery_status or 'pending'),
             'applied_date': job.applied_at.isoformat() if job and job.applied_at else None,
             'posting_date': job.date_of_posting.isoformat() if job and job.date_of_posting else None,
             'is_open': bool(not bool(job.is_closed) if job else True),
@@ -2055,6 +2125,8 @@ class ApplicationTrackingListCreateView(APIView):
             'template_choice': template_choice,
             'template_subject': template_subject,
             'template_message': template_message,
+            'hardcoded_follow_up': bool(tracking.hardcoded_follow_up),
+            'schedule_time': tracking.schedule_time.isoformat() if tracking.schedule_time else None,
             'template_name': (template_message if template_choice == 'custom' else template_choice),
             'mail_type': str(tracking.mail_type or 'fresh'),
             'action': str(tracking.mail_type or 'fresh'),
@@ -2088,7 +2160,7 @@ class ApplicationTrackingListCreateView(APIView):
             for row in rows
             if row.job_id and row.job and row.job.company_id
         }
-        employees = Employee.objects.filter(user=request.user, company_id__in=company_ids).order_by('name')
+        employees = Employee.objects.filter(user=request.user, company_id__in=company_ids, working_mail=True).order_by('name')
         available_hr_map = {}
         for emp in employees:
             available_hr_map.setdefault(emp.company_id, []).append(emp)
@@ -2104,6 +2176,9 @@ class ApplicationTrackingListCreateView(APIView):
     def post(self, request):
         payload = request.data or {}
         template_choice, template_subject, template_message = self._extract_template_fields(payload)
+        schedule_time = self._to_datetime(payload.get('schedule_time'))
+        if self._is_follow_up_template(template_choice) and not schedule_time:
+            schedule_time = timezone.now()
         company = self._resolve_company(request, payload)
         if not company:
             return Response({'detail': 'Company not found.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -2121,6 +2196,9 @@ class ApplicationTrackingListCreateView(APIView):
             template_choice=template_choice,
             template_subject=template_subject,
             template_message=template_message,
+            hardcoded_follow_up=self._to_bool(payload.get('hardcoded_follow_up'), default=True),
+            schedule_time=schedule_time,
+            mail_delivery_status='pending',
             mailed=self._to_bool(payload.get('mailed'), default=False),
             mail_type='fresh',
         )
@@ -2133,6 +2211,13 @@ class ApplicationTrackingListCreateView(APIView):
             tracking.tailored_resume = tailored
             tracking.save(update_fields=['tailored_resume', 'updated_at'])
         self._sync_selected_hrs(request, tracking, payload)
+        template_department_error = _validate_template_against_employees(
+            tracking.template_choice,
+            tracking.selected_hrs.all(),
+        )
+        if template_department_error:
+            tracking.hard_delete()
+            return Response({'detail': template_department_error}, status=status.HTTP_400_BAD_REQUEST)
         if not self._has_company_mail_pattern(company):
             tracking.hard_delete()
             return Response(
@@ -2143,7 +2228,7 @@ class ApplicationTrackingListCreateView(APIView):
         if action_error:
             return Response({'detail': action_error}, status=status.HTTP_400_BAD_REQUEST)
 
-        available = Employee.objects.filter(user=request.user, company_id=company.id).order_by('name')
+        available = Employee.objects.filter(user=request.user, company_id=company.id, working_mail=True).order_by('name')
         available_hr_map = {company.id: list(available)}
         return Response(
             self._serialize_tracking_row(
@@ -2206,7 +2291,15 @@ class ApplicationTrackingDetailView(APIView):
             return None
 
     def _extract_template_fields(self, payload):
-        allowed = {'cold_applied', 'referral', 'job_inquire', 'custom'}
+        allowed = {
+            'cold_applied',
+            'referral',
+            'job_inquire',
+            'follow_up_applied',
+            'follow_up_call',
+            'follow_up_interview',
+            'custom',
+        }
         choice = str(payload.get('template_choice') or '').strip().lower()
         subject = str(payload.get('template_subject') or payload.get('custom_subject') or '').strip()
         message = str(payload.get('template_message') or '').strip()
@@ -2229,13 +2322,16 @@ class ApplicationTrackingDetailView(APIView):
             message = ''
         return choice, subject, message
 
+    def _is_follow_up_template(self, choice):
+        return str(choice or '').strip().lower() in {'follow_up_applied', 'follow_up_call', 'follow_up_interview'}
+
     def _serialize_tracking_row(self, row):
         company = row.job.company if row.job_id and row.job and row.job.company_id else None
         resume = row.resume if row.resume_id else None
         tailored_resume = row.tailored_resume if getattr(row, 'tailored_resume_id', None) else None
         available = []
         if company:
-            available = list(Employee.objects.filter(user=row.user, company_id=company.id).order_by('name'))
+            available = list(Employee.objects.filter(user=row.user, company_id=company.id, working_mail=True).order_by('name'))
         selected = list(row.selected_hrs.all())
         tailored_rows = []
         oldest_tailored = None
@@ -2351,6 +2447,7 @@ class ApplicationTrackingDetailView(APIView):
             'is_closed': bool(row.job.is_closed) if row.job_id and row.job else False,
             'is_removed': bool(row.job.is_removed) if row.job_id and row.job else False,
             'mailed': bool(row.mailed),
+            'mail_delivery_status': str(row.mail_delivery_status or 'pending'),
             'applied_date': row.job.applied_at.isoformat() if row.job_id and row.job and row.job.applied_at else None,
             'posting_date': row.job.date_of_posting.isoformat() if row.job_id and row.job and row.job.date_of_posting else None,
             'is_open': bool(not row.job.is_closed) if row.job_id and row.job else True,
@@ -2362,6 +2459,8 @@ class ApplicationTrackingDetailView(APIView):
             'template_choice': template_choice,
             'template_subject': template_subject,
             'template_message': template_message,
+            'hardcoded_follow_up': bool(row.hardcoded_follow_up),
+            'schedule_time': row.schedule_time.isoformat() if row.schedule_time else None,
             'template_name': (template_message if template_choice == 'custom' else template_choice),
             'mail_events': mail_events,
             'mail_type': str(row.mail_type or 'fresh'),
@@ -2438,6 +2537,10 @@ class ApplicationTrackingDetailView(APIView):
 
         if 'mailed' in payload:
             row.mailed = self._to_bool(payload.get('mailed'), default=row.mailed)
+        if 'mail_delivery_status' in payload:
+            status_value = str(payload.get('mail_delivery_status') or '').strip().lower()
+            if status_value in {'pending', 'sent', 'failed', 'partially_sent'}:
+                row.mail_delivery_status = status_value
         if 'resume' in payload:
             raw_resume_id = str(payload.get('resume') or '').strip()
             if not raw_resume_id:
@@ -2463,12 +2566,16 @@ class ApplicationTrackingDetailView(APIView):
             row.template_choice = template_choice
             row.template_subject = template_subject
             row.template_message = template_message
+        if 'hardcoded_follow_up' in payload:
+            row.hardcoded_follow_up = self._to_bool(payload.get('hardcoded_follow_up'), default=row.hardcoded_follow_up)
         if 'mail_type' in payload or 'action' in payload:
             action_text = str(payload.get('mail_type') or payload.get('action') or '').strip()
             if action_text in {'fresh', 'followed_up'}:
                 row.mail_type = action_text
         if 'schedule_time' in payload:
             row.schedule_time = self._to_datetime(payload.get('schedule_time'))
+        if self._is_follow_up_template(row.template_choice) and not row.schedule_time:
+            row.schedule_time = timezone.now()
         if 'is_freezed' in payload:
             next_freezed = self._to_bool(payload.get('is_freezed'), default=row.is_freezed)
             row.is_freezed = next_freezed
@@ -2491,7 +2598,6 @@ class ApplicationTrackingDetailView(APIView):
             if 'got_replied' in payload:
                 row.mail_tracking.got_replied = self._to_bool(payload.get('got_replied'), default=row.mail_tracking.got_replied)
             row.mail_tracking.save()
-        row.save()
 
         selected_hr_ids = payload.get('selected_hr_ids')
         selected_hrs = payload.get('selected_hrs')
@@ -2507,14 +2613,23 @@ class ApplicationTrackingDetailView(APIView):
         if isinstance(selected_hrs, str):
             selected_hrs = [x.strip() for x in selected_hrs.split(',') if x.strip()]
 
+        next_selected = None
         if isinstance(selected_hr_ids, list):
-            selected = Employee.objects.filter(user=request.user, id__in=selected_hr_ids)
-            row.selected_hrs.set(selected)
+            next_selected = Employee.objects.filter(user=request.user, id__in=selected_hr_ids, working_mail=True)
         elif isinstance(selected_hrs, list):
             target_names = [str(name or '').strip() for name in selected_hrs if str(name or '').strip()]
             company_id_ref = row.job.company_id if row.job_id and row.job and row.job.company_id else None
-            selected = Employee.objects.filter(user=request.user, company_id=company_id_ref, name__in=target_names)
-            row.selected_hrs.set(selected)
+            next_selected = Employee.objects.filter(user=request.user, company_id=company_id_ref, working_mail=True, name__in=target_names)
+
+        selected_for_validation = next_selected if next_selected is not None else row.selected_hrs.all()
+        template_department_error = _validate_template_against_employees(row.template_choice, selected_for_validation)
+        if template_department_error:
+            return Response({'detail': template_department_error}, status=status.HTTP_400_BAD_REQUEST)
+
+        if next_selected is not None:
+            row.selected_hrs.set(next_selected)
+
+        row.save()
 
         company_ref = row.job.company if row.job_id and row.job and row.job.company_id else None
         if not self._has_company_mail_pattern(company_ref):
@@ -2861,3 +2976,315 @@ class JobDetailView(APIView):
         row.is_closed = True
         row.save(update_fields=['is_removed', 'is_closed', 'updated_at'])
         return Response({'status': 'soft_deleted', 'id': row.id}, status=status.HTTP_200_OK)
+
+
+class BulkUploadJobsEmployeesView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def _extract_payload(self, request):
+        uploaded = request.FILES.get('file') or request.FILES.get('json_file') or request.FILES.get('upload')
+        if uploaded is not None:
+            try:
+                raw = uploaded.read().decode('utf-8')
+            except Exception as exc:
+                raise ValueError(f'Could not read uploaded file: {exc}')
+            try:
+                parsed = json.loads(raw)
+            except Exception as exc:
+                raise ValueError(f'Invalid JSON file: {exc}')
+            if not isinstance(parsed, dict):
+                raise ValueError('JSON file must contain an object with "employees" and/or "jobs".')
+            return parsed
+
+        payload = request.data
+        if isinstance(payload, dict):
+            maybe_json_text = payload.get('payload')
+            if isinstance(maybe_json_text, str) and maybe_json_text.strip():
+                try:
+                    parsed = json.loads(maybe_json_text)
+                except Exception as exc:
+                    raise ValueError(f'Invalid JSON in payload field: {exc}')
+                if not isinstance(parsed, dict):
+                    raise ValueError('payload must be a JSON object.')
+                return parsed
+            return dict(payload)
+
+        raise ValueError('Request must provide JSON body or a JSON file.')
+
+    def _extract_list(self, payload, key):
+        value = payload.get(key, [])
+        if value is None:
+            return []
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return []
+            try:
+                parsed = json.loads(text)
+            except Exception as exc:
+                raise ValueError(f'Invalid JSON for "{key}": {exc}')
+            if not isinstance(parsed, list):
+                raise ValueError(f'"{key}" must be a list.')
+            return parsed
+        if not isinstance(value, list):
+            raise ValueError(f'"{key}" must be a list.')
+        return value
+
+    def _map_department(self, value):
+        text = str(value or '').strip().lower()
+        if text in {'hr', 'human resource', 'human resources', 'talent acquisition', 'recruiting', 'recruiter'}:
+            return 'HR'
+        if text in {'engineering', 'engineer', 'software', 'developer', 'dev', 'sde', 'tech'}:
+            return 'Engineering'
+        return 'Other'
+
+    def _get_or_create_company(self, user, raw_name):
+        name = normalize_company_name(raw_name)
+        if not name:
+            raise ValueError('company is required.')
+        existing = Company.objects.filter(user=user, name__iexact=name).first()
+        if existing:
+            return existing, False
+        created = Company.objects.create(user=user, name=name)
+        return created, True
+
+    def _upload_employees(self, request, rows):
+        summary = {
+            'received': len(rows),
+            'created': 0,
+            'company_created': 0,
+            'errors': [],
+        }
+        for idx, row in enumerate(rows, start=1):
+            if not isinstance(row, dict):
+                summary['errors'].append({'row': idx, 'error': 'Employee row must be an object.'})
+                continue
+
+            first_name = str(row.get('first_name') or row.get('firstname') or '').strip()
+            middle_name = str(row.get('middle_name') or row.get('middlename') or '').strip()
+            last_name = str(row.get('last_name') or row.get('lastname') or '').strip()
+            role = str(row.get('role') or row.get('job_role') or '').strip()
+            location = str(row.get('location') or '').strip()
+            company_name = str(row.get('company') or row.get('company_name') or '').strip()
+            department_raw = str(row.get('department') or '').strip()
+            email = str(row.get('email') or '').strip()
+            contact_number = str(row.get('contact_number') or row.get('phone') or '').strip()
+
+            missing = []
+            if not first_name:
+                missing.append('first_name')
+            if not last_name:
+                missing.append('last_name')
+            if not role:
+                missing.append('role')
+            if not location:
+                missing.append('location')
+            if not company_name:
+                missing.append('company')
+            if not department_raw:
+                missing.append('department')
+            if missing:
+                summary['errors'].append({'row': idx, 'error': f'Missing required fields: {", ".join(missing)}.'})
+                continue
+
+            try:
+                company, created_company = self._get_or_create_company(request.user, company_name)
+                if created_company:
+                    summary['company_created'] += 1
+            except ValueError as exc:
+                summary['errors'].append({'row': idx, 'error': str(exc)})
+                continue
+
+            payload = {
+                'company': company.id,
+                'first_name': first_name,
+                'middle_name': middle_name,
+                'last_name': last_name,
+                'role': role,
+                'department': self._map_department(department_raw),
+                'location': location,
+                'email': email,
+                'contact_number': contact_number,
+            }
+            serializer = EmployeeSerializer(data=payload)
+            if not serializer.is_valid():
+                summary['errors'].append({'row': idx, 'error': serializer.errors})
+                continue
+            serializer.save(user=request.user, company=company)
+            summary['created'] += 1
+
+        return summary
+
+    def _upload_jobs(self, request, rows):
+        summary = {
+            'received': len(rows),
+            'created': 0,
+            'company_created': 0,
+            'duplicate_in_file': 0,
+            'duplicate_in_db': 0,
+            'errors': [],
+        }
+        seen_company_job = set()
+        for idx, row in enumerate(rows, start=1):
+            if not isinstance(row, dict):
+                summary['errors'].append({'row': idx, 'error': 'Job row must be an object.'})
+                continue
+
+            company_name = str(row.get('company') or row.get('company_name') or '').strip()
+            job_id = str(row.get('job_id') or row.get('jobId') or '').strip()
+            job_link = str(row.get('job_link') or row.get('job_url') or row.get('link') or '').strip()
+            role = str(row.get('role') or '').strip() or 'Software Engineer'
+
+            missing = []
+            if not company_name:
+                missing.append('company')
+            if not job_id:
+                missing.append('job_id')
+            if not job_link:
+                missing.append('job_link')
+            if missing:
+                summary['errors'].append({'row': idx, 'error': f'Missing required fields: {", ".join(missing)}.'})
+                continue
+
+            try:
+                company, created_company = self._get_or_create_company(request.user, company_name)
+                if created_company:
+                    summary['company_created'] += 1
+            except ValueError as exc:
+                summary['errors'].append({'row': idx, 'error': str(exc)})
+                continue
+
+            key = (company.id, job_id.lower())
+            if key in seen_company_job:
+                summary['duplicate_in_file'] += 1
+                summary['errors'].append(
+                    {'row': idx, 'error': f'Duplicate company + job_id in file: {company.name} + {job_id}.'}
+                )
+                continue
+            seen_company_job.add(key)
+
+            exists = Job.objects.filter(
+                user=request.user,
+                company=company,
+                job_id__iexact=job_id,
+                is_removed=False,
+            ).exists()
+            if exists:
+                summary['duplicate_in_db'] += 1
+                summary['errors'].append(
+                    {'row': idx, 'error': f'Duplicate company + job_id in DB: {company.name} + {job_id}.'}
+                )
+                continue
+
+            payload = {
+                'company': company.id,
+                'job_id': job_id,
+                'job_link': job_link,
+                'role': role,
+            }
+            serializer = JobSerializer(data=payload, context={'request': request})
+            if not serializer.is_valid():
+                summary['errors'].append({'row': idx, 'error': serializer.errors})
+                continue
+            serializer.save(user=request.user, company=company)
+            summary['created'] += 1
+        return summary
+
+    def post(self, request):
+        try:
+            payload = self._extract_payload(request)
+            employees_rows = self._extract_list(payload, 'employees')
+            jobs_rows = self._extract_list(payload, 'jobs')
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not employees_rows and not jobs_rows:
+            return Response(
+                {'detail': 'Provide at least one of "employees" or "jobs".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        employees_summary = self._upload_employees(request, employees_rows) if employees_rows else {
+            'received': 0,
+            'created': 0,
+            'company_created': 0,
+            'errors': [],
+        }
+        jobs_summary = self._upload_jobs(request, jobs_rows) if jobs_rows else {
+            'received': 0,
+            'created': 0,
+            'company_created': 0,
+            'duplicate_in_file': 0,
+            'duplicate_in_db': 0,
+            'errors': [],
+        }
+
+        has_any_errors = bool(employees_summary.get('errors') or jobs_summary.get('errors'))
+        response_status = status.HTTP_207_MULTI_STATUS if has_any_errors else status.HTTP_201_CREATED
+        return Response(
+            {
+                'message': 'Bulk upload processed.',
+                'employees': employees_summary,
+                'jobs': jobs_summary,
+            },
+            status=response_status,
+        )
+
+
+class BulkUploadEmployeesView(BulkUploadJobsEmployeesView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def post(self, request):
+        try:
+            payload = self._extract_payload(request)
+            employees_rows = self._extract_list(payload, 'employees')
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not employees_rows:
+            return Response(
+                {'detail': 'Provide "employees" list for employee bulk upload.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        employees_summary = self._upload_employees(request, employees_rows)
+        has_errors = bool(employees_summary.get('errors'))
+        response_status = status.HTTP_207_MULTI_STATUS if has_errors else status.HTTP_201_CREATED
+        return Response(
+            {
+                'message': 'Employee bulk upload processed.',
+                'employees': employees_summary,
+            },
+            status=response_status,
+        )
+
+
+class BulkUploadJobsView(BulkUploadJobsEmployeesView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def post(self, request):
+        try:
+            payload = self._extract_payload(request)
+            jobs_rows = self._extract_list(payload, 'jobs')
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not jobs_rows:
+            return Response(
+                {'detail': 'Provide "jobs" list for job bulk upload.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        jobs_summary = self._upload_jobs(request, jobs_rows)
+        has_errors = bool(jobs_summary.get('errors'))
+        response_status = status.HTTP_207_MULTI_STATUS if has_errors else status.HTTP_201_CREATED
+        return Response(
+            {
+                'message': 'Job bulk upload processed.',
+                'jobs': jobs_summary,
+            },
+            status=response_status,
+        )

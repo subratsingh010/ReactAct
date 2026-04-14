@@ -32,6 +32,22 @@ function normalizeUrl(value) {
   return `https://${raw}`
 }
 
+function splitFullName(rawName) {
+  const parts = String(rawName || '').trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return { first_name: '', middle_name: '', last_name: '' }
+  if (parts.length === 1) return { first_name: parts[0], middle_name: '', last_name: '' }
+  if (parts.length === 2) return { first_name: parts[0], middle_name: '', last_name: parts[1] }
+  return {
+    first_name: parts[0],
+    middle_name: parts.slice(1, -1).join(' '),
+    last_name: parts[parts.length - 1],
+  }
+}
+
+function mergeNameParts(firstName, middleName, lastName) {
+  return [firstName, middleName, lastName].map((item) => String(item || '').trim()).filter(Boolean).join(' ')
+}
+
 function CompanyPage() {
   const access = localStorage.getItem('access') || ''
   const [companies, setCompanies] = useState([])
@@ -201,9 +217,12 @@ function CompanyPage() {
     setEmployeeForm({
       id: null,
       company: defaultCompanyId,
-      name: '',
+      first_name: '',
+      middle_name: '',
+      last_name: '',
       department: '',
       email: '',
+      working_mail: true,
       contact_number: '',
       location: '',
       profile: '',
@@ -213,12 +232,16 @@ function CompanyPage() {
   }
 
   const openEditEmployeeForm = (employee) => {
+    const parsed = splitFullName(employee.name || '')
     setEmployeeForm({
       id: employee.id,
       company: String(employee.company || ''),
-      name: employee.name || '',
+      first_name: employee.first_name || parsed.first_name,
+      middle_name: employee.middle_name || parsed.middle_name,
+      last_name: employee.last_name || parsed.last_name,
       department: employee.department || '',
       email: employee.email || '',
+      working_mail: Boolean(employee.working_mail ?? true),
       contact_number: employee.contact_number || '',
       location: employee.location || '',
       profile: employee.profile || '',
@@ -234,13 +257,22 @@ function CompanyPage() {
       setError('Select company for HR.')
       return
     }
+    const fullName = mergeNameParts(employeeForm.first_name, employeeForm.middle_name, employeeForm.last_name)
+    if (!fullName) {
+      setError('Enter at least first or last name.')
+      return
+    }
     try {
       if (employeeForm.id) {
         const updated = await updateEmployeeApi(access, employeeForm.id, {
           company: companyId,
-          name: employeeForm.name,
+          name: fullName,
+          first_name: employeeForm.first_name,
+          middle_name: employeeForm.middle_name,
+          last_name: employeeForm.last_name,
           department: employeeForm.department,
           email: employeeForm.email,
+          working_mail: Boolean(employeeForm.working_mail),
           contact_number: employeeForm.contact_number,
           location: employeeForm.location,
           profile: employeeForm.profile,
@@ -251,9 +283,13 @@ function CompanyPage() {
       } else {
         const created = await createEmployee(access, {
           company: companyId,
-          name: employeeForm.name || 'HR',
+          name: fullName || 'HR',
+          first_name: employeeForm.first_name,
+          middle_name: employeeForm.middle_name,
+          last_name: employeeForm.last_name,
           department: employeeForm.department,
           email: employeeForm.email,
+          working_mail: Boolean(employeeForm.working_mail),
           contact_number: employeeForm.contact_number,
           location: employeeForm.location,
           profile: employeeForm.profile,
@@ -388,6 +424,7 @@ function CompanyPage() {
                       <p className="company-hr-name">{hr.name}</p>
                       {hr.department ? <p className="company-hr-meta"><strong>Role:</strong> {hr.department}</p> : null}
                       {hr.email ? <p className="company-hr-meta">{hr.email}</p> : null}
+                      <p className="company-hr-meta"><strong>Working Mail:</strong> {hr.working_mail ? 'Yes' : 'No'}</p>
                       {hr.contact_number ? <p className="company-hr-meta">{hr.contact_number}</p> : null}
                       {hr.location ? <p className="company-hr-meta">{hr.location}</p> : null}
                       {hr.profile ? (
@@ -447,9 +484,20 @@ function CompanyPage() {
                 onChange={(nextValue) => setEmployeeForm((prev) => ({ ...prev, company: nextValue }))}
               />
             </label>
-            <label>Name<input value={employeeForm.name} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, name: event.target.value }))} /></label>
+            <label>First Name<input value={employeeForm.first_name} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, first_name: event.target.value }))} /></label>
+            <label>Middle Name<input value={employeeForm.middle_name} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, middle_name: event.target.value }))} /></label>
+            <label>Last Name<input value={employeeForm.last_name} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, last_name: event.target.value }))} /></label>
             <label>Role<input value={employeeForm.department} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, department: event.target.value }))} /></label>
             <label>Email<input value={employeeForm.email} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, email: event.target.value }))} /></label>
+            <label>
+              <input
+                type="checkbox"
+                checked={Boolean(employeeForm.working_mail)}
+                onChange={(event) => setEmployeeForm((prev) => ({ ...prev, working_mail: event.target.checked }))}
+              />
+              {' '}
+              Working Mail
+            </label>
             <label>Contact Number<input value={employeeForm.contact_number} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, contact_number: event.target.value }))} /></label>
             <label>Location<input value={employeeForm.location} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, location: event.target.value }))} /></label>
             <label>LinkedIn URL<input value={employeeForm.profile} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, profile: event.target.value }))} /></label>

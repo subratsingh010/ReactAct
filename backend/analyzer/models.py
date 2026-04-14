@@ -118,6 +118,9 @@ class Employee(BaseModel):
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='employees')
     name = models.CharField(max_length=180)
+    first_name = models.CharField(max_length=120, blank=True, default='')
+    middle_name = models.CharField(max_length=120, blank=True, default='')
+    last_name = models.CharField(max_length=120, blank=True, default='')
     company = models.ForeignKey(
         Company,
         on_delete=models.CASCADE,
@@ -130,6 +133,7 @@ class Employee(BaseModel):
         blank=True
     )
     email = models.EmailField(blank=True, max_length=320)
+    working_mail = models.BooleanField(default=True)
     contact_number = models.CharField(max_length=32, blank=True)
     about = models.TextField(blank=True)
     helpful = models.CharField(
@@ -245,6 +249,17 @@ class Tracking(BaseModel):
     template_choice = models.CharField(max_length=40, blank=True, default='cold_applied')
     template_subject = models.CharField(max_length=255, blank=True, default='')
     template_message = models.TextField(blank=True, default='')
+    hardcoded_follow_up = models.BooleanField(default=True)
+    mail_delivery_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending'),
+            ('sent', 'Sent'),
+            ('failed', 'Failed'),
+            ('partially_sent', 'Partially Sent'),
+        ],
+        default='pending',
+    )
     mailed = models.BooleanField(default=False)
     selected_hrs = models.ManyToManyField(Employee, blank=True, related_name='selected_in_tracking_rows')
     mail_type = models.CharField(
