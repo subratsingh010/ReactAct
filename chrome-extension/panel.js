@@ -1,6 +1,14 @@
 const els = {
   apiBase: document.getElementById('apiBase'),
   status: document.getElementById('status'),
+  authStatus: document.getElementById('authStatus'),
+  authState: document.getElementById('authState'),
+  authUser: document.getElementById('authUser'),
+  authUsername: document.getElementById('authUsername'),
+  authPassword: document.getElementById('authPassword'),
+  loginBtn: document.getElementById('loginBtn'),
+  refreshSessionBtn: document.getElementById('refreshSessionBtn'),
+  logoutBtn: document.getElementById('logoutBtn'),
   jobStatus: document.getElementById('jobStatus'),
   employeeStatus: document.getElementById('employeeStatus'),
   jobCompanyName: document.getElementById('jobCompanyName'),
@@ -53,6 +61,12 @@ function setJobStatus(msg, isError = false) {
   if (!els.jobStatus) return
   els.jobStatus.textContent = String(msg || '')
   els.jobStatus.style.color = isError ? '#bf1d3d' : '#2b5fcc'
+}
+
+function setAuthStatus(msg, isError = false) {
+  if (!els.authStatus) return
+  els.authStatus.textContent = String(msg || '')
+  els.authStatus.style.color = isError ? '#bf1d3d' : '#2b5fcc'
 }
 
 function setEmployeeStatus(msg, isError = false) {
@@ -114,6 +128,23 @@ function chromeStorageGet(keys) {
 
 function chromeStorageSet(value) {
   return new Promise((resolve) => chrome.storage.local.set(value, resolve))
+}
+
+function renderAuthState(auth) {
+  const loggedIn = Boolean(auth?.loggedIn)
+  if (els.authState) {
+    els.authState.textContent = loggedIn ? 'Logged in' : 'Logged out'
+    els.authState.classList.toggle('is-logged-out', !loggedIn)
+  }
+  if (els.authUser) {
+    const username = String(auth?.username || '').trim()
+    els.authUser.textContent = username ? `User: ${username}` : ''
+  }
+  if (els.loginBtn) els.loginBtn.disabled = loggedIn
+  if (els.authUsername) els.authUsername.disabled = loggedIn
+  if (els.authPassword) els.authPassword.disabled = loggedIn
+  if (els.refreshSessionBtn) els.refreshSessionBtn.disabled = !loggedIn
+  if (els.logoutBtn) els.logoutBtn.disabled = !loggedIn
 }
 
 function normalizeLocationKey(value) {
@@ -367,6 +398,55 @@ async function refreshPanel() {
   setStatus('Refreshed form data')
 }
 
+async function loadAuthState() {
+  const apiBase = els.apiBase.value.trim()
+  const auth = await extMessage({ type: 'EXTENSION_GET_AUTH_STATE', apiBase })
+  renderAuthState(auth)
+  return auth
+}
+
+async function loginExtension() {
+  const username = String(els.authUsername?.value || '').trim()
+  const password = String(els.authPassword?.value || '')
+  if (!username) {
+    setAuthStatus('Enter username.', true)
+    els.authUsername?.focus()
+    return
+  }
+  if (!password) {
+    setAuthStatus('Enter password.', true)
+    els.authPassword?.focus()
+    return
+  }
+
+  const apiBase = els.apiBase.value.trim()
+  const auth = await extMessage({
+    type: 'EXTENSION_LOGIN',
+    apiBase,
+    username,
+    password,
+  })
+  if (els.authPassword) els.authPassword.value = ''
+  renderAuthState(auth)
+  await loadMetaAndCompanies()
+  setAuthStatus('Extension login successful.')
+}
+
+async function refreshSession() {
+  const apiBase = els.apiBase.value.trim()
+  const auth = await extMessage({ type: 'EXTENSION_REFRESH_SESSION', apiBase })
+  renderAuthState(auth)
+  setAuthStatus('Session refreshed.')
+}
+
+async function logoutExtension() {
+  const apiBase = els.apiBase.value.trim()
+  const auth = await extMessage({ type: 'EXTENSION_LOGOUT', apiBase })
+  renderAuthState(auth)
+  if (els.authPassword) els.authPassword.value = ''
+  setAuthStatus('Logged out.')
+}
+
 function clearEmployeeFields() {
   els.empName.value = ''
   els.empDepartment.value = 'HR'
@@ -490,6 +570,12 @@ els.fetchFromPageBtn.addEventListener('click', () => fetchFromPage().catch((err)
 els.saveJobBtn.addEventListener('click', () => saveJob().catch((err) => setJobStatus(String(err?.message || err || 'Error'), true)))
 els.refreshBtn.addEventListener('click', () => refreshPanel().catch((err) => setStatus(err.message, true)))
 els.clearJobBtn.addEventListener('click', () => clearJobFields())
+els.loginBtn.addEventListener('click', () => loginExtension().catch((err) => setAuthStatus(String(err?.message || err || 'Error'), true)))
+els.refreshSessionBtn.addEventListener('click', () => refreshSession().catch((err) => {
+  renderAuthState({ loggedIn: false, username: '' })
+  setAuthStatus(String(err?.message || err || 'Error'), true)
+}))
+els.logoutBtn.addEventListener('click', () => logoutExtension().catch((err) => setAuthStatus(String(err?.message || err || 'Error'), true)))
 els.fetchEmployeeFromPageBtn.addEventListener('click', () => fetchEmployeeFromPage().catch((err) => setEmployeeStatus(String(err?.message || err || 'Error'), true)))
 els.saveEmployeeBtn.addEventListener('click', () => saveEmployee().catch((err) => setEmployeeStatus(String(err?.message || err || 'Error'), true)))
 els.clearEmployeeBtn.addEventListener('click', () => clearEmployeeFields())
@@ -503,6 +589,7 @@ els.apiBase.addEventListener('change', async () => {
   const stored = await chromeStorageGet([API_BASE_STORAGE_KEY])
   const savedApiBase = String(stored?.[API_BASE_STORAGE_KEY] || '').trim()
   if (savedApiBase) els.apiBase.value = savedApiBase
+  await loadAuthState()
   await loadMetaAndCompanies()
   setStatus('Ready')
 })().catch((err) => setStatus(err.message, true))

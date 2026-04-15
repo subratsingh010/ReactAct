@@ -1064,6 +1064,11 @@
     width: 64px;
   }
 
+  .tracking-table th:nth-child(12),
+  .tracking-table td:nth-child(12) {
+    width: 140px;
+  }
+
   .tracking-table th {
     @apply border-b border-slate-200 bg-slate-50/85 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-300;
     white-space: normal;
@@ -1093,11 +1098,13 @@
     gap: 4px;
     flex-wrap: nowrap;
     white-space: nowrap;
+    min-width: max-content;
   }
 
   .tracking-action-cell {
     white-space: nowrap;
-    width: 120px;
+    width: 140px;
+    min-width: 140px;
     position: sticky;
     right: 0;
     z-index: 4;
@@ -1281,7 +1288,8 @@
   }
 
   .tracking-table-wrap-compact {
-    overflow-x: hidden;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .tracking-table-compact select,
@@ -1553,7 +1561,8 @@
 
   .tracking-wave-label {
     display: block;
-    font-size: 7px;
+    font-size: 8px;
+    font-weight: 700;
     line-height: 1;
     color: #475569;
     white-space: nowrap;
@@ -1731,6 +1740,16 @@
     color: #7c2d12;
   }
 
+  .tracking-section-scroll {
+    max-height: 22rem;
+    overflow: auto;
+    padding-right: 0.2rem;
+  }
+
+  .tracking-section-scroll-compact {
+    max-height: 16rem;
+  }
+
   .tracking-mail-preview-list {
     display: grid;
     gap: 1rem;
@@ -1759,6 +1778,21 @@
 
   .tracking-form-span-2 {
     grid-column: 1 / -1;
+  }
+
+  .tracking-native-multi {
+    width: 100%;
+    min-height: 132px;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #fff;
+    color: #0f172a;
+  }
+
+  .tracking-native-multi:focus {
+    outline: 2px solid rgba(59, 130, 246, 0.2);
+    border-color: #60a5fa;
   }
 
   .tracking-template-stack {
@@ -1883,18 +1917,22 @@
     min-width: auto;
   }
 
-  .search-dd-menu {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    z-index: 35;
-    max-height: 220px;
-    overflow: auto;
-    border: 1px solid #94a3b8;
-    border-radius: 6px;
-    background: #fff;
-  }
+.search-dd-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 35;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  background: #fff;
+  padding-top: 6px;
+}
+
+.search-dd-multi-list {
+  max-height: 214px;
+  overflow: auto;
+}
 
   .search-dd-item {
     display: block;
@@ -1944,19 +1982,30 @@
     color: #94a3b8;
   }
 
-  .search-dd-multi-list {
-    max-height: 180px;
-    overflow: auto;
-    padding: 6px 8px 8px;
-  }
-
-  .search-dd-multi-item {
+  .search-dd-multi-option {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 2px;
-    font-size: 13px;
-    color: #0f172a;
+    justify-content: space-between;
+    gap: 0.8rem;
+    cursor: pointer;
+  }
+
+  .search-dd-multi-checkbox {
+    margin: 0;
+    flex: 0 0 auto;
+    pointer-events: none;
+  }
+
+  .search-dd-multi-option-label {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .search-dd-multi-option-mark {
+    width: 1rem;
+    color: #0f766e;
+    font-weight: 800;
+    text-align: right;
   }
 
   .jobs-filters-one-row {
@@ -2227,6 +2276,38 @@
     min-height: 0;
     border-radius: 20px;
     background: #fff;
+  }
+
+  .profile-panel-grid {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .profile-panel-card {
+    padding: 1rem;
+    border: 1px solid #e2e8f0;
+  }
+
+  .profile-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.9rem;
+  }
+
+  .profile-panel-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .profile-panel-meta {
+    margin: 0.2rem 0 0;
+    font-size: 12px;
+    color: #64748b;
   }
 
   .profile-info-grid {
@@ -2919,6 +3000,24 @@
   [data-theme='dark'] .rich-editor-surface {
     background-image: linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(15, 23, 42, 0.56));
   }
+}
+
+.search-dd-multi-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0.55rem 0 0.35rem;
+}
+
+.search-dd-multi-action {
+  min-height: auto;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 @layer utilities {

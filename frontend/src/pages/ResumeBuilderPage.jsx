@@ -585,7 +585,7 @@ function buildDocHtml(form) {
 
 function ResumeBuilderPage({
   pageTitle = 'Resume Workspace',
-  subtitle = 'Fill inputs on left. Resume updates live on right.',
+  subtitle = 'Edit on the left. Preview on the right.',
   importSessionKey = 'builderImport',
   resumeIdSessionKey = 'builderResumeId',
   showJdBox = false,
@@ -1180,6 +1180,7 @@ function ResumeBuilderPage({
       const result = await exportAtsPdfLocal(access, {
         builder_data: form,
         html,
+        resume_id: String(resumeRecordId || '').trim() || undefined,
       })
       const path = String(result?.saved_path || '').trim()
       setPdfSaveState({
@@ -1191,6 +1192,25 @@ function ResumeBuilderPage({
         saving: false,
         message: err.message || 'Local PDF save failed',
       })
+    }
+  }
+
+  const syncStoredAtsPdf = async (access, targetResumeId) => {
+    const resolvedResumeId = String(targetResumeId || '').trim()
+    if (!access || !resolvedResumeId) return { ok: false, message: '' }
+    const html = buildAtsPdfHtmlPreserveHighlights({
+      ...form,
+      pageMarginIn: normalizePageMarginIn(form.pageMarginIn),
+    })
+    try {
+      await exportAtsPdfLocal(access, {
+        builder_data: form,
+        html,
+        resume_id: resolvedResumeId,
+      })
+      return { ok: true, message: '' }
+    } catch (err) {
+      return { ok: false, message: err.message || 'Auto PDF sync failed' }
     }
   }
 
@@ -1416,9 +1436,12 @@ function ResumeBuilderPage({
         ...prev,
         isDefaultResume: Boolean(data.is_default),
       }))
+      const pdfSync = await syncStoredAtsPdf(access, data?.id)
       setSaveState({
         saving: false,
-        message: `Saved: ${new Date().toLocaleTimeString()}`,
+        message: pdfSync.ok
+          ? `Saved: ${new Date().toLocaleTimeString()}`
+          : `Saved, but PDF sync failed: ${pdfSync.message}`,
       })
       return data
     } catch (err) {
@@ -1456,9 +1479,12 @@ function ResumeBuilderPage({
           ...prev,
           isDefaultResume: false,
         }))
+        const pdfSync = await syncStoredAtsPdf(access, data?.id)
         setSaveState({
           saving: false,
-          message: `Updated tailored copy: ${new Date().toLocaleTimeString()}`,
+          message: pdfSync.ok
+            ? `Updated tailored copy: ${new Date().toLocaleTimeString()}`
+            : `Updated tailored copy, but PDF sync failed: ${pdfSync.message}`,
         })
         return data
       }
@@ -1485,9 +1511,12 @@ function ResumeBuilderPage({
         ...prev,
         isDefaultResume: false,
       }))
+      const pdfSync = await syncStoredAtsPdf(access, data?.id)
       setSaveState({
         saving: false,
-        message: `Saved tailored copy: ${new Date().toLocaleTimeString()}`,
+        message: pdfSync.ok
+          ? `Saved tailored copy: ${new Date().toLocaleTimeString()}`
+          : `Saved tailored copy, but PDF sync failed: ${pdfSync.message}`,
       })
       return data
     } catch (err) {
@@ -1574,9 +1603,12 @@ function ResumeBuilderPage({
       }
       setSaveTarget('tailored')
       setTailoredModal((prev) => ({ ...prev, open: false }))
+      const pdfSync = await syncStoredAtsPdf(access, data?.id)
       setSaveState({
         saving: false,
-        message: `Saved to Tailored: ${new Date().toLocaleTimeString()}`,
+        message: pdfSync.ok
+          ? `Saved to Tailored: ${new Date().toLocaleTimeString()}`
+          : `Saved to Tailored, but PDF sync failed: ${pdfSync.message}`,
       })
     } catch (err) {
       setSaveState({ saving: false, message: err.message || 'Save failed' })
@@ -1607,7 +1639,7 @@ function ResumeBuilderPage({
           onClick={runQualityOptimize}
           disabled={tailorState.loading && tailorState.mode === 'optimize'}
         >
-          {tailorState.loading && tailorState.mode === 'optimize' ? 'Optimizing...' : 'Optimize Existing'}
+          {tailorState.loading && tailorState.mode === 'optimize' ? 'Optimizing...' : 'Optimize'}
         </button>
       )}
       {showJdBox && enableTailorFlow && (
@@ -1705,11 +1737,11 @@ function ResumeBuilderPage({
               />
               {enableTailorFlow && !tailorReferenceLoaded && (
                 <p className="hint" style={{ margin: '8px 0 0' }}>
-                  Upload a reference resume PDF first. Tailor/Optimize runs only on uploaded reference content.
+                  Upload a reference resume PDF first.
                 </p>
               )}
               <p className="hint" style={{ margin: '8px 0 0' }}>
-                `Optimize Existing` works independently to improve quality (buzzword-free, duplicate-free, quantified) without JD.
+                Optimize improves the current resume without using JD.
               </p>
               {tailorState.message && (
                 <p className="success" style={{ margin: '8px 0 0' }}>
@@ -1827,7 +1859,7 @@ function ResumeBuilderPage({
               </select>
             </div>
             <p className="hint" style={{ margin: 0 }}>
-              Controls apply to the preview and export.
+              Applies to preview and export.
             </p>
             </div>
           )}
@@ -2268,7 +2300,7 @@ function ResumeBuilderPage({
         <div className="preview-panel-head">
           <div>
             <h2>Live Preview</h2>
-            <p className="subtitle">A cleaner view of what will be exported and shared.</p>
+            <p className="subtitle">Preview of the final resume.</p>
           </div>
         </div>
         <ResumeSheet form={form} />
@@ -2277,9 +2309,9 @@ function ResumeBuilderPage({
       {tailoredModal.open ? (
         <div className="modal-overlay" onClick={() => setTailoredModal((prev) => ({ ...prev, open: false }))}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
-            <h2>Save To Tailored</h2>
+            <h2>Save Tailored Resume</h2>
             <label>
-              Tailored Name
+              Name
               <input
                 value={tailoredModal.name}
                 onChange={(e) => setTailoredModal((prev) => ({ ...prev, name: e.target.value }))}
@@ -2287,7 +2319,7 @@ function ResumeBuilderPage({
               />
             </label>
             <label>
-              Associate Job (Optional)
+              Job (Optional)
               <SingleSelectDropdown
                 value={tailoredModal.jobId || ''}
                 placeholder="Search/select job"
@@ -2302,7 +2334,7 @@ function ResumeBuilderPage({
             </label>
             <div className="actions">
               <button type="button" onClick={saveToTailored} disabled={saveState.saving || tailoredModal.loading}>
-                {saveState.saving ? 'Saving...' : 'Save To Tailored'}
+                {saveState.saving ? 'Saving...' : 'Save'}
               </button>
               <button type="button" className="secondary" onClick={() => setTailoredModal((prev) => ({ ...prev, open: false }))}>
                 Cancel
@@ -2317,7 +2349,7 @@ function ResumeBuilderPage({
           <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
             <h2>Save Resume</h2>
             <label>
-              Resume Name
+              Name
               <input
                 value={saveModal.name}
                 onChange={(e) => setSaveModal((prev) => ({ ...prev, name: e.target.value }))}

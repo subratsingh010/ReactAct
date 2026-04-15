@@ -488,7 +488,11 @@ function CompanyPage() {
               <div className="company-hr-list">
                 {hrs.map((hr) => (
                   <div key={hr.id} className="company-hr-item">
-                    <span className={`company-dot ${hr.about ? 'is-green' : 'is-red'}`} />
+                    <span
+                      className={`company-dot ${hr.working_mail ? 'is-green' : 'is-red'}`}
+                      title={hr.working_mail ? 'Working mail' : 'Mail not working'}
+                      aria-label={hr.working_mail ? 'Working mail' : 'Mail not working'}
+                    />
                     <div className="company-hr-body">
                       <p className="company-hr-name">{hr.name}</p>
                       <p className="company-hr-meta"><strong>Role:</strong> {String(hr.role || hr.JobRole || '').trim() || 'HR'}</p>

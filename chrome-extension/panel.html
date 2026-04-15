@@ -33,6 +33,35 @@
       </div>
     </section>
 
+    <section class="card card-auth">
+      <div class="card-head">
+        <div>
+          <h2>Extension Login</h2>
+          <p class="card-note">Sign in once here. The extension will auto-refresh your session and also lets you refresh it manually.</p>
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <label>Username</label>
+          <input id="authUsername" autocomplete="username" placeholder="Enter username" />
+        </div>
+        <div>
+          <label>Password</label>
+          <input id="authPassword" type="password" autocomplete="current-password" placeholder="Enter password" />
+        </div>
+      </div>
+      <div class="auth-meta">
+        <span id="authState" class="auth-pill">Logged out</span>
+        <span id="authUser" class="auth-user"></span>
+      </div>
+      <p id="authStatus" class="section-status"></p>
+      <div class="actions">
+        <button id="loginBtn" type="button">Login</button>
+        <button id="refreshSessionBtn" type="button">Refresh Session</button>
+        <button id="logoutBtn" type="button">Logout</button>
+      </div>
+    </section>
+
     <section class="card">
       <div class="card-head">
         <div>
@@ -43,7 +72,7 @@
       <div class="row">
         <div>
           <label>Company</label>
-          <input id="jobCompanyName" placeholder="Type new company" required />
+          <input id="jobCompanyName" placeholder="Type company" required />
         </div>
       </div>
       <div class="row three">
@@ -127,8 +156,10 @@
             <option value="Team Lead">Team Lead</option>
             <option value="HR Recruiter">HR Recruiter</option>
             <option value="Sr. HR Recruiter">Sr. HR Recruiter</option>
+            <option value="Sr. Talent Acquisition Executive">Sr. Talent Acquisition Executive</option>
             <option value="Sr. Talent Acquisition Specialist">Sr. Talent Acquisition Specialist</option>
             <option value="General Talent Acquisition">General Talent Acquisition</option>
+            <option value="Talent Acquisition Executive">Talent Acquisition Executive</option>
             <option value="Talent Acquisition Specialist">Talent Acquisition Specialist</option>
             <option value="Talent Sourcer">Talent Sourcer</option>
             <option value="Hiring Manager">Hiring Manager</option>
@@ -151,7 +182,7 @@
       <div class="row two">
         <div>
           <label>Company</label>
-          <input id="empCompanyName" placeholder="Type new company" required />
+          <input id="empCompanyName" placeholder="Type company" required />
         </div>
         <div>
           <label>Location</label>

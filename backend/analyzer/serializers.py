@@ -9,6 +9,8 @@ from .models import (
     Job,
     Location,
     UserProfile,
+    ProfilePanel,
+    WorkspaceMember,
     Template,
     Interview,
 )
@@ -42,6 +44,7 @@ class ResumeSerializer(serializers.ModelSerializer):
             'original_text',
             'optimized_text',
             'builder_data',
+            'ats_pdf_path',
             'is_default',
             'is_tailored',
             'job',
@@ -52,7 +55,7 @@ class ResumeSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'optimized_text', 'status', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'optimized_text', 'status', 'ats_pdf_path', 'created_at', 'updated_at']
 
 
 class TailoredResumeSerializer(serializers.ModelSerializer):
@@ -82,6 +85,7 @@ class TailoredResumeSerializer(serializers.ModelSerializer):
             'name',
             'title',
             'builder_data',
+            'ats_pdf_path',
             'job',
             'job_id',
             'job_label',
@@ -91,7 +95,7 @@ class TailoredResumeSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'job_id', 'job_label', 'resume_id', 'resume_title', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'ats_pdf_path', 'job_id', 'job_label', 'resume_id', 'resume_title', 'created_at', 'updated_at']
 
 
 class MailTrackingSerializer(serializers.ModelSerializer):
@@ -420,6 +424,84 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class ProfilePanelSerializer(serializers.ModelSerializer):
+    location_name = serializers.SerializerMethodField()
+    preferred_location_refs = serializers.PrimaryKeyRelatedField(
+        source='preferred_locations',
+        many=True,
+        queryset=Location.objects.all(),
+        required=False,
+    )
+    preferred_location_names = serializers.SerializerMethodField()
+
+    def get_location_name(self, obj):
+        if getattr(obj, 'location_ref_id', None) and getattr(obj, 'location_ref', None):
+            return obj.location_ref.name
+        return str(getattr(obj, 'location', '') or '')
+
+    def get_preferred_location_names(self, obj):
+        return [str(item.name or '') for item in obj.preferred_locations.all().order_by('name')]
+
+    class Meta:
+        model = ProfilePanel
+        fields = [
+            'id',
+            'title',
+            'full_name',
+            'email',
+            'contact_number',
+            'linkedin_url',
+            'github_url',
+            'portfolio_url',
+            'current_employer',
+            'years_of_experience',
+            'address_line_1',
+            'address_line_2',
+            'state',
+            'country',
+            'country_code',
+            'location',
+            'location_ref',
+            'location_name',
+            'preferred_location_refs',
+            'preferred_location_names',
+            'summary',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class WorkspaceMemberSerializer(serializers.ModelSerializer):
+    owner_username = serializers.SerializerMethodField()
+    member_username = serializers.SerializerMethodField()
+    member_email = serializers.SerializerMethodField()
+
+    def get_owner_username(self, obj):
+        return str(getattr(obj.owner, 'username', '') or '')
+
+    def get_member_username(self, obj):
+        return str(getattr(obj.member, 'username', '') or '')
+
+    def get_member_email(self, obj):
+        return str(getattr(obj.member, 'email', '') or '')
+
+    class Meta:
+        model = WorkspaceMember
+        fields = [
+            'id',
+            'owner',
+            'owner_username',
+            'member',
+            'member_username',
+            'member_email',
+            'is_active',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'owner', 'owner_username', 'member_username', 'member_email', 'created_at', 'updated_at']
 
 
 class TemplateSerializer(serializers.ModelSerializer):

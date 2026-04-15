@@ -4,22 +4,31 @@ import ResumeSheet from '../components/ResumeSheet'
 import { MultiSelectDropdown, SingleSelectDropdown } from '../components/SearchableDropdown'
 
 import {
+  createProfilePanel,
   createTemplate,
   createInterview,
+  createWorkspaceMember,
+  deleteProfilePanel,
   deleteTemplate,
   deleteInterview,
   deleteResume,
+  deleteWorkspaceMember,
   fetchTemplates,
   fetchInterviews,
   fetchJobs,
   fetchLocations,
   fetchProfile,
   fetchProfileInfo,
+  fetchProfilePanels,
   fetchResumes,
+  fetchWorkspaceMembers,
+  updateProfilePanel,
   updateTemplate,
   updateInterview,
   updateProfileInfo,
 } from '../api'
+
+const MAX_PROFILE_PANELS = 2
 
 const EMPTY_PROFILE = {
   full_name: '',
@@ -39,6 +48,11 @@ const EMPTY_PROFILE = {
   location_ref: '',
   preferred_location_refs: [],
   summary: '',
+}
+
+const EMPTY_PROFILE_PANEL = {
+  title: '',
+  ...EMPTY_PROFILE,
 }
 
 const EMPTY_ACH = {
@@ -118,6 +132,26 @@ function profileRows(profile) {
     ['Summary', profile.summary],
   ]
   return rows.filter(([, value]) => String(value || '').trim())
+}
+
+function profilePanelTitle(panel, index) {
+  const explicitTitle = String(panel?.title || '').trim()
+  if (explicitTitle) return explicitTitle
+  const fullName = String(panel?.full_name || '').trim()
+  if (fullName) return fullName
+  return `Profile Panel ${index + 1}`
+}
+
+function normalizeProfileLike(data, fallbackFullName = '') {
+  const nextValue = { ...EMPTY_PROFILE, ...(data || {}) }
+  nextValue.location_ref = nextValue.location_ref ? String(nextValue.location_ref) : ''
+  nextValue.preferred_location_refs = Array.isArray(nextValue.preferred_location_refs)
+    ? nextValue.preferred_location_refs.map((value) => String(value))
+    : []
+  if (!String(nextValue.full_name || '').trim() && fallbackFullName) {
+    nextValue.full_name = String(fallbackFullName)
+  }
+  return nextValue
 }
 
 function toInputDateTime(value) {
@@ -231,6 +265,12 @@ function ProfilePage() {
   const [editingProfile, setEditingProfile] = useState(false)
   const [profileForm, setProfileForm] = useState(EMPTY_PROFILE)
   const [profileUsername, setProfileUsername] = useState('')
+  const [profilePanels, setProfilePanels] = useState([])
+  const [showProfilePanelForm, setShowProfilePanelForm] = useState(false)
+  const [editingProfilePanelId, setEditingProfilePanelId] = useState(null)
+  const [profilePanelForm, setProfilePanelForm] = useState(EMPTY_PROFILE_PANEL)
+  const [workspaceMembers, setWorkspaceMembers] = useState([])
+  const [workspaceMemberUsername, setWorkspaceMemberUsername] = useState('')
 
   const [resumes, setResumes] = useState([])
   const [previewResume, setPreviewResume] = useState(null)
@@ -303,26 +343,33 @@ function ProfilePage() {
     setLoading(true)
     setError('')
     try {
-      const [profileBase, info, resumeRows, achRows, interviewRows, jobsData, locationRows] = await Promise.all([
+      const [profileBase, info, panelRows, memberRows, resumeRows, achRows, interviewRows, jobsData, locationRows] = await Promise.all([
         fetchProfile(access),
         fetchProfileInfo(access),
+        fetchProfilePanels(access).catch(() => []),
+        fetchWorkspaceMembers(access).catch(() => []),
         fetchResumes(access),
         fetchTemplates(access),
         fetchInterviews(access),
         fetchJobs(access, { page: 1, page_size: 500 }),
         fetchLocations(access),
       ])
-      const nextProfile = { ...EMPTY_PROFILE, ...(info || {}) }
-      nextProfile.location_ref = nextProfile.location_ref ? String(nextProfile.location_ref) : ''
-      nextProfile.preferred_location_refs = Array.isArray(nextProfile.preferred_location_refs)
-        ? nextProfile.preferred_location_refs.map((v) => String(v))
-        : []
-      if (!String(nextProfile.full_name || '').trim()) {
-        nextProfile.full_name = String(profileBase?.username || '')
-      }
+      const nextProfile = normalizeProfileLike(info, String(profileBase?.username || ''))
       setProfile(nextProfile)
       setProfileForm(nextProfile)
       setProfileUsername(String(profileBase?.username || ''))
+      setProfilePanels(
+        (Array.isArray(panelRows) ? panelRows : []).map((row) => ({
+          ...normalizeProfileLike(row),
+          id: row.id,
+          title: String(row?.title || '').trim(),
+          created_at: row?.created_at || '',
+          updated_at: row?.updated_at || '',
+          location_name: String(row?.location_name || '').trim(),
+          preferred_location_names: Array.isArray(row?.preferred_location_names) ? row.preferred_location_names : [],
+        })),
+      )
+      setWorkspaceMembers(Array.isArray(memberRows) ? memberRows : [])
       setResumes(Array.isArray(resumeRows) ? resumeRows : [])
       setAchievements(Array.isArray(achRows) ? achRows : [])
       setInterviews(Array.isArray(interviewRows) ? interviewRows : [])
@@ -352,6 +399,112 @@ function ProfilePage() {
       setOk('Personal info updated.')
     } catch (err) {
       setError(err.message || 'Could not save personal info.')
+    }
+  }
+
+  const openCreateProfilePanel = () => {
+    setError('')
+    setOk('')
+    setEditingProfilePanelId(null)
+    setProfilePanelForm({
+      ...EMPTY_PROFILE_PANEL,
+      title: `Profile Panel ${profilePanels.length + 1}`,
+      full_name: profile.full_name || profileUsername || '',
+      email: profile.email || '',
+    })
+    setShowProfilePanelForm(true)
+  }
+
+  const openEditProfilePanel = (row) => {
+    setError('')
+    setOk('')
+    setEditingProfilePanelId(row.id)
+    setProfilePanelForm({
+      title: String(row?.title || '').trim(),
+      ...normalizeProfileLike(row),
+    })
+    setShowProfilePanelForm(true)
+  }
+
+  const saveProfilePanel = async () => {
+    try {
+      setError('')
+      setOk('')
+      const payload = {
+        ...profilePanelForm,
+        title: String(profilePanelForm.title || '').trim(),
+      }
+      const updated = editingProfilePanelId
+        ? await updateProfilePanel(access, editingProfilePanelId, payload)
+        : await createProfilePanel(access, payload)
+      const normalized = {
+        ...normalizeProfileLike(updated),
+        id: updated.id,
+        title: String(updated?.title || '').trim(),
+        created_at: updated?.created_at || '',
+        updated_at: updated?.updated_at || '',
+        location_name: String(updated?.location_name || '').trim(),
+        preferred_location_names: Array.isArray(updated?.preferred_location_names) ? updated.preferred_location_names : [],
+      }
+      if (editingProfilePanelId) {
+        setProfilePanels((prev) => prev.map((row) => (row.id === editingProfilePanelId ? normalized : row)))
+        setOk('Profile panel updated.')
+      } else {
+        setProfilePanels((prev) => [normalized, ...prev].slice(0, MAX_PROFILE_PANELS))
+        setOk('Profile panel added.')
+      }
+      setProfilePanelForm(EMPTY_PROFILE_PANEL)
+      setEditingProfilePanelId(null)
+      setShowProfilePanelForm(false)
+    } catch (err) {
+      setError(err.message || 'Could not save profile panel.')
+    }
+  }
+
+  const removeProfilePanel = async (panelId) => {
+    try {
+      setError('')
+      setOk('')
+      await deleteProfilePanel(access, panelId)
+      setProfilePanels((prev) => prev.filter((row) => row.id !== panelId))
+      if (editingProfilePanelId === panelId) {
+        setEditingProfilePanelId(null)
+        setProfilePanelForm(EMPTY_PROFILE_PANEL)
+        setShowProfilePanelForm(false)
+      }
+      setOk('Profile panel deleted.')
+    } catch (err) {
+      setError(err.message || 'Could not delete profile panel.')
+    }
+  }
+
+  const saveWorkspaceMember = async () => {
+    try {
+      setError('')
+      setOk('')
+      const username = String(workspaceMemberUsername || '').trim()
+      if (!username) {
+        setError('Enter second account username.')
+        return
+      }
+      const created = await createWorkspaceMember(access, { username })
+      setWorkspaceMembers((prev) => [created])
+      setWorkspaceMemberUsername('')
+      setOk('Second account linked.')
+    } catch (err) {
+      setError(err.message || 'Could not link second account.')
+    }
+  }
+
+  const removeWorkspaceMember = async (memberId) => {
+    try {
+      setError('')
+      setOk('')
+      await deleteWorkspaceMember(access, memberId)
+      setWorkspaceMembers([])
+      setOk('Second account removed.')
+    } catch (err) {
+      setError(err.message || 'Could not remove second account.')
     }
   }
 
@@ -616,6 +769,149 @@ function ProfilePage() {
             </div>
           </>
         )}
+      </section>
+
+      <section className="dash-card">
+        <div className="tracking-head profile-section-head">
+          <h2>Profile Panels</h2>
+          <div className="actions">
+            <button
+              type="button"
+              className="secondary"
+              onClick={openCreateProfilePanel}
+              disabled={profilePanels.length >= MAX_PROFILE_PANELS}
+            >
+              Add Panel
+            </button>
+          </div>
+        </div>
+        <p className="hint">Keep one owner profile and one additional profile. Max {MAX_PROFILE_PANELS} panels.</p>
+        {showProfilePanelForm ? (
+          <>
+            <div className="profile-form-grid">
+              <label>Panel Name<input value={profilePanelForm.title} onChange={(e) => setProfilePanelForm((p) => ({ ...p, title: e.target.value }))} placeholder="Backend Panel, Recruiter Panel..." /></label>
+              <label>Full Name<input value={profilePanelForm.full_name} onChange={(e) => setProfilePanelForm((p) => ({ ...p, full_name: e.target.value }))} /></label>
+              <label>Email<input value={profilePanelForm.email} onChange={(e) => setProfilePanelForm((p) => ({ ...p, email: e.target.value }))} /></label>
+              <label>Contact Number<input value={profilePanelForm.contact_number} onChange={(e) => setProfilePanelForm((p) => ({ ...p, contact_number: e.target.value }))} /></label>
+              <label>Current Employer<input value={profilePanelForm.current_employer} onChange={(e) => setProfilePanelForm((p) => ({ ...p, current_employer: e.target.value }))} /></label>
+              <label>Years of Experience<input value={profilePanelForm.years_of_experience} onChange={(e) => setProfilePanelForm((p) => ({ ...p, years_of_experience: e.target.value }))} /></label>
+              <label>LinkedIn URL<input value={profilePanelForm.linkedin_url} onChange={(e) => setProfilePanelForm((p) => ({ ...p, linkedin_url: e.target.value }))} /></label>
+              <label>GitHub URL<input value={profilePanelForm.github_url} onChange={(e) => setProfilePanelForm((p) => ({ ...p, github_url: e.target.value }))} /></label>
+              <label>Portfolio URL<input value={profilePanelForm.portfolio_url} onChange={(e) => setProfilePanelForm((p) => ({ ...p, portfolio_url: e.target.value }))} /></label>
+              <label>Location<input value={profilePanelForm.location} onChange={(e) => setProfilePanelForm((p) => ({ ...p, location: e.target.value }))} /></label>
+              <label>Location Ref
+                <SingleSelectDropdown
+                  value={profilePanelForm.location_ref || ''}
+                  placeholder="Select location"
+                  options={locationOptions.map((location) => ({ value: String(location.id), label: String(location.name || '') }))}
+                  onChange={(nextValue) => {
+                    const selected = locationOptions.find((item) => String(item.id) === String(nextValue || ''))
+                    setProfilePanelForm((p) => ({
+                      ...p,
+                      location_ref: nextValue || '',
+                      location: selected?.name || p.location,
+                    }))
+                  }}
+                />
+              </label>
+              <label className="md:col-span-2">Preferred Locations
+                <MultiSelectDropdown
+                  values={Array.isArray(profilePanelForm.preferred_location_refs) ? profilePanelForm.preferred_location_refs : []}
+                  placeholder="Select preferred locations"
+                  searchPlaceholder="Search location"
+                  options={locationOptions.map((location) => ({ value: String(location.id), label: String(location.name || '') }))}
+                  onChange={(nextValues) => setProfilePanelForm((p) => ({
+                    ...p,
+                    preferred_location_refs: Array.isArray(nextValues) ? nextValues : [],
+                  }))}
+                />
+              </label>
+              <label className="md:col-span-2">Summary<textarea rows={3} value={profilePanelForm.summary} onChange={(e) => setProfilePanelForm((p) => ({ ...p, summary: e.target.value }))} /></label>
+            </div>
+            <div className="actions">
+              <button type="button" onClick={saveProfilePanel}>{editingProfilePanelId ? 'Update' : 'Create'}</button>
+              <button type="button" className="secondary" onClick={() => { setShowProfilePanelForm(false); setEditingProfilePanelId(null); setProfilePanelForm(EMPTY_PROFILE_PANEL) }}>Cancel</button>
+            </div>
+          </>
+        ) : null}
+        <div className="profile-panel-grid">
+          {profilePanels.map((row, index) => (
+            <article key={row.id} className="profile-card-shell profile-panel-card">
+              <div className="profile-panel-head">
+                <div>
+                  <p className="profile-panel-title">{profilePanelTitle(row, index)}</p>
+                  {row.updated_at ? <p className="profile-panel-meta">Updated: {new Date(row.updated_at).toLocaleString()}</p> : null}
+                </div>
+                <div className="actions">
+                  <button type="button" className="secondary" onClick={() => openEditProfilePanel(row)}>Edit</button>
+                  <button type="button" className="secondary" onClick={() => removeProfilePanel(row.id)}>Delete</button>
+                </div>
+              </div>
+              <div className="profile-info-grid">
+                {profileRows(row).map(([label, value]) => (
+                  <div key={`${row.id}-${label}`} className="profile-info-item">
+                    <span className="profile-info-label">{label}</span>
+                    <span className="profile-info-value">{String(value)}</span>
+                  </div>
+                ))}
+                {!profileRows(row).length ? (
+                  <div className="profile-info-item">
+                    <span className="profile-info-label">Panel</span>
+                    <span className="profile-info-value">No data yet.</span>
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          ))}
+          {!profilePanels.length ? <p className="hint">No extra profile panels yet.</p> : null}
+        </div>
+      </section>
+
+      <section className="dash-card">
+        <div className="tracking-head profile-section-head">
+          <h2>Workspace Access</h2>
+        </div>
+        <p className="hint">Owner keeps full access. Second account can create companies, jobs, and employees with its own login.</p>
+        <div className="profile-form-grid">
+          <label>
+            Second Account Username
+            <input
+              value={workspaceMemberUsername}
+              onChange={(e) => setWorkspaceMemberUsername(e.target.value)}
+              placeholder="Enter username"
+              disabled={workspaceMembers.length >= 1}
+            />
+          </label>
+        </div>
+        <div className="actions">
+          <button type="button" onClick={saveWorkspaceMember} disabled={workspaceMembers.length >= 1}>Link Account</button>
+        </div>
+        <div className="profile-panel-grid">
+          {workspaceMembers.map((row) => (
+            <article key={row.id} className="profile-card-shell profile-panel-card">
+              <div className="profile-panel-head">
+                <div>
+                  <p className="profile-panel-title">{row.member_username || '-'}</p>
+                  <p className="profile-panel-meta">{row.member_email || 'No email'}</p>
+                </div>
+                <div className="actions">
+                  <button type="button" className="secondary" onClick={() => removeWorkspaceMember(row.id)}>Remove</button>
+                </div>
+              </div>
+              <div className="profile-info-grid">
+                <div className="profile-info-item">
+                  <span className="profile-info-label">Access</span>
+                  <span className="profile-info-value">Create companies, jobs, and employees, and view owner companies/jobs/employees</span>
+                </div>
+                <div className="profile-info-item">
+                  <span className="profile-info-label">Login</span>
+                  <span className="profile-info-value">Independent login works on different tabs and devices.</span>
+                </div>
+              </div>
+            </article>
+          ))}
+          {!workspaceMembers.length ? <p className="hint">No second account linked yet.</p> : null}
+        </div>
       </section>
 
       <section className="dash-card">

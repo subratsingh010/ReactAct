@@ -6,17 +6,23 @@ import time
 import tempfile
 import urllib.error
 import urllib.request
+import logging
 from pathlib import Path
 from email.mime.base import MIMEBase
 from email import encoders
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import make_msgid
+from logging.handlers import TimedRotatingFileHandler
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from analyzer.models import Template, Tracking, UserProfile
+from analyzer.models import Template, Tracking, TrackingAction, UserProfile
 from analyzer.tracking_mail_utils import build_mail_tracking_status_map, ensure_mail_tracking, log_mail_event, recompute_tracking_delivery_status
+
+
+LOGGER_NAME = "analyzer.send_tracking_mails"
 
 
 class Command(BaseCommand):
@@ -29,6 +35,7 @@ class Command(BaseCommand):
         parser.add_argument("--scheduled-today-only", action="store_true", help="Process only rows scheduled for today")
         parser.add_argument("--sleep-seconds", type=float, default=5.0, help="Sleep after each successful send")
         parser.add_argument("--dry-run", action="store_true", help="Do not send email; only log planned attempts")
+        parser.add_argument("--test-mode", action="store_true", help="Skip SMTP send but still record successful tracking data and mark rows as processed")
         parser.add_argument("--use-ai", action="store_true", help="Allow AI only for personalized employee intro generation")
 
     def _delivery_status_from_counts(self, sent_count, failed_count):
@@ -73,6 +80,75 @@ class Command(BaseCommand):
         ]
         return any(marker in text for marker in markers)
 
+    def _normalize_message_id(self, value):
+        normalized = str(value or "").strip()
+        if not normalized:
+            return ""
+        if normalized.startswith("<") and normalized.endswith(">"):
+            return normalized
+        if "<" in normalized and ">" in normalized:
+            match = re.search(r"<[^>]+>", normalized)
+            if match:
+                return match.group(0).strip()
+        return f"<{normalized.strip('<>')}>"
+
+    def _thread_reference_list(self, *values):
+        refs = []
+        seen = set()
+        for value in values:
+            items = value if isinstance(value, (list, tuple)) else [value]
+            for item in items:
+                for raw_ref in re.findall(r"<[^>]+>", str(item or "")):
+                    normalized = self._normalize_message_id(raw_ref)
+                    key = normalized.lower()
+                    if normalized and key not in seen:
+                        refs.append(normalized)
+                        seen.add(key)
+        return refs
+
+    def _reply_subject(self, subject):
+        normalized = str(subject or "").strip()
+        if not normalized:
+            return "Re:"
+        return normalized if normalized.lower().startswith("re:") else f"Re: {normalized}"
+
+    def _resolve_thread_context(self, mail_tracking, tracking, to_email):
+        normalized_to = str(to_email or "").strip().lower()
+        if not mail_tracking or not normalized_to:
+            return {}
+        if str(getattr(tracking, "mail_type", "") or "").strip().lower() != "followed_up":
+            return {}
+
+        events = (
+            mail_tracking.events
+            .filter(status="sent")
+            .select_related("employee")
+            .order_by("-action_at", "-created_at")
+        )
+        for item in events:
+            payload = item.raw_payload if isinstance(item.raw_payload, dict) else {}
+            item_to = str(payload.get("to_email") or "").strip().lower()
+            if item_to != normalized_to:
+                continue
+            message_id = self._normalize_message_id(
+                payload.get("message_id") or item.source_message_id or ""
+            )
+            if not message_id:
+                continue
+            references = self._thread_reference_list(
+                payload.get("references"),
+                payload.get("thread_references"),
+                payload.get("in_reply_to"),
+                message_id,
+            )
+            subject = str(payload.get("subject") or "").strip()
+            return {
+                "in_reply_to": message_id,
+                "references": references,
+                "subject": self._reply_subject(subject) if subject else "",
+            }
+        return {}
+
     def _should_use_ai_for_row(self, row, explicit_use_ai=False):
         if explicit_use_ai:
             return True
@@ -86,14 +162,49 @@ class Command(BaseCommand):
         employee.working_mail = bool(is_working)
         employee.save(update_fields=["working_mail", "updated_at"])
 
+    def _get_logger(self):
+        logger = logging.getLogger(LOGGER_NAME)
+        if logger.handlers:
+            return logger
+
+        log_dir = Path(__file__).resolve().parents[4] / "log"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "send_tracking_mails.log"
+
+        handler = TimedRotatingFileHandler(
+            filename=log_path,
+            when="midnight",
+            interval=1,
+            backupCount=14,
+            encoding="utf-8",
+        )
+        handler.suffix = "%Y-%m-%d"
+        handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+
+        logger.setLevel(logging.INFO)
+        logger.addHandler(handler)
+        logger.propagate = False
+        return logger
+
+    def _emit(self, message, *, level="info", style=None):
+        text = str(message or "")
+        logger = self._get_logger()
+        log_method = getattr(logger, str(level or "info").lower(), logger.info)
+        log_method(text)
+
+        styled = style(text) if style else text
+        self.stdout.write(styled)
+
     def handle(self, *args, **options):
-        now = timezone.now()
+        # import ipdb; ipdb.set_trace()  # Debug breakpoint at the start of command execution.
+        now = timezone.localtime(timezone.now())
         user_id = options.get("user_id")
         limit = int(options.get("limit") or 200)
         include_mailed = bool(options.get("include_mailed"))
         scheduled_today_only = bool(options.get("scheduled_today_only"))
         sleep_seconds = float(options.get("sleep_seconds") or 0.0)
         dry_run = bool(options.get("dry_run"))
+        test_mode = bool(options.get("test_mode"))
         use_ai = bool(options.get("use_ai"))
 
         qs = (
@@ -110,7 +221,7 @@ class Command(BaseCommand):
             qs = qs.filter(schedule_time__date=timezone.localdate())
         rows = list(qs[:limit])
 
-        self.stdout.write(f"Processing tracking rows: {len(rows)}")
+        self._emit(f"Processing tracking rows: {len(rows)}")
         total_sent = 0
         total_failed = 0
 
@@ -119,9 +230,12 @@ class Command(BaseCommand):
             company = job.company if row.job_id and job and job.company_id else None
             pattern = str(getattr(company, "mail_format", "") or "").strip()
             mail_tracking = ensure_mail_tracking(row)
+            row_started_scheduled = bool(getattr(row, "schedule_time", None))
             if not company or not pattern:
                 row.mail_delivery_status = "failed"
                 row.save(update_fields=["mail_delivery_status", "updated_at"])
+                if not dry_run:
+                    self._clear_schedule_if_processed(row)
                 self._log_event(
                     mail_tracking=mail_tracking,
                     tracking=row,
@@ -132,7 +246,7 @@ class Command(BaseCommand):
                     to_email="",
                     notes="Skipped: company mail pattern is missing.",
                 )
-                self.stdout.write(self.style.WARNING(f"[tracking:{row.id}] skipped (missing company/pattern)"))
+                self._emit(f"[tracking:{row.id}] skipped (missing company/pattern)", level="warning", style=self.style.WARNING)
                 total_failed += 1
                 continue
 
@@ -141,6 +255,8 @@ class Command(BaseCommand):
             if not employees:
                 row.mail_delivery_status = "failed"
                 row.save(update_fields=["mail_delivery_status", "updated_at"])
+                if not dry_run:
+                    self._clear_schedule_if_processed(row)
                 self._log_event(
                     mail_tracking=mail_tracking,
                     tracking=row,
@@ -151,7 +267,7 @@ class Command(BaseCommand):
                     to_email="",
                     notes="Skipped: no selected employees found for this tracking row.",
                 )
-                self.stdout.write(self.style.WARNING(f"[tracking:{row.id}] skipped (no selected employees to target)"))
+                self._emit(f"[tracking:{row.id}] skipped (no selected employees to target)", level="warning", style=self.style.WARNING)
                 total_failed += 1
                 continue
 
@@ -160,6 +276,7 @@ class Command(BaseCommand):
             achievements = self._get_achievements(row)
             attachment_path = self._resolve_attachment_file(row)
             latest_status_map = build_mail_tracking_status_map(mail_tracking)
+            is_scheduled_replay = bool(getattr(row, "schedule_time", None))
             pending_employees = []
             for emp in employees:
                 to_email = self._resolve_employee_email(emp, pattern)
@@ -167,13 +284,17 @@ class Command(BaseCommand):
                 if not existing_status and to_email:
                     existing_status = latest_status_map.get(f"email:{to_email.strip().lower()}")
                 status_value = str(existing_status.get("status") or "").strip().lower() if existing_status else ""
-                if not include_mailed and status_value in {"sent", "failed", "bounced"}:
+                # Rescheduled rows should be allowed to send again even if a prior cycle
+                # for the same tracking row already logged sent/failed/bounced.
+                if not include_mailed and not is_scheduled_replay and status_value in {"sent", "failed", "bounced"}:
                     continue
                 pending_employees.append((emp, to_email))
 
             if not pending_employees:
                 recompute_tracking_delivery_status(row)
-                self.stdout.write(self.style.WARNING(f"[tracking:{row.id}] skipped (no pending employees left to process)"))
+                if not dry_run:
+                    self._clear_schedule_if_processed(row)
+                self._emit(f"[tracking:{row.id}] skipped (no pending employees left to process)", level="warning", style=self.style.WARNING)
                 continue
 
             for emp, to_email in pending_employees:
@@ -198,34 +319,58 @@ class Command(BaseCommand):
                     achievements,
                     use_ai=self._should_use_ai_for_row(row, explicit_use_ai=use_ai),
                 )
+                thread_context = self._resolve_thread_context(mail_tracking, row, to_email)
+                if thread_context.get("subject"):
+                    subject = thread_context["subject"]
                 try:
                     if dry_run:
-                        self._log_event(
-                            mail_tracking=mail_tracking,
-                            tracking=row,
-                            employee=emp,
-                            success=False,
-                            subject=subject,
-                            body=body,
-                            to_email=to_email,
-                            notes="Dry run: send skipped.",
-                            event_status="pending",
+                        self._emit(
+                            f"[tracking:{row.id}] dry run planned for {to_email or 'unresolved-recipient'}",
+                            level="info",
+                            style=self.style.HTTP_INFO,
                         )
                         continue
 
-                    self._send_email(row.user, to_email, subject, body, attachment_path=attachment_path)
+                    if test_mode:
+                        self._emit(
+                            f"[tracking:{row.id}] test mode simulated send to {to_email}",
+                            level="info",
+                            style=self.style.HTTP_INFO,
+                        )
+                        sent_message_id = self._normalize_message_id(make_msgid())
+                    else:
+                        sent_message_id = self._send_email(
+                            row.user,
+                            to_email,
+                            subject,
+                            body,
+                            attachment_path=attachment_path,
+                            in_reply_to=thread_context.get("in_reply_to", ""),
+                            references=thread_context.get("references", []),
+                        )
 
                     # Keep employee email synced once resolved via pattern.
                     if not str(emp.email or "").strip():
                         emp.email = to_email
                         emp.save(update_fields=["email", "updated_at"])
 
-                    self._log_success(mail_tracking, row, emp, subject, body, to_email)
+                    self._log_success(
+                        mail_tracking,
+                        row,
+                        emp,
+                        subject,
+                        body,
+                        to_email,
+                        simulated=test_mode,
+                        message_id=sent_message_id,
+                        in_reply_to=thread_context.get("in_reply_to", ""),
+                        references=thread_context.get("references", []),
+                    )
                     self._set_employee_working_mail(emp, True)
                     row_sent += 1
                     total_sent += 1
 
-                    if sleep_seconds > 0:
+                    if sleep_seconds > 0 and not test_mode:
                         time.sleep(sleep_seconds)
                 except Exception as exc:  # noqa: BLE001
                     self._log_event(
@@ -238,25 +383,135 @@ class Command(BaseCommand):
                         to_email=to_email,
                         notes=f"Send failed: {exc}",
                     )
-                    if self._is_hard_mail_failure(exc):
-                        self._set_employee_working_mail(emp, False)
+                    self._set_employee_working_mail(emp, False)
                     row_failed += 1
                     total_failed += 1
 
             if dry_run:
-                self.stdout.write(self.style.WARNING(f"[tracking:{row.id}] dry run only; planned recipients={len(pending_employees)}"))
+                self._emit(f"[tracking:{row.id}] dry run only; planned recipients={len(pending_employees)}", level="warning", style=self.style.WARNING)
                 continue
 
+            if row_sent > 0:
+                self._append_tracking_action_for_send(
+                    row,
+                    action_at=timezone.now(),
+                    send_mode="scheduled" if row_started_scheduled else "sent",
+                )
             recompute_tracking_delivery_status(row)
+            self._clear_schedule_if_processed(row)
             attempted_count = row_sent + row_failed
             if attempted_count > 0:
-                self.stdout.write(self.style.SUCCESS(f"[tracking:{row.id}] sent={row_sent} failed={row_failed}"))
+                self._emit(f"[tracking:{row.id}] sent={row_sent} failed={row_failed}", level="info", style=self.style.SUCCESS)
             else:
-                self.stdout.write(self.style.WARNING(f"[tracking:{row.id}] no pending sends attempted"))
+                self._emit(f"[tracking:{row.id}] no pending sends attempted", level="warning", style=self.style.WARNING)
 
-        self.stdout.write(self.style.SUCCESS(f"Done. sent={total_sent} failed={total_failed}"))
+        self._emit(f"Done. sent={total_sent} failed={total_failed}", level="info", style=self.style.SUCCESS)
+
+    def _clear_schedule_if_processed(self, row, *, extra_fields=None):
+        if not row or not getattr(row, "schedule_time", None):
+            return
+        row.schedule_time = None
+        update_fields = ["schedule_time", "updated_at"]
+        for field in (extra_fields or []):
+            if field and field not in update_fields:
+                update_fields.append(field)
+        row.save(update_fields=update_fields)
+
+    def _tracking_action_note_meta(self, notes):
+        raw = str(notes or "").strip()
+        if not raw:
+            return {"label": "", "employee_ids": [], "count": 1}
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return {"label": raw, "employee_ids": [], "count": 1}
+        if not isinstance(data, dict):
+            return {"label": raw, "employee_ids": [], "count": 1}
+        employee_ids = []
+        for value in data.get("employee_ids") or []:
+            try:
+                employee_ids.append(int(value))
+            except Exception:
+                continue
+        try:
+            count = max(1, int(data.get("count") or 1))
+        except Exception:
+            count = 1
+        return {
+            "label": str(data.get("label") or "").strip(),
+            "employee_ids": employee_ids,
+            "count": count,
+        }
+
+    def _build_tracking_action_notes(self, *, label="", employee_ids=None, count=1):
+        normalized_ids = []
+        for value in employee_ids or []:
+            try:
+                normalized_ids.append(int(value))
+            except Exception:
+                continue
+        payload = {}
+        if str(label or "").strip():
+            payload["label"] = str(label).strip()
+        if normalized_ids:
+            payload["employee_ids"] = sorted(set(normalized_ids))
+        try:
+            safe_count = max(1, int(count))
+        except Exception:
+            safe_count = 1
+        if safe_count > 1:
+            payload["count"] = safe_count
+        return json.dumps(payload, separators=(",", ":")) if payload else ""
+
+    def _append_tracking_action_for_send(self, row, *, action_at=None, send_mode="sent"):
+        if not row:
+            return
+        existing_actions = row.actions.all()
+        has_any_action = existing_actions.exists()
+        has_fresh_action = existing_actions.filter(action_type="fresh").exists()
+        action_type = str(getattr(row, "mail_type", "fresh") or "fresh").strip().lower()
+        action_type = "followup" if action_type == "followed_up" else "fresh"
+        if not has_any_action:
+            action_type = "fresh"
+        elif action_type == "followup" and not has_fresh_action:
+            action_type = "fresh"
+
+        selected_employee_ids = sorted([emp.id for emp in row.selected_hrs.all() if emp.id])
+        effective_action_at = action_at or timezone.now()
+        notes = self._build_tracking_action_notes(employee_ids=selected_employee_ids)
+        last_action = existing_actions.order_by("-created_at").first()
+        if last_action and str(last_action.action_type or "").strip().lower() == action_type:
+            last_day = timezone.localdate(last_action.action_at) if last_action.action_at else None
+            current_day = timezone.localdate(effective_action_at)
+            last_meta = self._tracking_action_note_meta(last_action.notes)
+            last_employee_ids = sorted(last_meta.get("employee_ids") or [])
+            if last_day == current_day and (not last_employee_ids or last_employee_ids == selected_employee_ids):
+                next_count = int(last_meta.get("count") or 1) + 1
+                last_action.notes = self._build_tracking_action_notes(
+                    label=last_meta.get("label") or "",
+                    employee_ids=selected_employee_ids,
+                    count=next_count,
+                )
+                last_action.action_at = effective_action_at
+                last_action.send_mode = send_mode
+                last_action.save(update_fields=["notes", "action_at", "send_mode", "updated_at"])
+                return
+
+        TrackingAction.objects.create(
+            tracking=row,
+            action_type=action_type,
+            send_mode=send_mode,
+            action_at=effective_action_at,
+            notes=notes,
+        )
 
     def _resolve_attachment_file(self, row):
+        saved_pdf_path = str(getattr(row.resume, "ats_pdf_path", "") or "").strip() if row and row.resume else ""
+        if saved_pdf_path:
+            saved_path = Path(saved_pdf_path)
+            if saved_path.exists() and saved_path.is_file():
+                return str(saved_path)
+
         # Only use the single resume associated with this tracking row.
         builder = {}
         title = ""
@@ -282,7 +537,7 @@ class Command(BaseCommand):
         if len(lines) > 2:
             lines.append("")
 
-        summary = str(b.get("summary") or "").strip()
+        summary = self._plain_text_from_html(b.get("summary") or "")
         if summary:
             lines.extend(["Summary", summary, ""])
 
@@ -303,7 +558,7 @@ class Command(BaseCommand):
                 first = " - ".join(part for part in [title, role] if part)
                 if first:
                     lines.append(first)
-                highlights = str(item.get("highlights") or "").strip()
+                highlights = self._plain_text_from_html(item.get("highlights") or "")
                 if highlights:
                     lines.append(highlights)
             lines.append("")
@@ -312,7 +567,32 @@ class Command(BaseCommand):
         if isinstance(skills, list) and skills:
             lines.append("Skills")
             lines.append(", ".join(str(x).strip() for x in skills if str(x).strip()))
+        else:
+            skills_text = self._plain_text_from_html(skills or "")
+            if skills_text:
+                lines.extend(["Skills", skills_text])
         return "\n".join(lines).strip()
+
+    def _plain_text_from_html(self, value):
+        text = str(value or "")
+        text = re.sub(r"<style[^>]*>[\s\S]*?</style>", " ", text, flags=re.I)
+        text = re.sub(r"<script[^>]*>[\s\S]*?</script>", " ", text, flags=re.I)
+        text = re.sub(r"</li>\s*<li[^>]*>", "\n", text, flags=re.I)
+        text = text.replace("</li>", "\n")
+        text = re.sub(r"<li[^>]*>", "- ", text, flags=re.I)
+        text = re.sub(r"</p>|</div>|</h[1-6]>", "\n", text, flags=re.I)
+        text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = (
+            text.replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+        )
+        text = re.sub(r"[ \t]+\n", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = re.sub(r"[ \t]{2,}", " ", text)
+        return text.strip()
 
     def _write_simple_pdf(self, text, filename_hint="resume"):
         safe_hint = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(filename_hint or "resume")).strip("_") or "resume"
@@ -876,7 +1156,7 @@ class Command(BaseCommand):
         body = self._inject_dynamic_names(body, emp_name, sender_name)
         return subject, body
 
-    def _send_email(self, user, to_email, subject, body, attachment_path=None):
+    def _send_email(self, user, to_email, subject, body, attachment_path=None, *, in_reply_to="", references=None):
         host = str(__import__("os").environ.get("SMTP_HOST", "")).strip()
         port = int(str(__import__("os").environ.get("SMTP_PORT", "587")).strip() or 587)
         username = str(__import__("os").environ.get("SMTP_USER", "")).strip()
@@ -905,6 +1185,15 @@ class Command(BaseCommand):
         msg["Subject"] = subject
         msg["From"] = from_email
         msg["To"] = to_email
+        domain = str(from_email.split("@", 1)[1] if "@" in from_email else "").strip() or None
+        message_id = self._normalize_message_id(make_msgid(domain=domain))
+        msg["Message-ID"] = message_id
+        normalized_reply_to = self._normalize_message_id(in_reply_to)
+        if normalized_reply_to:
+            msg["In-Reply-To"] = normalized_reply_to
+        thread_references = self._thread_reference_list(references, normalized_reply_to)
+        if thread_references:
+            msg["References"] = " ".join(thread_references)
         # No CC by design.
 
         with smtplib.SMTP(host, port, timeout=30) as server:
@@ -913,14 +1202,19 @@ class Command(BaseCommand):
             if username and password:
                 server.login(username, password)
             server.sendmail(from_email, [to_email], msg.as_string())
+        return message_id
 
-    def _log_success(self, mail_tracking, tracking, employee, subject, body, to_email):
+    def _log_success(self, mail_tracking, tracking, employee, subject, body, to_email, *, simulated=False, message_id="", in_reply_to="", references=None):
+        notes = "Mail send simulated in test mode." if simulated else "Mail sent from cron command."
+        normalized_message_id = self._normalize_message_id(message_id)
+        normalized_reply_to = self._normalize_message_id(in_reply_to)
+        thread_references = self._thread_reference_list(references, normalized_reply_to)
         log_mail_event(
             mail_tracking=mail_tracking,
             tracking=tracking,
             employee=employee,
             status="sent",
-            notes="Mail sent from cron command.",
+            notes=notes,
             subject=subject,
             body=body,
             to_email=to_email,
@@ -930,7 +1224,12 @@ class Command(BaseCommand):
                 "body": body,
                 "cc": [],
                 "status": "sent",
+                "simulated": bool(simulated),
+                "message_id": normalized_message_id,
+                "in_reply_to": normalized_reply_to,
+                "references": thread_references,
             },
+            source_message_id=normalized_message_id,
         )
 
     def _log_event(self, mail_tracking, tracking, employee, success, subject, body, to_email, notes, event_status=None):

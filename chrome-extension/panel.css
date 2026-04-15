@@ -150,6 +150,43 @@ textarea {
   margin-top: 8px;
 }
 
+.auth-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.auth-pill,
+.auth-user {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.auth-pill {
+  border: 1px solid #cce6df;
+  background: #edf9f6;
+  color: #0f766e;
+}
+
+.auth-pill.is-logged-out {
+  border-color: #e7d4da;
+  background: #fff5f7;
+  color: #bf1d3d;
+}
+
+.auth-user {
+  border: 1px solid #d8e1ea;
+  background: #f8fbfc;
+  color: #475569;
+}
+
 button {
   border: 1px solid #0f766e;
   background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
@@ -175,7 +212,8 @@ button:disabled {
 }
 
 #clearJobBtn,
-#clearEmployeeBtn {
+#clearEmployeeBtn,
+#logoutBtn {
   border-color: #d5dde6;
   background: #fff;
   color: #475569;
@@ -183,7 +221,8 @@ button:disabled {
 
 #fetchFromPageBtn,
 #fetchEmployeeFromPageBtn,
-#refreshBtn {
+#refreshBtn,
+#refreshSessionBtn {
   border-color: #c6d4de;
   background: #f8fbfc;
   color: #0f172a;

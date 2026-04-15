@@ -132,8 +132,10 @@ export function MultiSelectDropdown({
   placeholder,
   disabled = false,
   searchPlaceholder = 'Search',
+  className = '',
 }) {
   const wrapRef = useRef(null)
+  const inputRef = useRef(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
 
@@ -160,39 +162,78 @@ export function MultiSelectDropdown({
     const text = String(query || '').trim().toLowerCase()
     return !text || label.includes(text)
   })
+  const filteredIds = filtered.map((opt) => String(opt.value))
 
   const summary = selectedLabels.length
     ? `${selectedLabels.slice(0, 2).join(', ')}${selectedLabels.length > 2 ? ` +${selectedLabels.length - 2}` : ''}`
     : ''
+  const inputValue = open ? query : summary
 
   return (
-    <div ref={wrapRef} className={`search-dd ${disabled ? 'is-disabled' : ''}`}>
-      <button
-        type="button"
-        className="search-dd-multi-trigger"
-        disabled={disabled}
-        onClick={() => setOpen((prev) => !prev)}
-      >
-        <span className={summary ? '' : 'search-dd-placeholder'}>{summary || placeholder}</span>
-        <span>{open ? '▴' : '▾'}</span>
-      </button>
+    <div ref={wrapRef} className={`search-dd ${disabled ? 'is-disabled' : ''} ${className}`.trim()}>
+      <div className="search-dd-input-wrap">
+        <input
+          ref={inputRef}
+          className={`search-dd-input ${summary && !open ? '' : 'search-dd-placeholder'}`}
+          value={inputValue}
+          disabled={disabled}
+          readOnly={!open}
+          placeholder={open ? searchPlaceholder : placeholder}
+          onClick={() => {
+            if (!disabled) {
+              setOpen(true)
+            }
+          }}
+          onFocus={() => {
+            if (!disabled) {
+              setOpen(true)
+              setQuery('')
+            }
+          }}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setOpen(true)
+          }}
+        />
+        <button
+          type="button"
+          className="search-dd-toggle"
+          disabled={disabled}
+          onMouseDown={(event) => event.preventDefault()}
+          onTouchStart={(event) => event.preventDefault()}
+          onClick={() => {
+            if (disabled) return
+            setOpen((prev) => {
+              const next = !prev
+              if (next) {
+                setQuery('')
+                window.requestAnimationFrame(() => inputRef.current?.focus())
+              }
+              return next
+            })
+          }}
+          aria-label="Toggle options"
+        >
+          {open ? '▴' : '▾'}
+        </button>
+      </div>
       {open && !disabled ? (
-        <div className="search-dd-menu">
-          <input
-            className="search-dd-input"
-            value={query}
-            placeholder={searchPlaceholder}
-            onChange={(event) => setQuery(event.target.value)}
-          />
+        <div className="search-dd-menu" role="listbox">
           <div className="search-dd-multi-list">
             {filtered.length ? (
               filtered.map((opt) => {
                 const id = String(opt.value)
                 const checked = selectedSet.has(id)
                 return (
-                  <label key={id} className="search-dd-multi-item">
+                  <label
+                    key={id}
+                    className={`search-dd-item search-dd-multi-option ${checked ? 'is-active' : ''}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onTouchStart={(event) => event.preventDefault()}
+                  >
                     <input
                       type="checkbox"
+                      className="search-dd-multi-checkbox"
                       checked={checked}
                       onChange={(event) => {
                         const next = new Set(safeValues)
@@ -201,7 +242,8 @@ export function MultiSelectDropdown({
                         onChange(Array.from(next))
                       }}
                     />
-                    <span>{String(opt.label || '')}</span>
+                    <span className="search-dd-multi-option-label">{String(opt.label || '')}</span>
+                    <span className="search-dd-multi-option-mark" aria-hidden="true">{checked ? '✓' : ''}</span>
                   </label>
                 )
               })

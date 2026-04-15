@@ -347,6 +347,75 @@ export async function updateProfileInfo(accessToken, payload) {
   return parseResponse(response)
 }
 
+export async function fetchProfilePanels(accessToken) {
+  const response = await authFetch(`${API_BASE_URL}/profile-panels/`, {}, accessToken)
+  return parseResponse(response)
+}
+
+export async function createProfilePanel(accessToken, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/profile-panels/`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function updateProfilePanel(accessToken, panelId, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/profile-panels/${panelId}/`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function deleteProfilePanel(accessToken, panelId) {
+  const response = await authFetch(
+    `${API_BASE_URL}/profile-panels/${panelId}/`,
+    { method: 'DELETE' },
+    accessToken,
+  )
+  if (response.status === 204) return { ok: true }
+  return parseResponse(response)
+}
+
+export async function fetchWorkspaceMembers(accessToken) {
+  const response = await authFetch(`${API_BASE_URL}/workspace-members/`, {}, accessToken)
+  return parseResponse(response)
+}
+
+export async function createWorkspaceMember(accessToken, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/workspace-members/`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function deleteWorkspaceMember(accessToken, memberId) {
+  const response = await authFetch(
+    `${API_BASE_URL}/workspace-members/${memberId}/`,
+    { method: 'DELETE' },
+    accessToken,
+  )
+  if (response.status === 204) return { ok: true }
+  return parseResponse(response)
+}
+
 export async function fetchAchievements(accessToken) {
   const response = await authFetch(`${API_BASE_URL}/achievements/`, {}, accessToken)
   return parseResponse(response)

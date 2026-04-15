@@ -7,7 +7,9 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+from django.contrib.auth.models import User
 from django.db.models import Q
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
@@ -19,7 +21,7 @@ from django.utils import timezone
 
 from .pdf_parser import parse_resume_pdf
 from .company_utils import normalize_company_name, resolve_company_for_job
-from .models import Resume, MailTracking, MailTrackingEvent, Company, Employee, Job, Tracking, TrackingAction, UserProfile, Template, Interview, Location
+from .models import Resume, MailTracking, MailTrackingEvent, Company, Employee, Job, Tracking, TrackingAction, UserProfile, ProfilePanel, WorkspaceMember, Template, Interview, Location
 from .serializers import (
     ResumeSerializer,
     TailoredResumeSerializer,
@@ -29,6 +31,8 @@ from .serializers import (
     EmployeeSerializer,
     JobSerializer,
     UserProfileSerializer,
+    ProfilePanelSerializer,
+    WorkspaceMemberSerializer,
     TemplateSerializer,
     InterviewSerializer,
     LocationSerializer,
@@ -47,6 +51,44 @@ from .tailor import (
 )
 from .tracking_mail_utils import build_mail_tracking_status_map
 from .management.commands.send_tracking_mails import Command as SendTrackingMailsCommand
+
+
+APP_UI_TIME_ZONE = ZoneInfo('Asia/Kolkata')
+
+
+def _workspace_owner_for_user(user):
+    if not getattr(user, 'is_authenticated', False):
+        return None
+    membership = (
+        WorkspaceMember.objects
+        .filter(member=user, is_active=True)
+        .select_related('owner')
+        .order_by('-updated_at', '-created_at')
+        .first()
+    )
+    return membership.owner if membership and membership.owner_id else user
+
+
+def _accessible_owner_ids_for_user(user):
+    if not getattr(user, 'is_authenticated', False):
+        return []
+    owner_ids = {user.id}
+    owner_ids.update(
+        WorkspaceMember.objects
+        .filter(member=user, is_active=True)
+        .values_list('owner_id', flat=True)
+    )
+    return list(owner_ids)
+
+
+def _is_workspace_owner(user):
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    return not WorkspaceMember.objects.filter(member=user, is_active=True).exists()
+
+
+def _can_manage_workspace_fully(user):
+    return _is_workspace_owner(user)
 
 
 def _paginate_queryset(queryset, request, default_page_size=10, max_page_size=100):
@@ -190,6 +232,40 @@ def _build_tracking_employee_delivery_overview(selected_employees, mail_tracking
             'action_at': str((current or {}).get('action_at') or '').strip(),
         })
     return overview
+
+
+def _follow_up_eligible_employees(tracking):
+    if not tracking:
+        return []
+    events_query = Q(tracking=tracking)
+    mail_tracking = _mail_tracking_for_row(tracking)
+    if mail_tracking:
+        events_query = events_query | Q(tracking__isnull=True, mail_tracking_id=mail_tracking.id)
+
+    latest_by_employee = {}
+    event_rows = (
+        MailTrackingEvent.objects
+        .filter(events_query, employee_id__isnull=False)
+        .select_related('employee')
+        .order_by('action_at', 'created_at')
+    )
+    for item in event_rows:
+        payload = item.raw_payload if isinstance(getattr(item, 'raw_payload', None), dict) else {}
+        status_value = str(getattr(item, 'status', '') or payload.get('status') or '').strip().lower()
+        if status_value not in {'sent', 'failed', 'bounced'}:
+            continue
+        latest_by_employee[item.employee_id] = item
+
+    eligible = []
+    for item in latest_by_employee.values():
+        payload = item.raw_payload if isinstance(getattr(item, 'raw_payload', None), dict) else {}
+        status_value = str(getattr(item, 'status', '') or payload.get('status') or '').strip().lower()
+        if status_value != 'sent':
+            continue
+        if not getattr(item, 'employee', None):
+            continue
+        eligible.append(item.employee)
+    return eligible
 
 
 def _normalize_tracking_template_ids(payload, request_data=None):
@@ -637,30 +713,46 @@ def _restrict_to_reference_sections(reference_builder: dict, result_builder: dic
 def _sanitize_filename_stem(raw: str) -> str:
     value = re.sub(r"\s+", " ", str(raw or "").strip())
     value = re.sub(r"[^\w\s-]", "", value)
-    value = value.replace(" ", "").strip("._-")
+    value = value.strip("._- ")
+    value = value.replace("-", " ")
+    value = re.sub(r"\s+", "_", value).strip("._-").lower()
     return value or "resume"
 
 
-def _default_pdf_filename(builder_data: dict) -> str:
+def _default_pdf_filename(builder_data: dict, resume=None) -> str:
     data = builder_data if isinstance(builder_data, dict) else {}
     full_name = str(data.get("fullName") or "").strip()
-    parts = [re.sub(r"[^\w]", "", p).lower() for p in re.split(r"\s+", full_name) if p.strip()]
-    if not parts:
-        base = "resume"
-    elif len(parts) == 1:
-        base = parts[0]
-    else:
-        base = f"{parts[0]}{parts[-1]}"
-    stem = _sanitize_filename_stem(f"{base}_3yoe").lower()
+    parts = []
+    if full_name:
+        parts.append(full_name)
+    elif str(getattr(resume, "title", "") or "").strip():
+        parts.append(str(getattr(resume, "title", "") or "").strip())
+
+    resume_job = getattr(resume, "job", None) if resume else None
+    company_name = ""
+    job_code = ""
+    if resume_job:
+        job_code = str(getattr(resume_job, "job_id", "") or "").strip()
+        company = getattr(resume_job, "company", None)
+        company_name = str(getattr(company, "name", "") or "").strip()
+
+    if company_name:
+        parts.append(company_name)
+    if job_code:
+        parts.append(job_code)
+    if not company_name:
+        parts.append("3 YOE")
+
+    stem = _sanitize_filename_stem(" - ".join([part for part in parts if part]) or "Resume")
     return f"{stem}.pdf"
 
 
-def _pick_local_pdf_path(file_name: str) -> Path:
-    target_dir = Path.home() / "Desktop" / "Ats"
+def _pick_local_pdf_path(file_name: str, resume_id: int | None = None) -> Path:
+    target_dir = Path(__file__).resolve().parents[1] / "storage" / "ats_pdfs"
     target_dir.mkdir(parents=True, exist_ok=True)
-    stem = _sanitize_filename_stem(Path(str(file_name or "")).stem).lower()
+    stem = _sanitize_filename_stem(Path(str(file_name or "")).stem)
     if not stem:
-        stem = "resume"
+        stem = "Resume"
     # Always overwrite existing file as requested.
     return target_dir / f"{stem}.pdf"
 
@@ -1349,6 +1441,136 @@ class ProfileInfoView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class ProfilePanelListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+    max_panels = 2
+
+    def get(self, request):
+        rows = ProfilePanel.objects.filter(user=request.user).order_by('-updated_at', '-created_at')
+        return Response(ProfilePanelSerializer(rows, many=True).data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        if ProfilePanel.objects.filter(user=request.user).count() >= self.max_panels:
+            return Response({'detail': 'Maximum 2 profile panels allowed.'}, status=status.HTTP_400_BAD_REQUEST)
+        payload = dict(request.data or {})
+        location_ref_raw = str(payload.get('location_ref') or '').strip()
+        if 'location_ref' in payload and not location_ref_raw:
+            payload['location_ref'] = None
+        if location_ref_raw:
+            try:
+                location = Location.objects.get(id=location_ref_raw)
+                payload['location_ref'] = location.id
+                payload['location'] = location.name
+            except Location.DoesNotExist:
+                return Response({'detail': 'Location not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        preferred_location_refs = payload.get('preferred_location_refs')
+        if preferred_location_refs is None and hasattr(request.data, 'getlist'):
+            raw_list = [str(v or '').strip() for v in request.data.getlist('preferred_location_refs') if str(v or '').strip()]
+            if raw_list:
+                preferred_location_refs = raw_list
+        if isinstance(preferred_location_refs, str):
+            preferred_location_refs = [item.strip() for item in preferred_location_refs.split(',') if item.strip()]
+        if preferred_location_refs is not None:
+            payload['preferred_location_refs'] = preferred_location_refs
+        serializer = ProfilePanelSerializer(data=payload, context={'request': request})
+        if serializer.is_valid():
+            row = serializer.save(user=request.user)
+            return Response(ProfilePanelSerializer(row).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ProfilePanelDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def _get_row(self, request, panel_id):
+        return ProfilePanel.objects.filter(user=request.user, id=panel_id).first()
+
+    def put(self, request, panel_id):
+        row = self._get_row(request, panel_id)
+        if not row:
+            return Response({'detail': 'Profile panel not found.'}, status=status.HTTP_404_NOT_FOUND)
+        payload = dict(request.data or {})
+        location_ref_raw = str(payload.get('location_ref') or '').strip()
+        if 'location_ref' in payload and not location_ref_raw:
+            payload['location_ref'] = None
+        if location_ref_raw:
+            try:
+                location = Location.objects.get(id=location_ref_raw)
+                payload['location_ref'] = location.id
+                payload['location'] = location.name
+            except Location.DoesNotExist:
+                return Response({'detail': 'Location not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        preferred_location_refs = payload.get('preferred_location_refs')
+        if preferred_location_refs is None and hasattr(request.data, 'getlist'):
+            raw_list = [str(v or '').strip() for v in request.data.getlist('preferred_location_refs') if str(v or '').strip()]
+            if raw_list:
+                preferred_location_refs = raw_list
+        if isinstance(preferred_location_refs, str):
+            preferred_location_refs = [item.strip() for item in preferred_location_refs.split(',') if item.strip()]
+        if preferred_location_refs is not None:
+            payload['preferred_location_refs'] = preferred_location_refs
+        serializer = ProfilePanelSerializer(row, data=payload, partial=True, context={'request': request})
+        if serializer.is_valid():
+            updated = serializer.save()
+            return Response(ProfilePanelSerializer(updated).data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, panel_id):
+        row = self._get_row(request, panel_id)
+        if not row:
+            return Response({'detail': 'Profile panel not found.'}, status=status.HTTP_404_NOT_FOUND)
+        row.hard_delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class WorkspaceMemberListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def get(self, request):
+        rows = WorkspaceMember.objects.filter(owner=request.user).select_related('member').order_by('-updated_at', '-created_at')
+        return Response(WorkspaceMemberSerializer(rows, many=True).data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        payload = dict(request.data or {})
+        username = str(payload.get('username') or payload.get('member_username') or '').strip()
+        if not username:
+            return Response({'detail': 'username is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if WorkspaceMember.objects.filter(owner=request.user, is_active=True).count() >= 1:
+            return Response({'detail': 'Only one additional member is allowed.'}, status=status.HTTP_400_BAD_REQUEST)
+        member = User.objects.filter(username__iexact=username).first()
+        if not member:
+            return Response({'detail': 'User not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        if member.id == request.user.id:
+            return Response({'detail': 'Owner cannot be added as member.'}, status=status.HTTP_400_BAD_REQUEST)
+        existing_member_workspace = WorkspaceMember.objects.filter(member=member, is_active=True).exclude(owner=request.user).first()
+        if existing_member_workspace:
+            return Response({'detail': 'This user is already linked to another owner.'}, status=status.HTTP_400_BAD_REQUEST)
+        row, created = WorkspaceMember.objects.get_or_create(
+            owner=request.user,
+            member=member,
+            defaults={'is_active': True},
+        )
+        if not created and not row.is_active:
+            row.is_active = True
+            row.save(update_fields=['is_active', 'updated_at'])
+        return Response(WorkspaceMemberSerializer(row).data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+
+class WorkspaceMemberDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser]
+
+    def delete(self, request, member_id):
+        row = WorkspaceMember.objects.filter(owner=request.user, id=member_id).first()
+        if not row:
+            return Response({'detail': 'Workspace member not found.'}, status=status.HTTP_404_NOT_FOUND)
+        row.hard_delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class TemplateListCreateView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [JSONParser]
@@ -1721,6 +1943,7 @@ class ResumeListCreateView(APIView):
                 is_tailored=False,
                 job=None,
                 source_resume=None,
+                ats_pdf_path='',
                 original_text=incoming_text or serializer.validated_data.get("original_text") or "",
             )
             self._apply_default_resume(request.user, created)
@@ -1772,7 +1995,9 @@ class ResumeDetailView(APIView):
 
         serializer = ResumeSerializer(resume, data=request.data, partial=True)
         if serializer.is_valid():
-            updated = serializer.save()
+            builder_changed = 'builder_data' in serializer.validated_data
+            title_changed = 'title' in serializer.validated_data
+            updated = serializer.save(ats_pdf_path='' if (builder_changed or title_changed) else resume.ats_pdf_path)
             self._apply_default_resume(request.user, updated)
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -2217,8 +2442,16 @@ class ExportAtsPdfLocalView(APIView):
         if len(html_text) < 40:
             return Response({"detail": "Missing ATS HTML payload for PDF export."}, status=status.HTTP_400_BAD_REQUEST)
 
-        file_name = _default_pdf_filename(builder_data)
-        output_path = _pick_local_pdf_path(file_name)
+        resume = None
+        resume_id = str(request.data.get("resume_id") or "").strip()
+        if resume_id:
+            try:
+                resume = Resume.objects.get(id=resume_id, user=request.user)
+            except Resume.DoesNotExist:
+                return Response({"detail": "Resume not found for PDF export."}, status=status.HTTP_404_NOT_FOUND)
+
+        file_name = _default_pdf_filename(builder_data, resume=resume)
+        output_path = _pick_local_pdf_path(file_name, resume.id if resume else None)
 
         ok, note = _render_pdf_from_html(html_text, output_path)
         if not ok:
@@ -2227,10 +2460,15 @@ class ExportAtsPdfLocalView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        if resume:
+            resume.ats_pdf_path = str(output_path)
+            resume.save(update_fields=["ats_pdf_path", "updated_at"])
+
         return Response(
             {
                 "saved_path": str(output_path),
                 "file_name": output_path.name,
+                "resume_id": resume.id if resume else None,
             },
             status=status.HTTP_200_OK,
         )
@@ -2289,7 +2527,7 @@ class ApplicationTrackingListCreateView(APIView):
         try:
             dt = datetime.fromisoformat(raw)
             if timezone.is_naive(dt):
-                dt = timezone.make_aware(dt, timezone.get_current_timezone())
+                dt = timezone.make_aware(dt, APP_UI_TIME_ZONE)
             return dt
         except Exception:
             return None
@@ -2823,6 +3061,27 @@ class ApplicationTrackingListCreateView(APIView):
         tracking.save()
         if selected_targets is not None:
             tracking.selected_hrs.set(selected_targets)
+        if mail_type == 'followed_up':
+            eligible_follow_up_ids = {emp.id for emp in _follow_up_eligible_employees(tracking) if emp and emp.id}
+            if not eligible_follow_up_ids:
+                if not reuse_existing_row:
+                    tracking.hard_delete()
+                return Response(
+                    {'detail': 'No contacted employee is available for follow up yet. Send Fresh mail first.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            invalid_follow_up = [
+                str(emp.name or '').strip() or f'Employee #{emp.id}'
+                for emp in tracking.selected_hrs.all()
+                if emp.id not in eligible_follow_up_ids
+            ]
+            if invalid_follow_up:
+                if not reuse_existing_row:
+                    tracking.hard_delete()
+                return Response(
+                    {'detail': f'Follow Up can only be sent to employees already contacted in this tracking row: {", ".join(invalid_follow_up)}.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         if mail_type == 'fresh':
             selected_employees = list(tracking.selected_hrs.all())
             selected_employee_ids = sorted([emp.id for emp in selected_employees if emp.id])
@@ -2908,7 +3167,7 @@ class ApplicationTrackingDetailView(APIView):
         try:
             dt = datetime.fromisoformat(raw)
             if timezone.is_naive(dt):
-                dt = timezone.make_aware(dt, timezone.get_current_timezone())
+                dt = timezone.make_aware(dt, APP_UI_TIME_ZONE)
             return dt
         except Exception:
             return None
@@ -3299,6 +3558,24 @@ class ApplicationTrackingDetailView(APIView):
         if next_selected is not None:
             row.selected_hrs.set(next_selected)
 
+        if row.mail_type == 'followed_up':
+            eligible_follow_up_ids = {emp.id for emp in _follow_up_eligible_employees(row) if emp and emp.id}
+            if not eligible_follow_up_ids:
+                return Response(
+                    {'detail': 'No contacted employee is available for follow up yet. Send Fresh mail first.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            invalid_follow_up = [
+                str(emp.name or '').strip() or f'Employee #{emp.id}'
+                for emp in row.selected_hrs.all()
+                if emp.id not in eligible_follow_up_ids
+            ]
+            if invalid_follow_up:
+                return Response(
+                    {'detail': f'Follow Up can only be sent to employees already contacted in this tracking row: {", ".join(invalid_follow_up)}.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         if row.mail_type == 'fresh':
             selected_employees = list(row.selected_hrs.all())
             selected_employee_ids = sorted([emp.id for emp in selected_employees if emp.id])
@@ -3546,7 +3823,7 @@ class CompanyListCreateView(APIView):
     parser_classes = [JSONParser]
 
     def get(self, request):
-        queryset = Company.objects.filter(user=request.user).order_by('name')
+        queryset = Company.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user)).order_by('name')
         rows, meta = _paginate_queryset(queryset, request, default_page_size=10, max_page_size=100)
         return Response(
             {
@@ -3557,9 +3834,10 @@ class CompanyListCreateView(APIView):
         )
 
     def post(self, request):
+        workspace_owner = _workspace_owner_for_user(request.user)
         serializer = CompanySerializer(data=request.data)
         if serializer.is_valid():
-            created = serializer.save(user=request.user)
+            created = serializer.save(user=workspace_owner)
             return Response(CompanySerializer(created).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -3569,9 +3847,11 @@ class CompanyDetailView(APIView):
     parser_classes = [JSONParser]
 
     def _get_object(self, request, company_id):
-        return Company.objects.get(id=company_id, user=request.user)
+        return Company.objects.get(id=company_id, user_id__in=_accessible_owner_ids_for_user(request.user))
 
     def put(self, request, company_id):
+        if not _can_manage_workspace_fully(request.user):
+            return Response({'detail': 'Only owner can update companies.'}, status=status.HTTP_403_FORBIDDEN)
         try:
             row = self._get_object(request, company_id)
         except Company.DoesNotExist:
@@ -3583,6 +3863,8 @@ class CompanyDetailView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, company_id):
+        if not _can_manage_workspace_fully(request.user):
+            return Response({'detail': 'Only owner can delete companies.'}, status=status.HTTP_403_FORBIDDEN)
         try:
             row = self._get_object(request, company_id)
         except Company.DoesNotExist:
@@ -3597,7 +3879,7 @@ class EmployeeListCreateView(APIView):
 
     def get(self, request):
         company_id = request.query_params.get('company_id')
-        rows = Employee.objects.filter(user=request.user)
+        rows = Employee.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user))
         if company_id:
             rows = rows.filter(company_id=company_id)
         rows = rows.order_by('name')
@@ -3608,13 +3890,14 @@ class EmployeeListCreateView(APIView):
         company_id = payload.get('company')
         if not company_id:
             return Response({'company': ['This field is required.']}, status=status.HTTP_400_BAD_REQUEST)
+        workspace_owner = _workspace_owner_for_user(request.user)
         try:
-            company = Company.objects.get(id=company_id, user=request.user)
+            company = Company.objects.get(id=company_id, user=workspace_owner)
         except Company.DoesNotExist:
             return Response({'company': ['Company not found.']}, status=status.HTTP_400_BAD_REQUEST)
         serializer = EmployeeSerializer(data=payload)
         if serializer.is_valid():
-            created = serializer.save(user=request.user, company=company)
+            created = serializer.save(user=workspace_owner, company=company)
             return Response(EmployeeSerializer(created).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -3624,9 +3907,11 @@ class EmployeeDetailView(APIView):
     parser_classes = [JSONParser]
 
     def _get_object(self, request, employee_id):
-        return Employee.objects.get(id=employee_id, user=request.user)
+        return Employee.objects.get(id=employee_id, user_id__in=_accessible_owner_ids_for_user(request.user))
 
     def put(self, request, employee_id):
+        if not _can_manage_workspace_fully(request.user):
+            return Response({'detail': 'Only owner can update employees.'}, status=status.HTTP_403_FORBIDDEN)
         try:
             row = self._get_object(request, employee_id)
         except Employee.DoesNotExist:
@@ -3636,7 +3921,7 @@ class EmployeeDetailView(APIView):
         company_id = payload.get('company')
         if company_id:
             try:
-                company = Company.objects.get(id=company_id, user=request.user)
+                company = Company.objects.get(id=company_id, user=row.user)
             except Company.DoesNotExist:
                 return Response({'company': ['Company not found.']}, status=status.HTTP_400_BAD_REQUEST)
             payload['company'] = company.id
@@ -3648,6 +3933,8 @@ class EmployeeDetailView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, employee_id):
+        if not _can_manage_workspace_fully(request.user):
+            return Response({'detail': 'Only owner can delete employees.'}, status=status.HTTP_403_FORBIDDEN)
         try:
             row = self._get_object(request, employee_id)
         except Employee.DoesNotExist:
@@ -3677,7 +3964,7 @@ class JobListCreateView(APIView):
 
     def get(self, request):
         include_removed = str(request.query_params.get('include_removed') or '').strip().lower() in {'1', 'true', 'yes', 'y'}
-        rows = Job.objects.filter(user=request.user).select_related('company').prefetch_related('resumes')
+        rows = Job.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user)).select_related('company').prefetch_related('resumes')
         if not include_removed:
             rows = rows.filter(is_removed=False)
 
@@ -3720,6 +4007,7 @@ class JobListCreateView(APIView):
         return Response({**meta, 'results': ser.data}, status=status.HTTP_200_OK)
 
     def post(self, request):
+        workspace_owner = _workspace_owner_for_user(request.user)
         data = request.data.copy()
         if hasattr(data, '_mutable'):
             data._mutable = True
@@ -3727,7 +4015,7 @@ class JobListCreateView(APIView):
         new_company_name = data.get('new_company_name')
         try:
             company = resolve_company_for_job(
-                request.user,
+                workspace_owner,
                 company_id=company_id,
                 new_company_name=new_company_name,
             )
@@ -3739,7 +4027,7 @@ class JobListCreateView(APIView):
         if not job_id_value:
             return Response({'job_id': ['This field is required.']}, status=status.HTTP_400_BAD_REQUEST)
         exists = Job.objects.filter(
-            user=request.user,
+            user=workspace_owner,
             company=company,
             job_id__iexact=job_id_value,
             is_removed=False,
@@ -3751,7 +4039,7 @@ class JobListCreateView(APIView):
         data.pop('new_company_name', None)
         serializer = JobSerializer(data=data, context={'request': request})
         if serializer.is_valid():
-            created = serializer.save(user=request.user, company=company)
+            created = serializer.save(user=workspace_owner, company=company)
             return Response(
                 JobSerializer(created, context={'request': request}).data,
                 status=status.HTTP_201_CREATED,
@@ -3764,10 +4052,10 @@ class JobDetailView(APIView):
     parser_classes = [JSONParser, FormParser, MultiPartParser]
 
     def _get_object(self, request, job_id):
-        return Job.objects.get(id=job_id, user=request.user, is_removed=False)
+        return Job.objects.get(id=job_id, user_id__in=_accessible_owner_ids_for_user(request.user), is_removed=False)
 
     def _get_object_any(self, request, job_id):
-        return Job.objects.get(id=job_id, user=request.user)
+        return Job.objects.get(id=job_id, user_id__in=_accessible_owner_ids_for_user(request.user))
 
     def _is_hard_delete(self, request):
         mode = str(request.query_params.get('delete_mode') or '').strip().lower()
@@ -3782,6 +4070,8 @@ class JobDetailView(APIView):
         return Response(JobSerializer(row, context={'request': request}).data, status=status.HTTP_200_OK)
 
     def put(self, request, job_id):
+        if not _can_manage_workspace_fully(request.user):
+            return Response({'detail': 'Only owner can update jobs.'}, status=status.HTTP_403_FORBIDDEN)
         try:
             row = self._get_object(request, job_id)
         except Job.DoesNotExist:
@@ -3798,7 +4088,7 @@ class JobDetailView(APIView):
             if norm_new or has_company_id:
                 try:
                     company = resolve_company_for_job(
-                        request.user,
+                        row.user,
                         company_id=cid if has_company_id else None,
                         new_company_name=newn,
                     )
@@ -3813,7 +4103,7 @@ class JobDetailView(APIView):
         if not target_job_id:
             return Response({'job_id': ['This field may not be blank.']}, status=status.HTTP_400_BAD_REQUEST)
         duplicate = Job.objects.filter(
-            user=request.user,
+            user=row.user,
             company=target_company,
             job_id__iexact=target_job_id,
             is_removed=False,
@@ -3828,6 +4118,8 @@ class JobDetailView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, job_id):
+        if not _can_manage_workspace_fully(request.user):
+            return Response({'detail': 'Only owner can delete jobs.'}, status=status.HTTP_403_FORBIDDEN)
         try:
             row = self._get_object_any(request, job_id)
         except Job.DoesNotExist:
@@ -4158,6 +4450,7 @@ class ExtensionFormMetaView(APIView):
     parser_classes = [JSONParser]
 
     def get(self, request):
+        actor = _resolve_extension_user(request)
         posted_date_options = [
             {'value': 'today', 'label': 'Today'},
             {'value': 'yesterday', 'label': 'Yesterday'},
@@ -4179,6 +4472,13 @@ class ExtensionFormMetaView(APIView):
                     if str(row.name or '').strip()
                 ],
                 'posted_date_options': posted_date_options,
+                'workspace_role': (
+                    'owner'
+                    if actor and _can_manage_workspace_fully(actor)
+                    else 'member'
+                    if actor
+                    else 'guest'
+                ),
             },
             status=status.HTTP_200_OK,
         )
@@ -4193,7 +4493,7 @@ class ExtensionCompanySearchView(APIView):
         if not actor:
             return Response({'detail': 'Please login in web app'}, status=status.HTTP_401_UNAUTHORIZED)
         q = str(request.query_params.get('q') or '').strip()
-        rows = Company.objects.filter(user=actor)
+        rows = Company.objects.filter(user_id__in=_accessible_owner_ids_for_user(actor))
         if q:
             rows = rows.filter(name__icontains=q)
         rows = rows.order_by('name')[:50]
@@ -4242,7 +4542,7 @@ class ExtensionJobCreateView(APIView):
             return today - timedelta(days=7)
         return None
 
-    def _resolve_company(self, user, payload):
+    def _resolve_company(self, user, payload, allow_create=True):
         company_id = payload.get('company_id') or payload.get('company')
         if company_id:
             try:
@@ -4256,6 +4556,8 @@ class ExtensionJobCreateView(APIView):
         company = Company.objects.filter(user=user, name__iexact=company_name).first()
         if company:
             return company, ''
+        if not allow_create:
+            return None, 'Limited user must choose an existing company.'
         company = Company.objects.create(user=user, name=company_name)
         return company, ''
 
@@ -4264,8 +4566,13 @@ class ExtensionJobCreateView(APIView):
         actor = _resolve_extension_user(request)
         if not actor:
             return Response({'detail': 'Please login in web app'}, status=status.HTTP_401_UNAUTHORIZED)
+        workspace_owner = _workspace_owner_for_user(actor)
 
-        company, company_error = self._resolve_company(actor, payload)
+        company, company_error = self._resolve_company(
+            workspace_owner,
+            payload,
+            allow_create=True,
+        )
         if company_error:
             return Response({'detail': company_error}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -4297,7 +4604,7 @@ class ExtensionJobCreateView(APIView):
             )
 
         duplicate = Job.objects.filter(
-            user=actor,
+            user=workspace_owner,
             company=company,
             job_id__iexact=job_id_value,
             is_removed=False,
@@ -4309,7 +4616,7 @@ class ExtensionJobCreateView(APIView):
             )
 
         created = Job.objects.create(
-            user=actor,
+            user=workspace_owner,
             company=company,
             job_id=job_id_value,
             role=role_value,
@@ -4346,7 +4653,7 @@ class ExtensionEmployeeCreateView(APIView):
         cleaned = raw.split('#', 1)[0].split('?', 1)[0].rstrip('/')
         return cleaned.lower()
 
-    def _resolve_company(self, user, payload):
+    def _resolve_company(self, user, payload, allow_create=True):
         company_id = payload.get('company_id') or payload.get('company')
         if company_id:
             try:
@@ -4360,6 +4667,8 @@ class ExtensionEmployeeCreateView(APIView):
         company = Company.objects.filter(user=user, name__iexact=company_name).first()
         if company:
             return company, ''
+        if not allow_create:
+            return None, 'Limited user must choose an existing company.'
         company = Company.objects.create(user=user, name=company_name)
         return company, ''
 
@@ -4368,8 +4677,13 @@ class ExtensionEmployeeCreateView(APIView):
         actor = _resolve_extension_user(request)
         if not actor:
             return Response({'detail': 'Please login in web app'}, status=status.HTTP_401_UNAUTHORIZED)
+        workspace_owner = _workspace_owner_for_user(actor)
 
-        company, company_error = self._resolve_company(actor, payload)
+        company, company_error = self._resolve_company(
+            workspace_owner,
+            payload,
+            allow_create=True,
+        )
         if company_error:
             return Response({'detail': company_error}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -4407,7 +4721,7 @@ class ExtensionEmployeeCreateView(APIView):
 
         linkedin_key = self._normalize_profile_url(linkedin_url)
         duplicate = False
-        for row in Employee.objects.filter(user=actor, company=company).only('id', 'profile'):
+        for row in Employee.objects.filter(user=workspace_owner, company=company).only('id', 'profile'):
             if self._normalize_profile_url(row.profile) == linkedin_key:
                 duplicate = True
                 break
@@ -4435,7 +4749,7 @@ class ExtensionEmployeeCreateView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        created = serializer.save(user=actor, company=company)
+        created = serializer.save(user=workspace_owner, company=company)
         return Response(
             {
                 'message': 'Employee created.',

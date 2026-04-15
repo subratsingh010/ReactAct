@@ -5,6 +5,8 @@ function normalizeApiBase(base) {
   return value.replace(/\/+$/, '')
 }
 
+const AUTH_STORAGE_KEY = 'applypilot_extension_auth'
+
 async function openSidePanelForTab(tab, path = 'panel.html') {
   const tabId = tab?.id
   if (!tabId || !chrome.sidePanel) return false
@@ -24,18 +26,34 @@ async function openSidePanelForTab(tab, path = 'panel.html') {
   return true
 }
 
-function getToken() {
+function getAuthState() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['token'], (res) => {
-      resolve(String(res?.token || '').trim())
+    chrome.storage.local.get([AUTH_STORAGE_KEY], (res) => {
+      const auth = res?.[AUTH_STORAGE_KEY]
+      resolve({
+        access: String(auth?.access || '').trim(),
+        refresh: String(auth?.refresh || '').trim(),
+        username: String(auth?.username || '').trim(),
+        loggedInAt: Number(auth?.loggedInAt || 0) || 0,
+      })
     })
   })
 }
 
-function setToken(token) {
+function setAuthState(nextState) {
   return new Promise((resolve) => {
-    chrome.storage.local.set({ token: String(token || '').trim() }, () => resolve())
+    const payload = {
+      access: String(nextState?.access || '').trim(),
+      refresh: String(nextState?.refresh || '').trim(),
+      username: String(nextState?.username || '').trim(),
+      loggedInAt: Number(nextState?.loggedInAt || 0) || 0,
+    }
+    chrome.storage.local.set({ [AUTH_STORAGE_KEY]: payload }, () => resolve(payload))
   })
+}
+
+function clearAuthState() {
+  return setAuthState({ access: '', refresh: '', username: '', loggedInAt: 0 })
 }
 
 function sendMessageToTab(tabId, payload) {
@@ -50,26 +68,51 @@ function sendMessageToTab(tabId, payload) {
   })
 }
 
-async function tryAutoTokenFromOpenAppTabs() {
-  const tabs = await chrome.tabs.query({})
-  const appTabs = tabs.filter((tab) => {
-    const u = String(tab?.url || '')
-    return u.startsWith('http://127.0.0.1:5173') || u.startsWith('http://localhost:5173') || u.startsWith('http://127.0.0.1:5174') || u.startsWith('http://localhost:5174')
+async function loginWithCredentials(apiBase, username, password) {
+  const response = await fetch(`${normalizeApiBase(apiBase)}/token/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: String(username || '').trim(),
+      password: String(password || ''),
+    }),
   })
-  for (const tab of appTabs) {
-    if (!tab?.id) continue
-    try {
-      const res = await sendMessageToTab(tab.id, { type: 'GET_LOCAL_ACCESS_TOKEN' })
-      const token = String(res?.token || '').trim()
-      if (token) {
-        await setToken(token)
-        return token
-      }
-    } catch {
-      // ignore tab errors and try next tab
-    }
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || !data?.access || !data?.refresh) {
+    throw new Error(formatApiError(data) || 'Login failed')
   }
-  return ''
+  return setAuthState({
+    access: data.access,
+    refresh: data.refresh,
+    username: String(username || '').trim(),
+    loggedInAt: Date.now(),
+  })
+}
+
+async function refreshStoredSession(apiBase) {
+  const auth = await getAuthState()
+  if (!auth.refresh) {
+    await clearAuthState()
+    throw new Error('No refresh token found. Please login again.')
+  }
+
+  const response = await fetch(`${normalizeApiBase(apiBase)}/token/refresh/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh: auth.refresh }),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || !data?.access) {
+    await clearAuthState()
+    throw new Error('Session expired. Please login again.')
+  }
+
+  return setAuthState({
+    ...auth,
+    access: data.access,
+    refresh: String(data.refresh || auth.refresh || '').trim(),
+    loggedInAt: auth.loggedInAt || Date.now(),
+  })
 }
 
 async function apiFetch(path, options = {}) {
@@ -90,31 +133,48 @@ async function apiFetch(path, options = {}) {
     return { response, data }
   }
 
-  let token = await getToken()
-  if (!token) token = await tryAutoTokenFromOpenAppTabs()
-  if (options.requireAuth && !token) throw new Error('Please login in web app')
+  let auth = await getAuthState()
+  let token = auth.access
+  if (options.requireAuth && !token) throw new Error('Please login in extension')
 
   let { response, data } = await requestWithToken(token)
   const detail = formatApiError(data)
 
   const tokenInvalid = response.status === 401 && /token not valid|token is invalid|token is expired/i.test(detail)
   if (tokenInvalid) {
-    await setToken('')
-    const refreshed = await tryAutoTokenFromOpenAppTabs()
-    if (options.requireAuth && !refreshed) {
-      throw new Error('Please login in web app')
+    try {
+      auth = await refreshStoredSession(apiBase)
+      token = auth.access
+      if (token) {
+        const retry = await requestWithToken(token)
+        response = retry.response
+        data = retry.data
+      }
+    } catch (err) {
+      if (options.requireAuth) {
+        throw err
+      }
     }
-    if (refreshed) {
-      const retry = await requestWithToken(refreshed)
-      response = retry.response
-      data = retry.data
-    }
+  }
+
+  if (response.status === 401 && options.requireAuth) {
+    throw new Error('Session expired. Please login again.')
   }
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${formatApiError(data)}`)
   }
   return data
+}
+
+function authSummary(auth) {
+  const safeAuth = auth || {}
+  const hasAccess = Boolean(String(safeAuth.access || '').trim())
+  return {
+    loggedIn: hasAccess,
+    username: String(safeAuth.username || '').trim(),
+    loggedInAt: Number(safeAuth.loggedInAt || 0) || 0,
+  }
 }
 
 function formatApiError(data) {
@@ -173,6 +233,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'EXTENSION_GET_FORM_META') {
     apiFetch('/extension/form-meta/', { apiBase: msg?.apiBase })
       .then((data) => sendResponse({ ok: true, data }))
+      .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }))
+    return true
+  }
+
+  if (type === 'EXTENSION_GET_AUTH_STATE') {
+    getAuthState()
+      .then((auth) => sendResponse({ ok: true, data: authSummary(auth) }))
+      .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }))
+    return true
+  }
+
+  if (type === 'EXTENSION_LOGIN') {
+    loginWithCredentials(msg?.apiBase, msg?.username, msg?.password)
+      .then((auth) => sendResponse({ ok: true, data: authSummary(auth) }))
+      .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }))
+    return true
+  }
+
+  if (type === 'EXTENSION_REFRESH_SESSION') {
+    refreshStoredSession(msg?.apiBase)
+      .then((auth) => sendResponse({ ok: true, data: authSummary(auth) }))
+      .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }))
+    return true
+  }
+
+  if (type === 'EXTENSION_LOGOUT') {
+    clearAuthState()
+      .then((auth) => sendResponse({ ok: true, data: authSummary(auth) }))
       .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }))
     return true
   }

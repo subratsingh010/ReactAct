@@ -62,6 +62,7 @@ class Resume(BaseModel):
         related_name='tailored_versions',
     )
     file = models.FileField(upload_to='resumes/', blank=True, null=True)
+    ats_pdf_path = models.CharField(max_length=1000, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     class Meta:
         ordering = ['-created_at']
@@ -421,6 +422,60 @@ class UserProfile(BaseModel):
 
     def __str__(self):
         return f'Profile ({self.user.username})'
+
+
+class ProfilePanel(BaseModel):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='profile_panels')
+    title = models.CharField(max_length=120, blank=True)
+    full_name = models.CharField(max_length=180, blank=True)
+    email = models.EmailField(blank=True, max_length=320)
+    contact_number = models.CharField(max_length=32, blank=True)
+    linkedin_url = models.URLField(blank=True, max_length=1000)
+    github_url = models.URLField(blank=True, max_length=1000)
+    portfolio_url = models.URLField(blank=True, max_length=1000)
+    current_employer = models.CharField(max_length=180, blank=True)
+    years_of_experience = models.CharField(max_length=60, blank=True)
+    address_line_1 = models.CharField(max_length=220, blank=True)
+    address_line_2 = models.CharField(max_length=220, blank=True)
+    state = models.CharField(max_length=120, blank=True)
+    country = models.CharField(max_length=120, blank=True)
+    country_code = models.CharField(max_length=16, blank=True)
+    location = models.CharField(max_length=180, blank=True)
+    location_ref = models.ForeignKey(
+        Location,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='profile_panels',
+    )
+    preferred_locations = models.ManyToManyField(
+        Location,
+        blank=True,
+        related_name='preferred_by_profile_panels',
+    )
+    summary = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-updated_at', '-created_at']
+
+    def __str__(self):
+        label = str(self.title or self.full_name or f'Panel {self.pk or ""}').strip()
+        return f'{label} ({self.user.username})'
+
+
+class WorkspaceMember(BaseModel):
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='workspace_members')
+    member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='member_workspaces')
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['-updated_at', '-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['owner', 'member'], name='unique_workspace_member'),
+        ]
+
+    def __str__(self):
+        return f'{self.owner.username} -> {self.member.username}'
 
 
 class Template(BaseModel):
