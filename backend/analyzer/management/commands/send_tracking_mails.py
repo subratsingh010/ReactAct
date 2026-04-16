@@ -202,7 +202,6 @@ class Command(BaseCommand):
         self.stdout.write(styled)
 
     def handle(self, *args, **options):
-        # import ipdb; ipdb.set_trace()  # Debug breakpoint at the start of command execution.
         now = timezone.localtime(timezone.now())
         user_id = options.get("user_id")
         limit = int(options.get("limit") or 200)

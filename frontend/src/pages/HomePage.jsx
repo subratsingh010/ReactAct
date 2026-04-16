@@ -222,14 +222,14 @@ function HomePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {upcomingTracking.map((row) => (
-                    <tr key={row.id}>
-                      <td>{row.company_name || '-'}</td>
-                      <td>{row.job_id || '-'}</td>
-                      <td>{row.job_role || '-'}</td>
-                      <td>{formatDateTime(row.schedule_time)}</td>
-                    </tr>
-                  ))}
+                    {upcomingTracking.map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.company_name || '-'}</td>
+                        <td>{row.job_id || '-'}</td>
+                        <td>{row.role || row.job_role || '-'}</td>
+                        <td>{formatDateTime(row.schedule_time)}</td>
+                      </tr>
+                    ))}
                   {!upcomingTracking.length ? (
                     <tr>
                       <td colSpan={4}><p className="hint">No current/future scheduled tracking rows.</p></td>

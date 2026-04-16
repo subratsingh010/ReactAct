@@ -15,15 +15,16 @@ function LoginPage() {
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')
+    const normalizedUsername = username.trim()
 
-    if (!username || !password) {
+    if (!normalizedUsername || !password) {
       setError('Username and password are required.')
       return
     }
 
     try {
       setLoading(true)
-      const data = await loginUser(username, password)
+      const data = await loginUser(normalizedUsername, password)
       login(data.access, data.refresh)
       const redirect = sessionStorage.getItem('redirectAfterLogin') || '/'
       sessionStorage.removeItem('redirectAfterLogin')

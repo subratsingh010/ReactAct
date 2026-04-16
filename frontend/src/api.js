@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://127.0.0.1:8000/api'
+const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api').replace(/\/+$/, '')
 
 function collectMessagesFromApiPayload(payload, bucket = []) {
   if (payload === null || payload === undefined) return bucket
@@ -213,21 +213,6 @@ export async function updateProfileConfig(accessToken, payload) {
   return parseResponse(response)
 }
 
-export async function createJobRole(accessToken, payload) {
-  const response = await authFetch(
-    `${API_BASE_URL}/job-roles/`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    },
-    accessToken,
-  )
-  return parseResponse(response)
-}
-
 export async function createResume(accessToken, payload) {
   const response = await authFetch(
     `${API_BASE_URL}/resumes/`,
@@ -240,33 +225,6 @@ export async function createResume(accessToken, payload) {
     },
     accessToken,
   )
-  return parseResponse(response)
-}
-
-export async function runAnalysis(accessToken, resumeId, jobRoleId, keywords, profiles, profileKeywords) {
-  const response = await authFetch(
-    `${API_BASE_URL}/run-analysis/`,
-    {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      resume_id: resumeId,
-      job_role_id: jobRoleId || null,
-      keywords,
-      profiles: profiles || [],
-      profile_keywords: profileKeywords || null,
-    }),
-    },
-    accessToken,
-  )
-  return parseResponse(response)
-}
-
-export async function fetchAnalyses(accessToken, resumeId) {
-  const url = resumeId ? `${API_BASE_URL}/analyses/?resume_id=${encodeURIComponent(resumeId)}` : `${API_BASE_URL}/analyses/`
-  const response = await authFetch(url, {}, accessToken)
   return parseResponse(response)
 }
 

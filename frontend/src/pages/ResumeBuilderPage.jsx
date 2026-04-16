@@ -1583,7 +1583,7 @@ function ResumeBuilderPage({
     }
     try {
       setSaveState({ saving: true, message: '' })
-      const sourceResumeId = String(resumeRecordId || tailorReferenceResumeId || '').trim()
+      const sourceResumeId = String(tailoredSourceResumeId || resumeRecordId || tailorReferenceResumeId || '').trim()
       if (!sourceResumeId) {
         setSaveState({ saving: false, message: 'Save original resume first (or load reference resume) before Save To Tailored.' })
         return
@@ -1602,6 +1602,11 @@ function ResumeBuilderPage({
         setSaveMode('edit')
       }
       setSaveTarget('tailored')
+      setTailoredSourceResumeId(sourceResumeId)
+      setForm((prev) => ({
+        ...prev,
+        isDefaultResume: false,
+      }))
       setTailoredModal((prev) => ({ ...prev, open: false }))
       const pdfSync = await syncStoredAtsPdf(access, data?.id)
       setSaveState({

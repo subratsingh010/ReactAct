@@ -93,7 +93,6 @@ function CompanyPage() {
   const filteredCompanies = useMemo(() => {
     const out = companies.filter((company) => {
       const hrs = employeesByCompany[String(company.id)] || []
-      if (!hrs.length) return false
       const companyName = String(company.name || '').toLowerCase()
       const companyFilter = String(filters.company || '').trim().toLowerCase()
       if (companyFilter && !companyName.includes(companyFilter)) return false
@@ -102,6 +101,7 @@ function CompanyPage() {
       const roleFilter = String(filters.role || '').trim().toLowerCase()
       const locationFilter = String(filters.location || '').trim().toLowerCase()
       if (!hrFilter && !roleFilter && !locationFilter) return true
+      if (!hrs.length) return false
 
       return hrs.some((hr) => {
         const hrName = String(hr.name || '').toLowerCase()
@@ -224,21 +224,22 @@ function CompanyPage() {
   const saveCompanyForm = async () => {
     if (!companyForm) return
     setCompanyFormError('')
+    const companyName = String(companyForm.name || '').trim()
+    if (!companyName) {
+      setCompanyFormError('Company name is required.')
+      return
+    }
+    const payload = {
+      name: companyName,
+      mail_format: String(companyForm.mail_format || '').trim(),
+      career_url: normalizeUrl(companyForm.career_url),
+      workday_domain_url: normalizeUrl(companyForm.workday_domain_url),
+    }
     try {
       if (companyForm.id) {
-        await updateCompanyApi(access, companyForm.id, {
-          name: companyForm.name,
-          mail_format: companyForm.mail_format,
-          career_url: companyForm.career_url,
-          workday_domain_url: companyForm.workday_domain_url,
-        })
+        await updateCompanyApi(access, companyForm.id, payload)
       } else {
-        await createCompany(access, {
-          name: companyForm.name || `Company ${companies.length + 1}`,
-          mail_format: companyForm.mail_format,
-          career_url: companyForm.career_url,
-          workday_domain_url: companyForm.workday_domain_url,
-        })
+        await createCompany(access, payload)
       }
       setCompanyForm(null)
       await load()

@@ -7,7 +7,7 @@ const EMPLOYEE_SAMPLE = `[
     "first_name": "Aman",
     "middle_name": "",
     "last_name": "Kumar",
-    "role": "Talent Acquisition Specialist",
+    "JobRole": "Talent Acquisition Specialist",
     "location": "Bengaluru",
     "company": "Mastercard",
     "department": "HR",
@@ -19,7 +19,6 @@ const EMPLOYEE_SAMPLE = `[
 const JOB_SAMPLE = `[
   {
     "company": "Mastercard",
-    "job_id": "2010707",
     "job_link": "https://example.com/jobs/2010707",
     "role": "SDE"
   }
@@ -179,7 +178,7 @@ function BulkUploadPage() {
       <div className="bulk-grid">
         <section className="bulk-panel">
           <h2>Employees Bulk Upload</h2>
-          <p className="hint">Required fields: first_name, last_name, role, location, company, department.</p>
+          <p className="hint">Required fields: first_name, last_name, JobRole, location, company, department.</p>
           <label>
             Employees JSON
             <textarea
@@ -211,7 +210,7 @@ function BulkUploadPage() {
 
         <section className="bulk-panel">
           <h2>Jobs Bulk Upload</h2>
-          <p className="hint">Required fields: company, job_id, job_link. Duplicate company + job_id is rejected.</p>
+          <p className="hint">Required fields: company, job_link. `job_id` is optional and will be generated if missing.</p>
           <label>
             Jobs JSON
             <textarea

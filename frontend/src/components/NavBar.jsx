@@ -16,7 +16,7 @@ function MenuIcon() {
 function NavBar() {
   const [open, setOpen] = useState(false)
   const [username, setUsername] = useState('')
-  const { logout } = useAuth()
+  const { accessToken, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const { theme, toggleTheme } = useTheme()
@@ -41,12 +41,22 @@ function NavBar() {
   }
 
   useEffect(() => {
-    const access = localStorage.getItem('access')
-    if (!access) return
-    fetchProfile(access)
-      .then((p) => setUsername(String(p?.username || '')))
-      .catch(() => {})
-  }, [])
+    if (!accessToken) {
+      setUsername('')
+      return
+    }
+    let cancelled = false
+    fetchProfile(accessToken)
+      .then((p) => {
+        if (!cancelled) setUsername(String(p?.username || ''))
+      })
+      .catch(() => {
+        if (!cancelled) setUsername('')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken])
 
   return (
     <header className="nav sticky top-0">

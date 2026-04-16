@@ -19,6 +19,13 @@ function formatDisplayDate(value) {
   return s || '—'
 }
 
+function normalizeUrl(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  if (/^https?:\/\//i.test(raw)) return raw
+  return `https://${raw}`
+}
+
 function ExternalLinkIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" className="jobs-link-icon">
@@ -216,7 +223,7 @@ function JobsPage() {
       const base = {
         job_id: jobId,
         role,
-        job_link: String(jobForm.job_link || '').trim(),
+        job_link: normalizeUrl(jobForm.job_link),
         jd_text: jd,
         date_of_posting: jobForm.date_of_posting || null,
         applied_at: jobForm.applied_at || null,

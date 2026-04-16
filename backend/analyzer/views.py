@@ -2898,6 +2898,7 @@ class ApplicationTrackingListCreateView(APIView):
                 'at': item.action_at.isoformat() if item.action_at else '',
                 'notes': _tracking_action_note_meta(item.notes).get('label') or '',
                 'count': _tracking_action_note_meta(item.notes).get('count') or 1,
+                'employee_ids': _tracking_action_note_meta(item.notes).get('employee_ids') or [],
             }
             for item in tracking.actions.all().order_by('created_at')[:20]
         ]
@@ -2911,6 +2912,7 @@ class ApplicationTrackingListCreateView(APIView):
             .order_by('action_at', 'created_at')
         )
         template_choice = 'follow_up_applied' if str(tracking.mail_type or 'fresh').strip() == 'followed_up' else 'cold_applied'
+        compose_mode = 'hardcoded' if bool(tracking.use_hardcoded_personalized_intro) else 'complete_ai'
         mailed_at_value = _mail_tracking_sent_at(mail_tracking)
         replied_at_value = _mail_tracking_replied_at(mail_tracking)
         got_replied_value = _mail_tracking_got_replied(mail_tracking)
@@ -2992,7 +2994,7 @@ class ApplicationTrackingListCreateView(APIView):
             'template_choice': template_choice,
             'template_subject': '',
             'template_message': '',
-            'compose_mode': 'hardcoded',
+            'compose_mode': compose_mode,
             'hardcoded_follow_up': True,
             'schedule_time': tracking.schedule_time.isoformat() if tracking.schedule_time else None,
             'template_name': template_choice,
@@ -3319,6 +3321,7 @@ class ApplicationTrackingDetailView(APIView):
                 'at': item.action_at.isoformat() if item.action_at else '',
                 'notes': _tracking_action_note_meta(item.notes).get('label') or '',
                 'count': _tracking_action_note_meta(item.notes).get('count') or 1,
+                'employee_ids': _tracking_action_note_meta(item.notes).get('employee_ids') or [],
             }
             for item in row.actions.all().order_by('created_at')[:20]
         ]
@@ -3378,6 +3381,7 @@ class ApplicationTrackingDetailView(APIView):
                 }
             )
         template_choice = 'follow_up_applied' if str(row.mail_type or 'fresh').strip() == 'followed_up' else 'cold_applied'
+        compose_mode = 'hardcoded' if bool(row.use_hardcoded_personalized_intro) else 'complete_ai'
         mailed_at_value = _mail_tracking_sent_at(mail_tracking)
         replied_at_value = _mail_tracking_replied_at(mail_tracking)
         got_replied_value = _mail_tracking_got_replied(mail_tracking)
@@ -3464,7 +3468,7 @@ class ApplicationTrackingDetailView(APIView):
             'template_choice': template_choice,
             'template_subject': '',
             'template_message': '',
-            'compose_mode': 'hardcoded',
+            'compose_mode': compose_mode,
             'hardcoded_follow_up': True,
             'schedule_time': row.schedule_time.isoformat() if row.schedule_time else None,
             'template_name': template_choice,
@@ -3864,20 +3868,20 @@ class ApplicationTrackingMailTestView(APIView):
     def _get_row(self, request, tracking_id):
         return (
             Tracking.objects
-            .filter(id=tracking_id, user=request.user)
+            .filter(id=tracking_id, user_id__in=_accessible_owner_ids_for_user(request.user))
             .select_related('job__company', 'resume', 'template', 'personalized_template', 'user')
             .prefetch_related('selected_hrs')
             .first()
         )
 
     def _generate_previews(self, row, regenerate_options=None):
-
         command = SendTrackingMailsCommand()
         profile = command._get_profile(row.user_id)
         achievements = command._get_achievements(row)
         company = row.job.company if row.job_id and row.job and row.job.company_id else None
         pattern = str(getattr(company, 'mail_format', '') or '').strip()
         effective_use_ai = command._should_use_ai_for_row(row)
+        compose_mode = 'complete_ai' if effective_use_ai else 'hardcoded'
         employees = [emp for emp in row.selected_hrs.all()]
         previews = []
         for employee in employees:
@@ -3895,9 +3899,9 @@ class ApplicationTrackingMailTestView(APIView):
                 'email': to_email,
                 'subject': subject,
                 'body': body,
-                'compose_mode': 'hardcoded',
+                'compose_mode': compose_mode,
             })
-        return previews
+        return previews, compose_mode
 
     def get(self, request, tracking_id):
         row = self._get_row(request, tracking_id)
@@ -3915,17 +3919,18 @@ class ApplicationTrackingMailTestView(APIView):
         action = str(request.data.get('action') or 'generate').strip().lower()
         if action == 'generate':
             regenerate_options = request.data.get('regenerate_options')
-            previews = self._generate_previews(row, regenerate_options=regenerate_options if isinstance(regenerate_options, dict) else None)
+            previews, compose_mode = self._generate_previews(row, regenerate_options=regenerate_options if isinstance(regenerate_options, dict) else None)
             return Response({
                 'tracking_id': row.id,
                 'previews': previews,
-                'compose_mode': 'hardcoded',
+                'compose_mode': compose_mode,
             }, status=status.HTTP_200_OK)
 
         if action == 'save':
             previews = request.data.get('previews')
             if not isinstance(previews, list) or not previews:
                 return Response({'detail': 'Preview list is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            valid_employee_ids = {employee.id for employee in row.selected_hrs.all()}
             cleaned = []
             for item in previews:
                 if not isinstance(item, dict):
@@ -3933,7 +3938,11 @@ class ApplicationTrackingMailTestView(APIView):
                 subject = str(item.get('subject') or '').strip()
                 body = str(item.get('body') or '').strip()
                 employee_id = item.get('employee_id')
-                if not employee_id or not subject or not body:
+                try:
+                    employee_id = int(employee_id)
+                except Exception:
+                    continue
+                if employee_id not in valid_employee_ids or not subject or not body:
                     continue
                 cleaned.append({
                     'employee_id': employee_id,

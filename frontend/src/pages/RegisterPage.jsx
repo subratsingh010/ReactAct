@@ -17,9 +17,16 @@ function RegisterPage() {
     event.preventDefault()
     setError('')
     setSuccess('')
+    const normalizedUsername = username.trim()
+    const normalizedEmail = email.trim()
 
-    if (!username || !email || !password || !confirmPassword) {
+    if (!normalizedUsername || !normalizedEmail || !password || !confirmPassword) {
       setError('All fields are required.')
+      return
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setError('Enter a valid email address.')
       return
     }
 
@@ -28,9 +35,14 @@ function RegisterPage() {
       return
     }
 
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.')
+      return
+    }
+
     try {
       setLoading(true)
-      await signupUser(username, email, password)
+      await signupUser(normalizedUsername, normalizedEmail, password)
       setSuccess('Account created. Redirecting to login...')
       setTimeout(() => navigate('/login'), 1200)
     } catch (err) {

@@ -142,11 +142,16 @@ function threadIdsText(item) {
   return values.filter(Boolean).join(', ')
 }
 
+function parseMilestoneEmployeeIds(value) {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => String(item || '').trim()).filter(Boolean)
+}
+
 function buildThreadGroups(sentEvents, receivedEvents) {
   const sent = Array.isArray(sentEvents) ? sentEvents : []
   const received = Array.isArray(receivedEvents) ? receivedEvents : []
   const groups = sent.map((item) => ({
-    key: String(item?.message_id || item?.id || Math.random()),
+    key: String(item?.message_id || item?.id || `${item?.action_at || 'sent'}-${item?.employee_id || 'unknown'}`),
     sent: item,
     replies: [],
   }))
@@ -175,13 +180,19 @@ function buildThreadGroups(sentEvents, receivedEvents) {
 
 function actionRowsForDetail(row, filteredMailEvents) {
   const milestones = Array.isArray(row?.milestones) ? row.milestones : []
+  const selectedEmployeeId = String(row?.__selectedEmployeeId || '').trim()
   const milestoneRows = milestones.map((item, index) => ({
     id: `milestone-${index}`,
     type: item?.type,
     mode: item?.mode,
     replied: false,
     at: item?.at,
-  }))
+    notes: item?.notes,
+    employeeIds: parseMilestoneEmployeeIds(item?.employee_ids),
+  })).filter((item) => {
+    if (!selectedEmployeeId || selectedEmployeeId === ALL_EMPLOYEES_VALUE) return true
+    return item.employeeIds.includes(selectedEmployeeId)
+  })
   const eventRows = Array.isArray(filteredMailEvents)
     ? filteredMailEvents.map((item) => ({
       id: `event-${item.id}`,
@@ -277,7 +288,10 @@ function TrackingDetailPage() {
       return String(item.employee_id || '') === String(selectedEmployeeId)
     })
     : []
-  const actionRows = actionRowsForDetail(row, filteredMailEvents)
+  const actionRows = actionRowsForDetail(
+    { ...(row || {}), __selectedEmployeeId: selectedEmployeeId },
+    filteredMailEvents,
+  )
   const scopedEvents = filteredMailEvents
   const mailedAt = scopedEvents.length
     ? scopedEvents[0]?.action_at || ''
