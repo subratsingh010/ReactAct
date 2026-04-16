@@ -44,28 +44,32 @@ function LoginPage() {
   return (
     <main className="page mx-auto w-full max-w-2xl">
       <h1>Login</h1>
-      <form className="form grid gap-3" onSubmit={handleSubmit}>
-        <label htmlFor="username">Username</label>
-        <input
-          id="username"
-          type="text"
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
-          placeholder="Enter username"
-        />
+      <form className="form" onSubmit={handleSubmit}>
+        <label htmlFor="username">
+          Username
+          <input
+            id="username"
+            type="text"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="Enter username"
+          />
+        </label>
 
-        <label htmlFor="password">Password</label>
-        <input
-          id="password"
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          placeholder="Enter password"
-        />
+        <label htmlFor="password">
+          Password
+          <input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Enter password"
+          />
+        </label>
 
         {error && <p className="error">{error}</p>}
 
-        <div className="actions flex flex-wrap gap-3">
+        <div className="actions">
           <button type="submit" disabled={loading}>
             {loading ? 'Logging in...' : 'Login'}
           </button>

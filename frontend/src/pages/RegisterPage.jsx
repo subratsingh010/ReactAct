@@ -55,47 +55,55 @@ function RegisterPage() {
   return (
     <main className="page mx-auto w-full max-w-2xl">
       <h1>Register</h1>
-      <form className="form grid gap-3" onSubmit={handleSubmit}>
-        <label htmlFor="register-username">Username</label>
-        <input
-          id="register-username"
-          type="text"
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
-          placeholder="Choose username"
-        />
+      <form className="form" onSubmit={handleSubmit}>
+        <label htmlFor="register-username">
+          Username
+          <input
+            id="register-username"
+            type="text"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="Choose username"
+          />
+        </label>
 
-        <label htmlFor="register-email">Email</label>
-        <input
-          id="register-email"
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          placeholder="you@example.com"
-        />
+        <label htmlFor="register-email">
+          Email
+          <input
+            id="register-email"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="you@example.com"
+          />
+        </label>
 
-        <label htmlFor="register-password">Password</label>
-        <input
-          id="register-password"
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          placeholder="Create password"
-        />
+        <label htmlFor="register-password">
+          Password
+          <input
+            id="register-password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Create password"
+          />
+        </label>
 
-        <label htmlFor="register-confirm-password">Confirm Password</label>
-        <input
-          id="register-confirm-password"
-          type="password"
-          value={confirmPassword}
-          onChange={(event) => setConfirmPassword(event.target.value)}
-          placeholder="Confirm password"
-        />
+        <label htmlFor="register-confirm-password">
+          Confirm Password
+          <input
+            id="register-confirm-password"
+            type="password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            placeholder="Confirm password"
+          />
+        </label>
 
         {error && <p className="error">{error}</p>}
         {success && <p className="success">{success}</p>}
 
-        <div className="actions flex flex-wrap gap-3">
+        <div className="actions">
           <button type="submit" disabled={loading}>
             {loading ? 'Creating account...' : 'Register'}
           </button>
