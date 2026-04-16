@@ -4338,6 +4338,14 @@ class BulkUploadJobsEmployeesView(APIView):
         created = Company.objects.create(user=user, name=name)
         return created, True
 
+    def _fallback_job_id(self, company_name, role, job_link, row_index):
+        base = str(job_link or '').strip() or str(role or '').strip() or f'job-{row_index}'
+        slug = re.sub(r'[^a-z0-9]+', '-', base.lower()).strip('-')
+        slug = slug[:48] or f'job-{row_index}'
+        company_slug = re.sub(r'[^a-z0-9]+', '-', str(company_name or '').lower()).strip('-')
+        prefix = company_slug[:18] or 'job'
+        return f'{prefix}-{slug}'
+
     def _upload_employees(self, request, rows):
         summary = {
             'received': len(rows),
@@ -4353,7 +4361,7 @@ class BulkUploadJobsEmployeesView(APIView):
             first_name = str(row.get('first_name') or row.get('firstname') or '').strip()
             middle_name = str(row.get('middle_name') or row.get('middlename') or '').strip()
             last_name = str(row.get('last_name') or row.get('lastname') or '').strip()
-            role = str(row.get('role') or row.get('job_role') or '').strip()
+            role = str(row.get('JobRole') or row.get('job_role') or row.get('role') or '').strip()
             location = str(row.get('location') or '').strip()
             company_name = str(row.get('company') or row.get('company_name') or '').strip()
             department_raw = str(row.get('department') or '').strip()
@@ -4366,7 +4374,7 @@ class BulkUploadJobsEmployeesView(APIView):
             if not last_name:
                 missing.append('last_name')
             if not role:
-                missing.append('role')
+                missing.append('JobRole')
             if not location:
                 missing.append('location')
             if not company_name:
@@ -4424,12 +4432,12 @@ class BulkUploadJobsEmployeesView(APIView):
             job_id = str(row.get('job_id') or row.get('jobId') or '').strip()
             job_link = str(row.get('job_link') or row.get('job_url') or row.get('link') or '').strip()
             role = str(row.get('role') or '').strip() or 'Software Engineer'
+            if not job_id:
+                job_id = self._fallback_job_id(company_name, role, job_link, idx)
 
             missing = []
             if not company_name:
                 missing.append('company')
-            if not job_id:
-                missing.append('job_id')
             if not job_link:
                 missing.append('job_link')
             if missing:
@@ -4827,7 +4835,7 @@ class ExtensionEmployeeCreateView(APIView):
         plain_name = str(payload.get('name') or '').strip()
         raw_department = str(payload.get('department') or '').strip()
         department = self._map_department(raw_department)
-        role = str(payload.get('role') or payload.get('job_role') or '').strip()
+        role = str(payload.get('JobRole') or payload.get('job_role') or payload.get('role') or '').strip()
         linkedin_url = str(payload.get('linkedin_url') or payload.get('profile') or '').strip()
         contact_number = str(payload.get('contact_number') or payload.get('contact_num') or '').strip()
         email = str(payload.get('email') or '').strip()
@@ -4836,7 +4844,7 @@ class ExtensionEmployeeCreateView(APIView):
 
         missing = []
         if not role:
-            missing.append('role')
+            missing.append('JobRole')
         if not raw_department:
             missing.append('department')
         if not (plain_name or first_name or last_name):
