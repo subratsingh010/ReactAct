@@ -271,7 +271,7 @@ function JobsPage() {
   }
 
   return (
-    <main className="page page-wide page-plain mx-auto w-full">
+    <main className="page page-wide mx-auto w-full">
       <section className="jobs-topbar">
         <div className="tracking-head">
           <div>

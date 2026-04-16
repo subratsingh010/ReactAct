@@ -375,7 +375,7 @@ function CompanyPage() {
   }
 
   return (
-    <main className="page page-wide page-plain mx-auto w-full">
+    <main className="page page-wide mx-auto w-full">
       <div className="company-head">
         <div>
           <h1>Companies</h1>

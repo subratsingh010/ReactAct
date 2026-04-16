@@ -85,13 +85,13 @@ function ResultSummary({ title, data, kind }) {
 function BulkUploadPage() {
   const access = localStorage.getItem('access') || ''
 
-  const [employeeJson, setEmployeeJson] = useState(EMPLOYEE_SAMPLE)
+  const [employeeJson, setEmployeeJson] = useState('')
   const [employeeFile, setEmployeeFile] = useState(null)
   const [employeeLoading, setEmployeeLoading] = useState(false)
   const [employeeResult, setEmployeeResult] = useState(null)
   const [employeeError, setEmployeeError] = useState('')
 
-  const [jobJson, setJobJson] = useState(JOB_SAMPLE)
+  const [jobJson, setJobJson] = useState('')
   const [jobFile, setJobFile] = useState(null)
   const [jobLoading, setJobLoading] = useState(false)
   const [jobResult, setJobResult] = useState(null)
@@ -185,7 +185,7 @@ function BulkUploadPage() {
               rows={11}
               value={employeeJson}
               onChange={(event) => setEmployeeJson(event.target.value)}
-              placeholder='Paste array or { "employees": [...] }'
+              placeholder={EMPLOYEE_SAMPLE}
             />
           </label>
           <div className="actions">
@@ -217,7 +217,7 @@ function BulkUploadPage() {
               rows={11}
               value={jobJson}
               onChange={(event) => setJobJson(event.target.value)}
-              placeholder='Paste array or { "jobs": [...] }'
+              placeholder={JOB_SAMPLE}
             />
           </label>
           <div className="actions">

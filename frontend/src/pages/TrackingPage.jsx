@@ -1418,7 +1418,7 @@ function TrackingPage() {
   }
 
   return (
-    <main className="page page-wide page-plain mx-auto w-full">
+    <main className="page page-wide mx-auto w-full">
       <div className="tracking-head">
         <div>
           <h1>Tracking</h1>
