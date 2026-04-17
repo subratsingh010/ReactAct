@@ -39,7 +39,7 @@ export function SingleSelectDropdown({
   })
 
   return (
-    <div ref={wrapRef} className={`search-dd ${disabled ? 'is-disabled' : ''}`}>
+    <div ref={wrapRef} className={`search-dd ${disabled ? 'is-disabled' : ''} ${open ? 'is-open' : ''}`.trim()}>
       <div className="search-dd-input-wrap">
         <input
           ref={inputRef}
@@ -170,7 +170,7 @@ export function MultiSelectDropdown({
   const inputValue = open ? query : summary
 
   return (
-    <div ref={wrapRef} className={`search-dd ${disabled ? 'is-disabled' : ''} ${className}`.trim()}>
+    <div ref={wrapRef} className={`search-dd ${disabled ? 'is-disabled' : ''} ${open ? 'is-open' : ''} ${className}`.trim()}>
       <div className="search-dd-input-wrap">
         <input
           ref={inputRef}

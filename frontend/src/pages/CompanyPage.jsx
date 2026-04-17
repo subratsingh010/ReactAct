@@ -536,8 +536,8 @@ function CompanyPage() {
       </div>
 
       {companyForm ? (
-        <div className="modal-overlay">
-          <div className="modal-panel jobs-modal-panel">
+        <div className="modal-overlay" onClick={() => { setCompanyForm(null); setCompanyFormError('') }}>
+          <div className="modal-panel jobs-modal-panel" onClick={(event) => event.stopPropagation()}>
             <div className="tracking-modal-head">
               <h2>{companyForm.id ? 'Edit Company' : 'Add Company'}</h2>
               <p className="subtitle">Set the company identity, mail pattern, and hiring links cleanly.</p>
@@ -560,8 +560,8 @@ function CompanyPage() {
       ) : null}
 
       {employeeForm ? (
-        <div className="modal-overlay">
-          <div className="modal-panel jobs-modal-panel">
+        <div className="modal-overlay" onClick={() => { setEmployeeForm(null); setEmployeeFormError('') }}>
+          <div className="modal-panel jobs-modal-panel" onClick={(event) => event.stopPropagation()}>
             <div className="tracking-modal-head">
               <h2>{employeeForm.id ? 'Edit Employee' : 'Add Employee'}</h2>
               <p className="subtitle">Capture contact identity, role, workability, and profile details in one clean form.</p>

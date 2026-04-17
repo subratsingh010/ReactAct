@@ -467,8 +467,8 @@ function JobsPage() {
       </div>
 
       {jobForm ? (
-        <div className="modal-overlay">
-          <div className="modal-panel modal-panel-jobs jobs-modal-panel">
+        <div className="modal-overlay" onClick={() => { setJobForm(null); setFormError('') }}>
+          <div className="modal-panel modal-panel-jobs jobs-modal-panel" onClick={(event) => event.stopPropagation()}>
             <div className="tracking-modal-head">
               <h2>{jobForm.editingId ? 'Edit job' : 'Add job'}</h2>
               <p className="subtitle">Keep the company, role, posting details, and resume link structured in one place.</p>

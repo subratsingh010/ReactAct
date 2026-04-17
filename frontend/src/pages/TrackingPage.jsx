@@ -1733,8 +1733,8 @@ function TrackingPage() {
       </div>
 
       {createForm ? (
-        <div className="modal-overlay">
-          <div className="modal-panel tracking-modal-panel">
+        <div className="modal-overlay" onClick={() => { setCreateForm(null); setCreateFormError('') }}>
+          <div className="modal-panel tracking-modal-panel" onClick={(event) => event.stopPropagation()}>
             <div className="tracking-modal-head">
               <h2>Add Tracking</h2>
               <p className="subtitle">Set the company, contacts, mail flow, and attachments in one pass.</p>
@@ -2008,8 +2008,8 @@ function TrackingPage() {
       ) : null}
 
       {editForm ? (
-        <div className="modal-overlay">
-          <div className="modal-panel tracking-modal-panel">
+        <div className="modal-overlay" onClick={() => { setEditForm(null); setEditFormError('') }}>
+          <div className="modal-panel tracking-modal-panel" onClick={(event) => event.stopPropagation()}>
             <div className="tracking-modal-head">
               <h2>Edit Tracking Row</h2>
               <p className="subtitle">Update linked contacts, sending setup, templates, and freeze state.</p>
