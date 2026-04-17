@@ -289,6 +289,17 @@ class EmployeeSerializer(serializers.ModelSerializer):
     middle_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
 
+    def to_internal_value(self, data):
+        payload = data.copy() if hasattr(data, 'copy') else dict(data or {})
+        if 'company' in payload and str(payload.get('company') or '').strip() == '':
+            if self.instance is not None:
+                payload.pop('company', None)
+            else:
+                payload['company'] = None
+        if 'location_ref' in payload and str(payload.get('location_ref') or '').strip() == '':
+            payload['location_ref'] = None
+        return super().to_internal_value(payload)
+
     def get_company_name(self, obj):
         return obj.company.name if getattr(obj, 'company', None) else ''
 
@@ -386,6 +397,7 @@ class JobSerializer(serializers.ModelSerializer):
     company_name = serializers.SerializerMethodField()
     has_tailored_resume = serializers.SerializerMethodField()
     tailored_resumes = serializers.SerializerMethodField()
+    associated_resumes = serializers.SerializerMethodField()
     resume_preview = serializers.SerializerMethodField()
     applied = serializers.SerializerMethodField()
 
@@ -405,16 +417,31 @@ class JobSerializer(serializers.ModelSerializer):
             for item in rows
         ]
 
+    def get_associated_resumes(self, obj):
+        rows = obj.resumes.order_by('-updated_at', '-created_at', '-id')
+        return [
+            {
+                'id': item.id,
+                'title': str(item.title or '').strip() or f'Resume #{item.id}',
+                'is_tailored': bool(item.is_tailored),
+            }
+            for item in rows
+        ]
+
     def get_resume_preview(self, obj):
-        first = obj.resumes.filter(is_tailored=True).order_by('created_at', 'id').first()
-        if not first:
+        preview_resume = (
+            obj.resumes
+            .order_by('-is_tailored', '-updated_at', '-created_at', '-id')
+            .first()
+        )
+        if not preview_resume:
             return None
-        data = first.builder_data or {}
+        data = preview_resume.builder_data or {}
         if not isinstance(data, dict) or not data:
             return None
         return {
-            'id': first.id,
-            'title': str(first.title or '').strip() or f'Tailored Resume #{first.id}',
+            'id': preview_resume.id,
+            'title': str(preview_resume.title or '').strip() or f'Resume #{preview_resume.id}',
             'builder_data': data,
         }
 
@@ -445,6 +472,7 @@ class JobSerializer(serializers.ModelSerializer):
             'job_link',
             'has_tailored_resume',
             'tailored_resumes',
+            'associated_resumes',
             'resume_preview',
             'company',
             'company_name',

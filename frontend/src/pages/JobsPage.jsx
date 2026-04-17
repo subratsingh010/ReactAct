@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import ResumeSheet from '../components/ResumeSheet'
 import { SingleSelectDropdown } from '../components/SearchableDropdown'
+import { capitalizeFirstDisplay } from '../utils/displayText'
 
 import { createJob, deleteJob, fetchCompanies, fetchJobs, updateJob } from '../api'
 
@@ -394,7 +395,7 @@ function JobsPage() {
                   />
                 </td>
                 <td className="jobs-id-cell">{row.job_id || '—'}</td>
-                <td className="jobs-company-cell">{row.company_name || '—'}</td>
+                <td className="jobs-company-cell">{capitalizeFirstDisplay(row.company_name) || '—'}</td>
                 <td className="jobs-role-cell">{row.role || '—'}</td>
                 <td className="jobs-date-cell">{formatDisplayDate(row.date_of_posting)}</td>
                 <td className="jobs-tailored-cell">
@@ -480,7 +481,7 @@ function JobsPage() {
               <SingleSelectDropdown
                 value={jobForm.company}
                 placeholder="Select company"
-                options={companyOptions.map((c) => ({ value: String(c.id), label: String(c.name || '') }))}
+                options={companyOptions.map((c) => ({ value: String(c.id), label: capitalizeFirstDisplay(c.name) }))}
                 onChange={(nextValue) => setJobForm((prev) => ({ ...prev, company: nextValue }))}
               />
             </label>

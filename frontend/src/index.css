@@ -365,6 +365,7 @@
     gap: 0.4rem;
     flex-wrap: nowrap;
     min-width: 0;
+    position: relative;
   }
 
   .tracking-employee-summary-text {
@@ -391,12 +392,6 @@
     box-shadow: none;
   }
 
-  .tracking-employee-preview-modal {
-    width: min(320px, 84vw);
-    padding: 0.8rem 0.9rem;
-    border-radius: 1rem;
-  }
-
   .tracking-employee-preview-text {
     margin: 0;
     color: var(--color-text);
@@ -404,6 +399,19 @@
     line-height: 1.35;
     white-space: normal;
     word-break: break-word;
+  }
+
+  .tracking-employee-popover {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    left: 0;
+    z-index: 20;
+    width: min(16rem, 70vw);
+    padding: 0.65rem 0.75rem;
+    border-radius: 0.9rem;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-soft);
   }
 
   .nav-user-label {
@@ -1295,13 +1303,17 @@
   }
 
   .tracking-send-now-btn {
-    @apply inline-flex items-center gap-1 px-2 text-xs font-semibold;
-    min-height: 2rem;
-    border-radius: 0.75rem;
+    @apply inline-flex items-center justify-center text-xs font-semibold;
+    width: 2.35rem;
+    min-width: 2.35rem;
+    height: 2.35rem;
+    padding: 0;
+    border-radius: 0.85rem;
     border: 1px solid var(--color-primary-soft);
     background: var(--color-primary-surface);
     color: var(--color-primary);
     box-shadow: none;
+    flex: 0 0 auto;
   }
 
   .tracking-actions-compact {
@@ -1341,7 +1353,7 @@
   }
 
   .tracking-send-confirm-modal {
-    width: min(640px, calc(100vw - 32px));
+    width: min(460px, calc(100vw - 32px));
   }
 
   .tracking-send-confirm-grid {
@@ -1925,8 +1937,8 @@
   }
 
   .tracking-modal-panel {
-    max-width: 860px;
-    padding: 1.1rem 1.1rem 1rem;
+    max-width: 32rem;
+    padding: 0.95rem 0.95rem 0.9rem;
   }
 
   .tracking-modal-head .subtitle {
@@ -2604,8 +2616,8 @@
   }
 
   .jobs-modal-panel {
-    max-width: 860px;
-    padding: 1.1rem 1.1rem 1rem;
+    max-width: 32rem;
+    padding: 0.95rem 0.95rem 0.9rem;
   }
 
   .jobs-form-hint {
@@ -2945,6 +2957,15 @@
     gap: 0.75rem;
   }
 
+  .profile-interview-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .profile-interview-form-grid > * {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
   .profile-form-note {
     margin: 0.1rem 0 0;
   }
@@ -3049,15 +3070,29 @@
   }
 
   .modal-panel {
-    @apply max-h-[88vh] w-full max-w-xl overflow-auto rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-900;
+    @apply max-h-[88vh] w-full overflow-auto rounded-2xl bg-white p-4 shadow-xl dark:bg-slate-900;
+    max-width: min(32rem, 92vw);
+  }
+
+  .builder-save-modal {
+    max-width: min(22rem, 88vw);
+    padding: 1rem;
+  }
+
+  .builder-save-modal label + label {
+    margin-top: 0.75rem;
+  }
+
+  .builder-save-modal .actions {
+    margin-top: 1rem;
   }
 
   .profile-modal-panel {
-    max-width: 40rem;
+    max-width: min(30rem, 90vw);
   }
 
   .profile-modal-panel-wide {
-    max-width: 48rem;
+    max-width: min(36rem, 92vw);
   }
 
   .profile-modal-panel .profile-form-grid {
@@ -3184,10 +3219,34 @@
 
   .section-order-actions,
   .builder-actions,
+  .builder-actions-row,
   .preview-actions,
   .exp-editor-head,
   .exp-row-actions {
     @apply flex flex-wrap items-center gap-3;
+  }
+
+  .builder-actions {
+    display: grid;
+    gap: 0.65rem;
+    align-items: start;
+  }
+
+  .builder-actions-meta {
+    display: flex;
+    align-items: center;
+  }
+
+  .builder-inline-settings {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.9rem 1.2rem;
+  }
+
+  .builder-inline-settings .checkbox {
+    margin: 0;
+    white-space: nowrap;
   }
 
   .exp-editor-head {
@@ -3593,6 +3652,33 @@
   .builder-panel,
   .preview-panel {
     max-width: 100%;
+  }
+
+  .modal-panel.profile-modal-panel {
+    max-width: min(30rem, 90vw);
+  }
+
+  .modal-panel.builder-save-modal {
+    max-width: min(24rem, 86vw);
+  }
+
+  .modal-panel.profile-modal-panel-wide {
+    max-width: min(36rem, 92vw);
+  }
+
+  .modal-panel.jobs-modal-panel,
+  .modal-panel.tracking-modal-panel {
+    max-width: min(32rem, 92vw);
+  }
+
+  .modal-panel.tracking-send-confirm-modal {
+    width: min(28rem, calc(100vw - 32px));
+    max-width: min(28rem, calc(100vw - 32px));
+  }
+
+  .modal-panel.tracking-employee-preview-modal {
+    width: min(16rem, calc(100vw - 32px));
+    max-width: min(16rem, calc(100vw - 32px));
   }
 
   .rich-editor-frame {

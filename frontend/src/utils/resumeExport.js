@@ -1,4 +1,4 @@
-import { buildResumeViewModel } from './resumeShared'
+import { buildResumeViewModel } from './resumeShared.js'
 
 function escapeHtml(value) {
   return String(value || '')
@@ -23,6 +23,9 @@ function plainTextFromHtml(value) {
 }
 
 function sanitizeRichHtml(value) {
+  if (typeof DOMParser === 'undefined') {
+    return String(value || '').trim()
+  }
   const parser = new DOMParser()
   const doc = parser.parseFromString(`<div>${String(value || '')}</div>`, 'text/html')
   const root = doc.body.firstElementChild

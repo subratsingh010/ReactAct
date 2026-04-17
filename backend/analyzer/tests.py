@@ -249,8 +249,24 @@ class SendTrackingMailsThreadingTests(TestCase):
 
 
 class TrackingTemplateValidationTests(TestCase):
-    def test_follow_up_allows_empty_regular_template_stack(self):
-        self.assertEqual(_validate_tracking_templates([], "followed_up"), "")
+    def test_follow_up_requires_at_least_one_template(self):
+        self.assertEqual(_validate_tracking_templates([], "followed_up"), "For follow up, select at least 1 template.")
+
+    def test_follow_up_allows_up_to_two_follow_up_templates(self):
+        user = User.objects.create_user(username="followuptemplates", password="x")
+        profile = UserProfile.objects.create(user=user)
+        first = Template.objects.create(profile=profile, name="Follow 1", category="follow_up", achievement="One")
+        second = Template.objects.create(profile=profile, name="Follow 2", category="follow_up", achievement="Two")
+        self.assertEqual(_validate_tracking_templates([first, second], "followed_up"), "")
+
+    def test_follow_up_rejects_more_than_two_templates(self):
+        user = User.objects.create_user(username="followuptemplatesmax", password="x")
+        profile = UserProfile.objects.create(user=user)
+        rows = [
+            Template.objects.create(profile=profile, name=f"Follow {index}", category="follow_up", achievement=str(index))
+            for index in range(1, 4)
+        ]
+        self.assertEqual(_validate_tracking_templates(rows, "followed_up"), "For follow up, select at most 2 templates.")
 
 
 class SendTrackingAttachmentSafetyTests(TestCase):

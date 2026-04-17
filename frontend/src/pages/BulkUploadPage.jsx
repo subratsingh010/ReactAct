@@ -178,7 +178,7 @@ function BulkUploadPage() {
       <div className="bulk-grid">
         <section className="bulk-panel">
           <h2>Employees Bulk Upload</h2>
-          <p className="hint">Required fields: first_name, last_name, JobRole, location, company, department.</p>
+          <p className="hint">For each employee, include first name, last name, role, location, company, and department.</p>
           <label>
             Employees JSON
             <textarea
@@ -210,7 +210,7 @@ function BulkUploadPage() {
 
         <section className="bulk-panel">
           <h2>Jobs Bulk Upload</h2>
-          <p className="hint">Required fields: company, job_link. `job_id` is optional and will be generated if missing.</p>
+          <p className="hint">For each job, include the company name and job link. Job ID is optional, and the system will create one if you leave it out.</p>
           <label>
             Jobs JSON
             <textarea

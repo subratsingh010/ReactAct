@@ -1,10 +1,13 @@
 import re
 import json
 import html
+import io
 import os
+import shutil
 import smtplib
 import time
 import tempfile
+import subprocess
 import urllib.error
 import urllib.request
 import logging
@@ -21,6 +24,11 @@ from django.utils import timezone
 
 from analyzer.models import Template, Tracking, TrackingAction, UserProfile
 from analyzer.tracking_mail_utils import build_mail_tracking_status_map, ensure_mail_tracking, log_mail_event, recompute_tracking_delivery_status
+
+try:
+    from pypdf import PdfReader
+except Exception:  # noqa: BLE001
+    PdfReader = None
 
 
 LOGGER_NAME = "analyzer.send_tracking_mails"
@@ -568,19 +576,340 @@ class Command(BaseCommand):
             if saved_path.exists() and saved_path.is_file():
                 return {"path": str(saved_path), "bytes": None}
 
-        # Only use the single resume associated with this tracking row.
-        builder = {}
-        title = ""
-        if row.resume and isinstance(row.resume.builder_data, dict):
-            builder = row.resume.builder_data
-            title = str(row.resume.title or "").strip() or "Resume"
+        builder = row.resume.builder_data if row and row.resume and isinstance(row.resume.builder_data, dict) else {}
+        title = str(getattr(row.resume, "title", "") or "").strip() or "Resume"
         if not builder:
             return None
 
         text = self._builder_data_to_text(builder, fallback_title=title)
-        if not text.strip():
-            return {"path": None, "bytes": None}
-        return {"path": None, "bytes": self._build_simple_pdf_bytes(text, filename_hint=title)}
+        if text.strip():
+            return {"path": None, "bytes": self._build_simple_pdf_bytes(text, filename_hint=title)}
+        return None
+
+    def _build_builder_pdf_bytes(self, builder_data, filename_hint="resume"):
+        browser_bins = self._available_browser_binaries()
+        if not browser_bins:
+            return None
+        exact_html = self._build_frontend_ats_pdf_html(builder_data)
+        if not exact_html:
+            return None
+        pdf_bytes = self._render_browser_pdf_bytes(exact_html, browser_bins)
+        if not pdf_bytes:
+            return None
+        if self._pdf_page_count(pdf_bytes) > 1:
+            compact_builder_data = builder_data.copy() if isinstance(builder_data, dict) else {}
+            compact_builder_data["bodyFontSizePt"] = 10
+            compact_builder_data["bodyLineHeight"] = 1
+            compact_builder_data["pageMarginIn"] = 0.3
+            compact_html = self._build_frontend_ats_pdf_html(compact_builder_data)
+            compact_pdf_bytes = self._render_browser_pdf_bytes(compact_html, browser_bins)
+            if compact_pdf_bytes:
+                return compact_pdf_bytes
+        return pdf_bytes
+
+    def _render_browser_pdf_bytes(self, html_text, browser_bins):
+        if not str(html_text or "").strip():
+            return None
+
+        with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as tmp_html:
+            tmp_html.write(html_text)
+            tmp_html_path = Path(tmp_html.name)
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+            tmp_pdf_path = Path(tmp_pdf.name)
+
+        html_url = tmp_html_path.as_uri()
+        try:
+            for browser_bin in browser_bins:
+                cmd = [
+                    browser_bin,
+                    "--headless=new",
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    "--no-pdf-header-footer",
+                    f"--print-to-pdf={str(tmp_pdf_path)}",
+                    html_url,
+                ]
+                run = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=45,
+                    check=False,
+                )
+                if run.returncode == 0 and tmp_pdf_path.exists() and tmp_pdf_path.stat().st_size > 0:
+                    return tmp_pdf_path.read_bytes()
+        except Exception:
+            return None
+        finally:
+            tmp_html_path.unlink(missing_ok=True)
+            tmp_pdf_path.unlink(missing_ok=True)
+        return None
+
+    def _pdf_page_count(self, pdf_bytes):
+        if not pdf_bytes or PdfReader is None:
+            return 0
+        try:
+            reader = PdfReader(io.BytesIO(pdf_bytes))
+            return len(reader.pages or [])
+        except Exception:
+            return 0
+
+    def _available_browser_binaries(self):
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        ]
+        return [path for path in candidates if Path(path).exists()]
+
+    def _build_frontend_ats_pdf_html(self, builder_data):
+        if not isinstance(builder_data, dict) or not builder_data:
+            return ""
+        node_bin = shutil.which("node")
+        if not node_bin:
+            return ""
+
+        project_root = Path(__file__).resolve().parents[4]
+        module_path = project_root / "frontend" / "src" / "utils" / "resumeExport.js"
+        if not module_path.exists():
+            return ""
+
+        script = (
+            "import fs from 'node:fs';"
+            "import { buildAtsPdfHtml } from 'file://%s';"
+            "const raw = fs.readFileSync(process.argv[1], 'utf8');"
+            "const form = JSON.parse(raw || '{}');"
+            "process.stdout.write(buildAtsPdfHtml(form));"
+        ) % str(module_path).replace("\\", "/")
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as tmp_json:
+            json.dump(builder_data, tmp_json)
+            tmp_json_path = Path(tmp_json.name)
+
+        try:
+            run = subprocess.run(
+                [node_bin, "--experimental-specifier-resolution=node", "--input-type=module", "-e", script, str(tmp_json_path)],
+                capture_output=True,
+                text=True,
+                timeout=45,
+                check=False,
+                cwd=str(project_root),
+            )
+            if run.returncode == 0:
+                return str(run.stdout or "").strip()
+            return ""
+        except Exception:
+            return ""
+        finally:
+            tmp_json_path.unlink(missing_ok=True)
+
+    def _sanitize_resume_html(self, value):
+        raw = str(value or "")
+        if not raw.strip():
+            return ""
+        text = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw, flags=re.I)
+        text = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", text, flags=re.I)
+        text = re.sub(r"\son[a-zA-Z]+\s*=\s*(['\"]).*?\1", "", text, flags=re.I | re.S)
+        text = re.sub(r"\s(href|src)\s*=\s*(['\"])\s*javascript:.*?\2", "", text, flags=re.I | re.S)
+        return text.strip()
+
+    def _escape_html(self, value):
+        return html.escape(str(value or ""), quote=True)
+
+    def _resume_html_to_block(self, value):
+        safe = self._sanitize_resume_html(value)
+        if safe:
+            return safe
+        plain = self._plain_text_from_html(value)
+        if not plain:
+            return ""
+        return f"<p>{self._escape_html(plain)}</p>"
+
+    def _render_experience_html(self, item):
+        if not isinstance(item, dict):
+            return ""
+        company = self._escape_html(item.get("company") or "")
+        title = self._escape_html(item.get("title") or item.get("role") or "")
+        start = str(item.get("startDate") or "").strip()
+        end = "Present" if item.get("isCurrent") else str(item.get("endDate") or "").strip()
+        date_line = self._escape_html(" - ".join(part for part in [start, end] if part))
+        content = self._resume_html_to_block(item.get("highlights") or "")
+        if not any([company, title, date_line, content]):
+            return ""
+        return f"""
+        <div class="resume-exp">
+          <div class="resume-exp-head">
+            <div class="resume-exp-left">
+              {f'<span class="resume-exp-company">{company}</span>' if company else ''}
+              {'<span class="resume-exp-sep"> - </span>' if company and title else ''}
+              {f'<span class="resume-exp-title">{title}</span>' if title else ''}
+            </div>
+            {f'<span class="resume-exp-right">{date_line}</span>' if date_line else ''}
+          </div>
+          <div class="resume-exp-body resume-rich">{content}</div>
+        </div>
+        """
+
+    def _render_project_html(self, item):
+        if not isinstance(item, dict):
+            return ""
+        name = self._escape_html(item.get("name") or "")
+        link = str(item.get("normalizedUrl") or item.get("link") or "").strip()
+        link_html = ""
+        if link:
+            safe_link = self._escape_html(link)
+            link_html = f'<a class="resume-link resume-project-link" href="{safe_link}">link</a>'
+        content = self._resume_html_to_block(item.get("highlights") or "")
+        if not any([name, link_html, content]):
+            return ""
+        return f"""
+        <div class="resume-exp">
+          <div class="resume-exp-head">
+            <div class="resume-exp-left">
+              {f'<span class="resume-exp-company">{name}</span>' if name else ''}
+              {link_html}
+            </div>
+          </div>
+          <div class="resume-exp-body resume-rich">{content}</div>
+        </div>
+        """
+
+    def _render_education_html(self, item):
+        if not isinstance(item, dict):
+            return ""
+        institution = self._escape_html(item.get("institution") or "")
+        program = self._escape_html(item.get("program") or "")
+        score = self._escape_html(item.get("scoreText") or item.get("score") or "")
+        start = str(item.get("startDate") or "").strip()
+        end = "Present" if item.get("isCurrent") else str(item.get("endDate") or "").strip()
+        date_line = self._escape_html(" - ".join(part for part in [start, end] if part))
+        return f"""
+        <div class="resume-exp">
+          <div class="resume-exp-head">
+            <div class="resume-exp-left">
+              {f'<div class="resume-edu-inst"><span class="resume-exp-company">{institution}</span></div>' if institution else ''}
+              {f'<div class="resume-edu-meta">{program}{(" | " + score) if program and score else score}</div>' if (program or score) else ''}
+            </div>
+            {f'<span class="resume-exp-right">{date_line}</span>' if date_line else ''}
+          </div>
+        </div>
+        """
+
+    def _render_custom_section_html(self, item):
+        if not isinstance(item, dict):
+            return ""
+        title = self._escape_html(item.get("title") or "Custom Section")
+        content = self._resume_html_to_block(item.get("content") or "")
+        if not content:
+            return ""
+        return f'<section class="resume-section"><h2>{title}</h2><div class="resume-rich">{content}</div></section>'
+
+    def _build_resume_pdf_html(self, builder_data, fallback_title="Resume", page_margin_in=0.55):
+        data = builder_data if isinstance(builder_data, dict) else {}
+        basics = data.get("basics") if isinstance(data.get("basics"), dict) else {}
+        full_name = self._escape_html(
+            basics.get("fullName")
+            or data.get("fullName")
+            or data.get("resumeTitle")
+            or fallback_title
+            or "Resume"
+        )
+        contact_line = " | ".join(
+            self._escape_html(part)
+            for part in [
+                basics.get("location") or data.get("location"),
+                basics.get("phone"),
+                basics.get("email"),
+            ]
+            if str(part or "").strip()
+        )
+        links = []
+        for label, key in [
+            ("LinkedIn", "linkedin"),
+            ("GitHub", "github"),
+            ("Portfolio", "portfolio"),
+        ]:
+            value = str(basics.get(key) or "").strip()
+            if value:
+                links.append(f'<a href="{self._escape_html(value)}">{label}</a>')
+        sections = []
+        summary_html = self._resume_html_to_block(data.get("summary") or "")
+        if summary_html:
+            sections.append(f'<section class="resume-section"><h2>Summary</h2><div class="resume-summary">{summary_html}</div></section>')
+
+        skills = data.get("skills")
+        skills_html = ""
+        if isinstance(skills, list):
+            skills_values = ", ".join(str(item).strip() for item in skills if str(item).strip())
+            if skills_values:
+                skills_html = f"<p>{self._escape_html(skills_values)}</p>"
+        else:
+            skills_html = self._resume_html_to_block(skills or "")
+        if skills_html:
+            sections.append(f'<section class="resume-section"><h2>Skills</h2><div class="resume-rich">{skills_html}</div></section>')
+
+        experiences = "".join(self._render_experience_html(item) for item in (data.get("experiences") or []))
+        if experiences.strip():
+            sections.append(f'<section class="resume-section"><h2>Experience</h2>{experiences}</section>')
+
+        projects = "".join(self._render_project_html(item) for item in (data.get("projects") or []))
+        if projects.strip():
+            sections.append(f'<section class="resume-section"><h2>Projects</h2>{projects}</section>')
+
+        educations = "".join(self._render_education_html(item) for item in (data.get("educations") or []))
+        if educations.strip():
+            sections.append(f'<section class="resume-section"><h2>Education</h2>{educations}</section>')
+
+        for item in (data.get("customSections") or []):
+            custom = self._render_custom_section_html(item)
+            if custom:
+                sections.append(custom)
+
+        if not sections:
+            return ""
+
+        safe_margin_in = max(0.2, min(0.75, float(page_margin_in or 0.55)))
+
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>{full_name}</title>
+  <style>
+    @page {{ size: A4; margin: {safe_margin_in}in; }}
+    html, body {{ margin: 0; padding: 0; background: #fff; color: #111827; font-family: Arial, Helvetica, sans-serif; }}
+    body {{ padding: 0.1in 0; font-size: 10pt; line-height: 1.25; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+    .resume-sheet {{ color: #111827; }}
+    .resume-head {{ margin-bottom: 6pt; padding-bottom: 2pt; text-align: center; border-bottom: 0; }}
+    .resume-head h1 {{ margin: 0; font-size: 20pt; font-weight: 700; letter-spacing: 0.02em; }}
+    .resume-head-line, .resume-head-links {{ color: #374151; }}
+    .resume-head-line {{ margin-top: 2pt; }}
+    .resume-head-links {{ margin-top: 2pt; word-break: break-word; }}
+    .resume-head-links a, .resume-link {{ color: inherit; text-decoration: none; }}
+    .resume-section {{ margin-top: 8pt; }}
+    .resume-section h2 {{ margin: 0 0 2pt; font-size: 11pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid #d1d5db; padding-bottom: 1pt; }}
+    .resume-exp {{ margin-top: 4pt; }}
+    .resume-exp-head {{ display: flex; justify-content: space-between; gap: 12pt; align-items: baseline; font-weight: 700; }}
+    .resume-exp-left {{ min-width: 0; flex: 1; }}
+    .resume-exp-right, .resume-project-link {{ font-weight: 400; color: #374151; text-decoration: none; white-space: nowrap; }}
+    .resume-rich p, .resume-summary p {{ margin: 2pt 0 0; line-height: 1.35; }}
+    .resume-rich ul, .resume-summary ul, .resume-rich ol, .resume-summary ol {{ margin: 4pt 0 0; padding-left: 16pt; }}
+    .resume-rich li, .resume-summary li {{ margin: 1.5pt 0; }}
+    .resume-edu-meta {{ margin-top: 1pt; font-weight: 400; }}
+    * {{ box-shadow: none !important; text-shadow: none !important; filter: none !important; }}
+  </style>
+</head>
+<body>
+  <article class="resume-sheet">
+    <header class="resume-head">
+      <h1>{full_name}</h1>
+      {f'<div class="resume-head-line">{contact_line}</div>' if contact_line else ''}
+      {f'<div class="resume-head-links">{" | ".join(links)}</div>' if links else ''}
+    </header>
+    {"".join(sections)}
+  </article>
+</body>
+</html>"""
 
     def _builder_data_to_text(self, builder_data, fallback_title="Resume"):
         b = builder_data if isinstance(builder_data, dict) else {}

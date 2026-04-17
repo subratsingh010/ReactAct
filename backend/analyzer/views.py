@@ -189,6 +189,7 @@ def _paginate_queryset(queryset, request, default_page_size=10, max_page_size=10
 def _resolve_tracking_delivery_status_from_events(event_rows, fallback_status='pending'):
     latest_by_target = {}
     fallback_counter = 0
+    fallback_value = str(fallback_status or 'pending').strip().lower()
 
     for item in event_rows:
         payload = item.raw_payload if isinstance(getattr(item, 'raw_payload', None), dict) else {}
@@ -205,8 +206,7 @@ def _resolve_tracking_delivery_status_from_events(event_rows, fallback_status='p
         fallback_counter += 1
 
     if not latest_by_target:
-        fallback_value = str(fallback_status or 'pending').strip().lower()
-        return fallback_value if fallback_value in {'pending', 'complete_sent', 'partial_sent', 'failed'} else 'pending'
+        return fallback_value if fallback_value in {'pending', 'sent_via_cron', 'successful_sent', 'mail_bounced', 'partial_sent', 'failed'} else 'pending'
 
     sent_count = sum(1 for value in latest_by_target.values() if value == 'sent')
     failed_count = sum(1 for value in latest_by_target.values() if value in {'failed', 'bounced'})
@@ -214,8 +214,12 @@ def _resolve_tracking_delivery_status_from_events(event_rows, fallback_status='p
     if sent_count and failed_count:
         return 'partial_sent'
     if sent_count:
-        return 'complete_sent'
+        if fallback_value == 'successful_sent':
+            return 'successful_sent'
+        return 'sent_via_cron'
     if failed_count:
+        if any(value == 'bounced' for value in latest_by_target.values()):
+            return 'mail_bounced'
         return 'failed'
     return 'pending'
 
@@ -455,8 +459,13 @@ def _validate_tracking_templates(templates, mail_type='fresh'):
     normalized_mail_type = str(mail_type or 'fresh').strip().lower()
     rows = list(templates or [])
     if normalized_mail_type == 'followed_up':
-        if len(rows) > 5:
-            return 'Select at most 5 templates.'
+        if not rows:
+            return 'For follow up, select at least 1 template.'
+        if len(rows) > 2:
+            return 'For follow up, select at most 2 templates.'
+        categories = [_template_category(item) for item in rows]
+        if any(category != 'follow_up' for category in categories):
+            return 'For follow up, use only Follow Up templates.'
         return ''
     if not rows:
         return 'Select at least one template.'
@@ -534,7 +543,7 @@ def _tracking_action_delivery_fallback(tracking):
     has_sent = any(str(item.send_mode or '').strip().lower() == 'sent' for item in actions)
     has_scheduled = any(str(item.send_mode or '').strip().lower() == 'scheduled' for item in actions)
     if has_sent:
-        return {'mailed': True, 'status': 'complete_sent'}
+        return {'mailed': True, 'status': 'sent_via_cron'}
     if has_scheduled:
         return {'mailed': False, 'status': 'pending'}
     return {'mailed': bool(getattr(tracking, 'mailed', False)), 'status': str(getattr(tracking, 'mail_delivery_status', 'pending') or 'pending')}
@@ -2136,6 +2145,12 @@ class LocationListView(APIView):
 class ResumeListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def _serializer_payload(self, request):
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data or {})
+        if hasattr(data, 'pop'):
+            data.pop('job', None)
+        return data
+
     def _apply_default_resume(self, profile, resume):
         if not getattr(resume, 'is_default', False):
             return
@@ -2164,7 +2179,7 @@ class ResumeListCreateView(APIView):
         denied = _ensure_write_allowed(request)
         if denied:
             return denied
-        serializer = ResumeSerializer(data=request.data)
+        serializer = ResumeSerializer(data=self._serializer_payload(request))
         if serializer.is_valid():
             profile = _workspace_profile_for_user(request.user)
             title = (serializer.validated_data.get('title') or '').strip()
@@ -2216,6 +2231,12 @@ class ResumeListCreateView(APIView):
 class ResumeDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def _serializer_payload(self, request):
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data or {})
+        if hasattr(data, 'pop'):
+            data.pop('job', None)
+        return data
+
     def _apply_default_resume(self, profile, resume):
         if not getattr(resume, 'is_default', False):
             return
@@ -2252,7 +2273,7 @@ class ResumeDetailView(APIView):
         except Resume.DoesNotExist:
             return Response({'detail': 'Resume not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = ResumeSerializer(resume, data=request.data, partial=True)
+        serializer = ResumeSerializer(resume, data=self._serializer_payload(request), partial=True)
         if serializer.is_valid():
             builder_changed = 'builder_data' in serializer.validated_data
             title_changed = 'title' in serializer.validated_data
@@ -3814,7 +3835,7 @@ class ApplicationTrackingDetailView(APIView):
             row.mailed = self._to_bool(payload.get('mailed'), default=row.mailed)
         if 'mail_delivery_status' in payload:
             status_value = str(payload.get('mail_delivery_status') or '').strip().lower()
-            if status_value in {'pending', 'complete_sent', 'failed', 'partial_sent'}:
+            if status_value in {'pending', 'sent_via_cron', 'successful_sent', 'mail_bounced', 'failed', 'partial_sent'}:
                 row.mail_delivery_status = status_value
         if 'resume' in payload:
             raw_resume_id = str(payload.get('resume') or '').strip()
@@ -4398,13 +4419,18 @@ class EmployeeDetailView(APIView):
             return Response({'detail': 'Employee not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         payload = dict(request.data or {})
-        company_id = payload.get('company')
+        company_id = str(payload.get('company') or '').strip()
+        if 'company' in payload and not company_id:
+            payload.pop('company', None)
         if company_id:
             try:
-                company = Company.objects.get(id=company_id, profile=row.profile)
+                company = Company.objects.get(id=company_id, profile=row.owner_profile)
             except Company.DoesNotExist:
                 return Response({'company': ['Company not found.']}, status=status.HTTP_400_BAD_REQUEST)
             payload['company'] = company.id
+        location_ref_raw = str(payload.get('location_ref') or '').strip()
+        if 'location_ref' in payload and not location_ref_raw:
+            payload['location_ref'] = None
 
         serializer = EmployeeSerializer(row, data=payload, partial=True)
         if serializer.is_valid():

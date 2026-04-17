@@ -4,11 +4,9 @@ import ResumeSheet from '../components/ResumeSheet'
 import { MultiSelectDropdown, SingleSelectDropdown } from '../components/SearchableDropdown'
 
 import {
-  createProfilePanel,
   createTemplate,
   createInterview,
   createWorkspaceMember,
-  deleteProfilePanel,
   deleteTemplate,
   deleteInterview,
   deleteResume,
@@ -19,16 +17,12 @@ import {
   fetchLocations,
   fetchProfile,
   fetchProfileInfo,
-  fetchProfilePanels,
   fetchResumes,
   fetchWorkspaceMembers,
-  updateProfilePanel,
   updateTemplate,
   updateInterview,
   updateProfileInfo,
 } from '../api'
-
-const MAX_PROFILE_PANELS = 2
 
 const EMPTY_PROFILE = {
   full_name: '',
@@ -49,11 +43,6 @@ const EMPTY_PROFILE = {
   location_ref: '',
   preferred_location_refs: [],
   summary: '',
-}
-
-const EMPTY_PROFILE_PANEL = {
-  title: '',
-  ...EMPTY_PROFILE,
 }
 
 const EMPTY_ACH = {
@@ -314,10 +303,6 @@ function ProfilePage() {
   const [editingProfile, setEditingProfile] = useState(false)
   const [profileForm, setProfileForm] = useState(EMPTY_PROFILE)
   const [profileUsername, setProfileUsername] = useState('')
-  const [profilePanels, setProfilePanels] = useState([])
-  const [showProfilePanelForm, setShowProfilePanelForm] = useState(false)
-  const [editingProfilePanelId, setEditingProfilePanelId] = useState(null)
-  const [profilePanelForm, setProfilePanelForm] = useState(EMPTY_PROFILE_PANEL)
   const [workspaceMembers, setWorkspaceMembers] = useState([])
   const [workspaceMemberUsername, setWorkspaceMemberUsername] = useState('')
 
@@ -385,11 +370,6 @@ function ProfilePage() {
     [profileForm.country, profileForm.state],
   )
 
-  const profilePanelStateOptions = useMemo(
-    () => stateOptionsForCountry(profilePanelForm.country, profilePanelForm.state),
-    [profilePanelForm.country, profilePanelForm.state],
-  )
-
   const filteredAchievements = useMemo(() => {
     const selectedCategory = String(templateCategoryFilter || '').trim().toLowerCase()
     if (!selectedCategory) return Array.isArray(achievements) ? achievements : []
@@ -402,10 +382,9 @@ function ProfilePage() {
     setLoading(true)
     setError('')
     try {
-      const [profileBase, info, panelRows, memberRows, resumeRows, achRows, interviewRows, jobsData, locationRows] = await Promise.all([
+      const [profileBase, info, memberRows, resumeRows, achRows, interviewRows, jobsData, locationRows] = await Promise.all([
         fetchProfile(access),
         fetchProfileInfo(access),
-        fetchProfilePanels(access).catch(() => []),
         fetchWorkspaceMembers(access).catch(() => []),
         fetchResumes(access),
         fetchTemplates(access),
@@ -417,17 +396,6 @@ function ProfilePage() {
       setProfile(nextProfile)
       setProfileForm(nextProfile)
       setProfileUsername(String(profileBase?.username || ''))
-      setProfilePanels(
-        (Array.isArray(panelRows) ? panelRows : []).map((row) => ({
-          ...normalizeProfileLike(row),
-          id: row.id,
-          title: String(row?.title || '').trim(),
-          created_at: row?.created_at || '',
-          updated_at: row?.updated_at || '',
-          location_name: String(row?.location_name || '').trim(),
-          preferred_location_names: Array.isArray(row?.preferred_location_names) ? row.preferred_location_names : [],
-        })),
-      )
       setWorkspaceMembers(Array.isArray(memberRows) ? memberRows : [])
       setResumes(Array.isArray(resumeRows) ? resumeRows : [])
       setAchievements(Array.isArray(achRows) ? achRows : [])
@@ -471,84 +439,6 @@ function ProfilePage() {
   const closeProfileEditor = () => {
     setProfileForm(profile)
     setEditingProfile(false)
-  }
-
-  const openCreateProfilePanel = () => {
-    setError('')
-    setOk('')
-    setEditingProfilePanelId(null)
-    setProfilePanelForm({
-      ...EMPTY_PROFILE_PANEL,
-      title: `Profile Panel ${profilePanels.length + 1}`,
-      full_name: profile.full_name || profileUsername || '',
-      email: profile.email || '',
-    })
-    setShowProfilePanelForm(true)
-  }
-
-  const closeProfilePanelForm = () => {
-    setShowProfilePanelForm(false)
-    setEditingProfilePanelId(null)
-    setProfilePanelForm(EMPTY_PROFILE_PANEL)
-  }
-
-  const openEditProfilePanel = (row) => {
-    setError('')
-    setOk('')
-    setEditingProfilePanelId(row.id)
-    setProfilePanelForm({
-      title: String(row?.title || '').trim(),
-      ...normalizeProfileLike(row),
-    })
-    setShowProfilePanelForm(true)
-  }
-
-  const saveProfilePanel = async () => {
-    try {
-      setError('')
-      setOk('')
-      const payload = {
-        ...profilePanelForm,
-        title: String(profilePanelForm.title || '').trim(),
-      }
-      const updated = editingProfilePanelId
-        ? await updateProfilePanel(access, editingProfilePanelId, payload)
-        : await createProfilePanel(access, payload)
-      const normalized = {
-        ...normalizeProfileLike(updated),
-        id: updated.id,
-        title: String(updated?.title || '').trim(),
-        created_at: updated?.created_at || '',
-        updated_at: updated?.updated_at || '',
-        location_name: String(updated?.location_name || '').trim(),
-        preferred_location_names: Array.isArray(updated?.preferred_location_names) ? updated.preferred_location_names : [],
-      }
-      if (editingProfilePanelId) {
-        setProfilePanels((prev) => prev.map((row) => (row.id === editingProfilePanelId ? normalized : row)))
-        setOk('Profile panel updated.')
-      } else {
-        setProfilePanels((prev) => [normalized, ...prev].slice(0, MAX_PROFILE_PANELS))
-        setOk('Profile panel added.')
-      }
-      closeProfilePanelForm()
-    } catch (err) {
-      setError(err.message || 'Could not save profile panel.')
-    }
-  }
-
-  const removeProfilePanel = async (panelId) => {
-    try {
-      setError('')
-      setOk('')
-      await deleteProfilePanel(access, panelId)
-      setProfilePanels((prev) => prev.filter((row) => row.id !== panelId))
-      if (editingProfilePanelId === panelId) {
-        closeProfilePanelForm()
-      }
-      setOk('Profile panel deleted.')
-    } catch (err) {
-      setError(err.message || 'Could not delete profile panel.')
-    }
   }
 
   const saveWorkspaceMember = async () => {
@@ -821,54 +711,6 @@ function ProfilePage() {
 
       <section className="dash-card">
         <div className="tracking-head profile-section-head">
-          <h2>Profile Panels</h2>
-          <div className="actions">
-            <button
-              type="button"
-              className="secondary"
-              onClick={openCreateProfilePanel}
-              disabled={profilePanels.length >= MAX_PROFILE_PANELS}
-            >
-              Add Panel
-            </button>
-          </div>
-        </div>
-        <p className="hint">Keep one owner profile and one additional profile. Max {MAX_PROFILE_PANELS} panels.</p>
-        <div className="profile-panel-grid">
-          {profilePanels.map((row, index) => (
-            <article key={row.id} className="profile-card-shell profile-panel-card">
-              <div className="profile-panel-head">
-                <div>
-                  <p className="profile-panel-title">{profilePanelTitle(row, index)}</p>
-                  {row.updated_at ? <p className="profile-panel-meta">Updated: {new Date(row.updated_at).toLocaleString()}</p> : null}
-                </div>
-                <div className="actions">
-                  <button type="button" className="secondary" onClick={() => openEditProfilePanel(row)}>Edit</button>
-                  <button type="button" className="secondary" onClick={() => removeProfilePanel(row.id)}>Delete</button>
-                </div>
-              </div>
-              <div className="profile-info-grid">
-                {profileRows(row).map(([label, value]) => (
-                  <div key={`${row.id}-${label}`} className="profile-info-item">
-                    <span className="profile-info-label">{label}</span>
-                    <span className="profile-info-value">{renderProfileValue(value)}</span>
-                  </div>
-                ))}
-                {!profileRows(row).length ? (
-                  <div className="profile-info-item">
-                    <span className="profile-info-label">Panel</span>
-                    <span className="profile-info-value">No data yet.</span>
-                  </div>
-                ) : null}
-              </div>
-            </article>
-          ))}
-          {!profilePanels.length ? <p className="hint">No extra profile panels yet.</p> : null}
-        </div>
-      </section>
-
-      <section className="dash-card">
-        <div className="tracking-head profile-section-head">
           <h2>Workspace Access</h2>
         </div>
         <p className="hint">Owner keeps full access. Second account can create companies, jobs, and employees with its own login.</p>
@@ -1115,7 +957,7 @@ function ProfilePage() {
         <div className="modal-overlay" onClick={closeProfileEditor}>
           <div className="modal-panel profile-modal-panel" onClick={(event) => event.stopPropagation()}>
             <h2>Edit Personal Info</h2>
-            <div className="profile-form-grid">
+            <div className="profile-form-grid profile-interview-form-grid">
               <label>Full Name<input value={profileForm.full_name} onChange={(e) => setProfileForm((p) => ({ ...p, full_name: e.target.value }))} /></label>
               <label>Email<input value={profileForm.email} onChange={(e) => setProfileForm((p) => ({ ...p, email: e.target.value }))} /></label>
               <label>Contact Number<input value={profileForm.contact_number} onChange={(e) => setProfileForm((p) => ({ ...p, contact_number: e.target.value }))} /></label>
@@ -1196,92 +1038,6 @@ function ProfilePage() {
         </div>
       ) : null}
 
-      {showProfilePanelForm ? (
-        <div className="modal-overlay" onClick={closeProfilePanelForm}>
-          <div className="modal-panel profile-modal-panel profile-modal-panel-wide" onClick={(event) => event.stopPropagation()}>
-            <h2>{editingProfilePanelId ? 'Edit Profile Panel' : 'Add Profile Panel'}</h2>
-            <div className="profile-form-grid">
-              <label>Panel Name<input value={profilePanelForm.title} onChange={(e) => setProfilePanelForm((p) => ({ ...p, title: e.target.value }))} placeholder="Backend Panel, Recruiter Panel..." /></label>
-              <label>Full Name<input value={profilePanelForm.full_name} onChange={(e) => setProfilePanelForm((p) => ({ ...p, full_name: e.target.value }))} /></label>
-              <label>Email<input value={profilePanelForm.email} onChange={(e) => setProfilePanelForm((p) => ({ ...p, email: e.target.value }))} /></label>
-              <label>Contact Number<input value={profilePanelForm.contact_number} onChange={(e) => setProfilePanelForm((p) => ({ ...p, contact_number: e.target.value }))} /></label>
-              <label>Current Employer<input value={profilePanelForm.current_employer} onChange={(e) => setProfilePanelForm((p) => ({ ...p, current_employer: e.target.value }))} /></label>
-              <label>Years of Experience<input value={profilePanelForm.years_of_experience} onChange={(e) => setProfilePanelForm((p) => ({ ...p, years_of_experience: e.target.value }))} /></label>
-              <label>Address Line 1<input value={profilePanelForm.address_line_1} onChange={(e) => setProfilePanelForm((p) => ({ ...p, address_line_1: e.target.value }))} /></label>
-              <label>Address Line 2<input value={profilePanelForm.address_line_2} onChange={(e) => setProfilePanelForm((p) => ({ ...p, address_line_2: e.target.value }))} /></label>
-              <label>Country
-                <SingleSelectDropdown
-                  value={profilePanelForm.country || ''}
-                  placeholder="Select country"
-                  searchPlaceholder="Search country"
-                  options={COUNTRY_OPTIONS}
-                  onChange={(nextValue) => {
-                    const selectedCountry = String(nextValue || '').trim()
-                    const meta = countryMeta(selectedCountry)
-                    setProfilePanelForm((p) => {
-                      const nextState = meta?.states?.includes(String(p.state || '').trim()) ? p.state : ''
-                      return {
-                        ...p,
-                        country: selectedCountry,
-                        state: nextState,
-                        country_code: meta?.code || p.country_code,
-                      }
-                    })
-                  }}
-                />
-              </label>
-              <label>State
-                <SingleSelectDropdown
-                  value={profilePanelForm.state || ''}
-                  placeholder={profilePanelForm.country ? 'Select state' : 'Select country first'}
-                  searchPlaceholder="Search state"
-                  options={profilePanelStateOptions}
-                  onChange={(nextValue) => setProfilePanelForm((p) => ({ ...p, state: nextValue || '' }))}
-                />
-              </label>
-              <label>Country Code<input value={profilePanelForm.country_code} onChange={(e) => setProfilePanelForm((p) => ({ ...p, country_code: e.target.value }))} placeholder="+91" /></label>
-              <label>LinkedIn URL<input value={profilePanelForm.linkedin_url} onChange={(e) => setProfilePanelForm((p) => ({ ...p, linkedin_url: e.target.value }))} /></label>
-              <label>GitHub URL<input value={profilePanelForm.github_url} onChange={(e) => setProfilePanelForm((p) => ({ ...p, github_url: e.target.value }))} /></label>
-              <label>Portfolio URL<input value={profilePanelForm.portfolio_url} onChange={(e) => setProfilePanelForm((p) => ({ ...p, portfolio_url: e.target.value }))} /></label>
-              <label>Resume Link<input value={profilePanelForm.resume_link} onChange={(e) => setProfilePanelForm((p) => ({ ...p, resume_link: e.target.value }))} /></label>
-              <label>Location<input value={profilePanelForm.location} onChange={(e) => setProfilePanelForm((p) => ({ ...p, location: e.target.value }))} /></label>
-              <label>Location Ref
-                <SingleSelectDropdown
-                  value={profilePanelForm.location_ref || ''}
-                  placeholder="Select location"
-                  options={locationOptions.map((location) => ({ value: String(location.id), label: String(location.name || '') }))}
-                  onChange={(nextValue) => {
-                    const selected = locationOptions.find((item) => String(item.id) === String(nextValue || ''))
-                    setProfilePanelForm((p) => ({
-                      ...p,
-                      location_ref: nextValue || '',
-                      location: selected?.name || p.location,
-                    }))
-                  }}
-                />
-              </label>
-              <label>Preferred Locations
-                <MultiSelectDropdown
-                  values={Array.isArray(profilePanelForm.preferred_location_refs) ? profilePanelForm.preferred_location_refs : []}
-                  placeholder="Select preferred locations"
-                  searchPlaceholder="Search location"
-                  options={locationOptions.map((location) => ({ value: String(location.id), label: String(location.name || '') }))}
-                  onChange={(nextValues) => setProfilePanelForm((p) => ({
-                    ...p,
-                    preferred_location_refs: Array.isArray(nextValues) ? nextValues : [],
-                  }))}
-                />
-              </label>
-              <label>Summary<textarea rows={3} value={profilePanelForm.summary} onChange={(e) => setProfilePanelForm((p) => ({ ...p, summary: e.target.value }))} /></label>
-            </div>
-            <div className="actions">
-              <button type="button" onClick={saveProfilePanel}>{editingProfilePanelId ? 'Update' : 'Create'}</button>
-              <button type="button" className="secondary" onClick={closeProfilePanelForm}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       {showAchForm ? (
         <div className="modal-overlay" onClick={closeAchievementForm}>
           <div className="modal-panel profile-modal-panel" onClick={(event) => event.stopPropagation()}>
@@ -1303,7 +1059,7 @@ function ProfilePage() {
         <div className="modal-overlay" onClick={closeInterviewForm}>
           <div className="modal-panel profile-modal-panel" onClick={(event) => event.stopPropagation()}>
             <h2>{editingInterviewId ? 'Edit Interview' : 'Add Interview'}</h2>
-            <div className="profile-form-grid">
+            <div className="profile-form-grid profile-interview-form-grid">
               <label>Company
                 <SingleSelectDropdown
                   value={interviewForm.company_name}

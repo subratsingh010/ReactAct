@@ -317,7 +317,9 @@ class Tracking(BaseModel):
         max_length=20,
         choices=[
             ('pending', 'Pending'),
-            ('complete_sent', 'Complete Sent'),
+            ('sent_via_cron', 'Sent Via Cron'),
+            ('successful_sent', 'Successful Sent'),
+            ('mail_bounced', 'Mail Bounced'),
             ('failed', 'Failed'),
             ('partial_sent', 'Partial Sent'),
         ],

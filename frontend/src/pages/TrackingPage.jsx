@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import ResumeSheet from '../components/ResumeSheet'
 import { MultiSelectDropdown, SingleSelectDropdown } from '../components/SearchableDropdown'
 import { MailTestIcon } from './TrackingMailTestPage'
+import { capitalizeFirstDisplay } from '../utils/displayText'
 
 import {
   createTrackingRow,
@@ -12,8 +13,9 @@ import {
   fetchEmployees,
   fetchJobs,
   fetchProfile,
-  fetchTrackingRow,
   fetchResumes,
+  fetchTailoredResumes,
+  fetchTrackingRow,
   fetchTrackingRows,
   updateTrackingRow,
 } from '../api'
@@ -175,7 +177,8 @@ function humanizeLabel(value, fallback = '-') {
 }
 
 function formatMailTypeLabel(value) {
-  return String(value || '').trim().toLowerCase() === 'followup' ? 'Follow Up' : 'Fresh'
+  const text = String(value || '').trim().toLowerCase()
+  return text === 'followup' || text === 'followed_up' ? 'Follow Up' : 'Fresh'
 }
 
 function formatSendModeLabel(value) {
@@ -188,7 +191,9 @@ function formatSendModeLabel(value) {
 
 function formatStatusLabel(value) {
   const text = String(value || 'pending').trim().toLowerCase()
-  if (text === 'complete_sent') return 'Sent'
+  if (text === 'sent_via_cron') return 'Bounce Verifying'
+  if (text === 'successful_sent') return 'Successful Sent'
+  if (text === 'mail_bounced') return 'Mail Bounced'
   if (text === 'partial_sent') return 'Partially'
   if (text === 'failed') return 'Failed'
   return 'Pending'
@@ -197,7 +202,7 @@ function formatStatusLabel(value) {
 function subjectBaseValues(form, companies, jobs) {
   const selectedCompany = (Array.isArray(companies) ? companies : []).find((item) => String(item.id) === String(form?.company || ''))
   const selectedJob = (Array.isArray(jobs) ? jobs : []).find((item) => String(item.id) === String(form?.job || ''))
-  const companyName = String(selectedCompany?.name || form?.company_name || 'Company').trim() || 'Company'
+  const companyName = capitalizeFirstDisplay(selectedCompany?.name || form?.company_name || 'Company') || 'Company'
   const role = String(selectedJob?.role || form?.role || 'Role').trim() || 'Role'
   const jobId = String(selectedJob?.job_id || form?.job_id || '').trim()
   return { companyName, role, jobId }
@@ -388,6 +393,14 @@ function templateSelectionError(templateChoice, values, options) {
   const ids = orderedAchievementIds(values)
   const normalizedMailType = String(templateChoice || 'fresh').trim().toLowerCase() || 'fresh'
   if (normalizedMailType === 'followed_up') {
+    if (!ids.length) return 'For follow up, select at least 1 template.'
+    if (ids.length > 2) return 'For follow up, select at most 2 templates.'
+    const rows = ids
+      .map((id) => (Array.isArray(options) ? options.find((item) => String(item?.value || item?.id || '') === String(id)) : null))
+      .filter(Boolean)
+    if (rows.length !== ids.length) return 'One or more selected follow-up templates were not found.'
+    const categories = rows.map((item) => String(item?.category || 'follow_up').trim().toLowerCase())
+    if (categories.some((category) => category !== 'follow_up')) return 'For follow up, use only Follow Up templates.'
     return ''
   }
   if (!ids.length) return 'Select at least one template.'
@@ -655,6 +668,7 @@ function TrackingPage() {
   const [jobOptions, setJobOptions] = useState([])
   const [employeeOptions, setEmployeeOptions] = useState([])
   const [resumeOptions, setResumeOptions] = useState([])
+  const [tailoredResumeOptions, setTailoredResumeOptions] = useState([])
   const [achievementOptions, setAchievementOptions] = useState([])
   const [profileYoe, setProfileYoe] = useState('')
   const [previewResume, setPreviewResume] = useState(null)
@@ -664,18 +678,20 @@ function TrackingPage() {
   const [sendConfirmError, setSendConfirmError] = useState('')
   const prevCreateSubjectOptionsRef = useRef([])
   const prevEditSubjectOptionsRef = useRef([])
+  const employeePreviewRef = useRef(null)
 
-  const tailoredOptionsForJob = (jobId) => {
+  const associatedResumeOptionsForJob = (jobId) => {
     const job = jobOptions.find((item) => String(item.id) === String(jobId || ''))
     if (!job) return []
-    const options = Array.isArray(job.tailored_resumes) ? [...job.tailored_resumes] : []
+    const options = Array.isArray(job.associated_resumes) ? [...job.associated_resumes] : []
     options.sort((a, b) => {
-      const aTime = new Date(a?.created_at || 0).getTime()
-      const bTime = new Date(b?.created_at || 0).getTime()
-      if (aTime !== bTime) return aTime - bTime
-      return Number(a?.id || 0) - Number(b?.id || 0)
+      return Number(b?.id || 0) - Number(a?.id || 0)
     })
-    return options
+    return options.map((item) => ({
+      value: String(item.id),
+      label: `${String(item.title || `Resume #${item.id}`)}${item.is_tailored ? ' | Tailored' : ' | Base'}`,
+      isTailored: Boolean(item.is_tailored),
+    }))
   }
   const load = async () => {
     if (!access) {
@@ -708,20 +724,23 @@ function TrackingPage() {
     if (!access) return
     ;(async () => {
       try {
-        const [companiesData, resumesData, achievementsData, profileData] = await Promise.all([
+        const [companiesData, resumesData, tailoredData, achievementsData, profileData] = await Promise.all([
           fetchCompanies(access, { page: 1, page_size: 300, ready_for_tracking: true }),
           fetchResumes(access).catch(() => []),
+          fetchTailoredResumes(access).catch(() => []),
           fetchTemplates(access).catch(() => []),
           fetchProfile(access).catch(() => ({})),
         ])
         const companyRows = Array.isArray(companiesData?.results) ? companiesData.results : []
         setCompanyOptions(companyRows)
         setResumeOptions(Array.isArray(resumesData) ? resumesData : [])
+        setTailoredResumeOptions(Array.isArray(tailoredData) ? tailoredData : [])
         setAchievementOptions(Array.isArray(achievementsData) ? achievementsData : [])
         setProfileYoe(String(profileData?.years_of_experience || '').trim())
       } catch {
         setCompanyOptions([])
         setResumeOptions([])
+        setTailoredResumeOptions([])
         setAchievementOptions([])
         setProfileYoe('')
       }
@@ -732,7 +751,7 @@ function TrackingPage() {
     if (!companyId) {
       setJobOptions([])
       setEmployeeOptions([])
-      return
+      return { jobs: [], employees: [] }
     }
     try {
       const [jobsData, employeesData] = await Promise.all([
@@ -743,9 +762,11 @@ function TrackingPage() {
       const emps = Array.isArray(employeesData) ? employeesData : []
       setJobOptions(jobs)
       setEmployeeOptions(emps)
+      return { jobs, employees: emps }
     } catch {
       setJobOptions([])
       setEmployeeOptions([])
+      return { jobs: [], employees: [] }
     }
   }
 
@@ -767,6 +788,7 @@ function TrackingPage() {
       use_hardcoded_personalized_intro: false,
       achievement_name: '',
       achievement_text: '',
+      attachment_source: '',
       resume_id: '',
       tailored_resume_id: '',
       template_subject: '',
@@ -816,13 +838,13 @@ function TrackingPage() {
     const jobId = String(selectedJob?.job_id || '').trim()
     const role = String(selectedJob?.role || '').trim()
     const jobUrl = String(selectedJob?.job_link || '').trim()
-    const createTemplateError = templateSelectionError(createForm.mail_type, createAchievementIds, createAchievementOptionsForMode)
+    const createTemplateError = templateSelectionError(
+      createForm.mail_type,
+      createAchievementIds,
+      createForm.mail_type === 'followed_up' ? followUpTemplateOptions : createAchievementOptionsForMode,
+    )
     if (createTemplateError) {
       setCreateFormError(createTemplateError)
-      return
-    }
-    if (createForm.mail_type === 'followed_up' && !String(createForm.personalized_template_id || '').trim()) {
-      setCreateFormError('Select one Follow Up template for follow-up mail.')
       return
     }
     if (createForm.mail_type !== 'followed_up' && createForm.use_hardcoded_personalized_intro && !String(createForm.personalized_template_id || '').trim()) {
@@ -845,7 +867,7 @@ function TrackingPage() {
         template_id: createAchievementIds[0] || null,
         template_ids_ordered: createAchievementIds,
         personalized_template: createForm.mail_type === 'followed_up'
-          ? (createForm.personalized_template_id || null)
+          ? null
           : (createForm.use_hardcoded_personalized_intro ? (createForm.personalized_template_id || null) : null),
         use_hardcoded_personalized_intro: Boolean(createForm.use_hardcoded_personalized_intro),
         achievement: createAchievementIds[0] || null,
@@ -879,6 +901,15 @@ function TrackingPage() {
     setEditFormError('')
     try {
       const fullRow = await fetchTrackingRow(access, row.id).catch(() => row)
+      const hydrated = await hydrateCompanyDependent(fullRow.company || '')
+      const matchingJob = (Array.isArray(hydrated?.jobs) ? hydrated.jobs : []).find((job) => String(job.id) === String(fullRow.job || ''))
+      const associatedRows = Array.isArray(matchingJob?.associated_resumes) ? matchingJob.associated_resumes : []
+      const associatedResumeIdSet = new Set(associatedRows.map((item) => String(item?.id || '')))
+      const attachmentSource = fullRow.tailored_resume
+        ? (associatedResumeIdSet.has(String(fullRow.tailored_resume)) ? 'associated' : 'tailored')
+        : (fullRow.resume_preview?.id
+          ? (associatedResumeIdSet.has(String(fullRow.resume_preview.id)) ? 'associated' : 'base')
+          : '')
       setEditForm({
         id: fullRow.id,
         company: fullRow.company || '',
@@ -900,9 +931,11 @@ function TrackingPage() {
         schedule_time: toDateTimeLocalInput(fullRow.schedule_time),
         has_attachment: Boolean(fullRow.resume_preview || fullRow.tailored_resume),
         achievement_id: fullRow.achievement_id ? String(fullRow.achievement_id) : '',
-        achievement_ids_ordered: Array.isArray(fullRow.achievement_ids_ordered)
+        achievement_ids_ordered: Array.isArray(fullRow.achievement_ids_ordered) && fullRow.achievement_ids_ordered.length
           ? fullRow.achievement_ids_ordered.map((id) => String(id))
-          : (fullRow.achievement_id ? [String(fullRow.achievement_id)] : []),
+          : (String(fullRow.mail_type || 'fresh').trim() === 'followed_up' && fullRow.personalized_template_id
+            ? [String(fullRow.personalized_template_id)]
+            : (fullRow.achievement_id ? [String(fullRow.achievement_id)] : [])),
         template_ids_ordered: Array.isArray(fullRow.template_ids_ordered)
           ? fullRow.template_ids_ordered.map((id) => String(id))
           : (Array.isArray(fullRow.achievement_ids_ordered)
@@ -913,6 +946,7 @@ function TrackingPage() {
         template_subject: String(fullRow.template_subject || '').trim(),
         achievement_name: fullRow.achievement_name || '',
         achievement_text: fullRow.achievement_text || '',
+        attachment_source: attachmentSource,
         resume_id: fullRow.resume_preview?.id ? String(fullRow.resume_preview.id) : '',
         tailored_resume_id: fullRow.tailored_resume ? String(fullRow.tailored_resume) : '',
         is_freezed: Boolean(fullRow.is_freezed),
@@ -926,7 +960,6 @@ function TrackingPage() {
         selected_employees: Array.isArray(fullRow.selected_employees) ? fullRow.selected_employees : [],
         mail_events: Array.isArray(fullRow.mail_events) ? fullRow.mail_events : [],
       })
-      hydrateCompanyDependent(fullRow.company || '')
     } catch (err) {
       setEditFormError(err.message || 'Could not load tracking row.')
     }
@@ -947,7 +980,7 @@ function TrackingPage() {
       return
     }
     if (!Array.isArray(editForm.selected_hr_ids) || !editForm.selected_hr_ids.length) {
-      setEditFormError('Select at least one employee.')
+      setEditFormError(editForm.mail_type === 'followed_up' ? 'Select at least one thread.' : 'Select at least one employee.')
       return
     }
     if (!editForm.job) {
@@ -969,13 +1002,13 @@ function TrackingPage() {
     const jobId = String(selectedJob?.job_id || editForm.job_id || '').trim()
     const role = String(selectedJob?.role || editForm.role || '').trim()
     const jobUrl = String(selectedJob?.job_link || editForm.job_url || '').trim()
-    const editTemplateError = templateSelectionError(editForm.mail_type, editAchievementIds, editAchievementOptionsForMode)
+    const editTemplateError = templateSelectionError(
+      editForm.mail_type,
+      editAchievementIds,
+      editForm.mail_type === 'followed_up' ? followUpTemplateOptions : editAchievementOptionsForMode,
+    )
     if (editTemplateError) {
       setEditFormError(editTemplateError)
-      return
-    }
-    if (editForm.mail_type === 'followed_up' && !String(editForm.personalized_template_id || '').trim()) {
-      setEditFormError('Select one Follow Up template for follow-up mail.')
       return
     }
     if (editForm.mail_type !== 'followed_up' && editForm.use_hardcoded_personalized_intro && !String(editForm.personalized_template_id || '').trim()) {
@@ -998,6 +1031,10 @@ function TrackingPage() {
       const allowedIds = new Set(editFollowUpCandidateIds.map((id) => String(id)))
       const followThreadIds = Array.isArray(editForm.follow_thread_ids) ? editForm.follow_thread_ids.map((id) => String(id)) : []
       const effectiveSelectedIds = followThreadIds.length ? followThreadIds : (editForm.follow_thread_id ? [String(editForm.follow_thread_id)] : selectedHrIds)
+      if (!effectiveSelectedIds.length) {
+        setEditFormError('At least one Follow Thread ID is mandatory.')
+        return
+      }
       const invalidIds = effectiveSelectedIds.filter((id) => !allowedIds.has(String(id)))
       if (invalidIds.length) {
         setEditFormError('Follow up can only be sent to employees who already received mail in this tracking row.')
@@ -1011,7 +1048,7 @@ function TrackingPage() {
       template_id: editAchievementIds[0] || null,
       template_ids_ordered: editAchievementIds,
       personalized_template: editForm.mail_type === 'followed_up'
-        ? (editForm.personalized_template_id || null)
+        ? null
         : (editForm.use_hardcoded_personalized_intro ? (editForm.personalized_template_id || null) : null),
       use_hardcoded_personalized_intro: Boolean(editForm.use_hardcoded_personalized_intro),
       achievement: editAchievementIds[0] || null,
@@ -1044,9 +1081,16 @@ function TrackingPage() {
         resume: editForm.has_attachment ? (editForm.resume_id || null) : null,
         tailored_resume: editForm.has_attachment ? (editForm.tailored_resume_id || null) : null,
       }
-      const updated = await updateTrackingRow(access, editForm.id, payload)
-      setRows((prev) => prev.map((row) => (row.id === editForm.id ? updated : row)))
+      await updateTrackingRow(access, editForm.id, payload)
+      const refreshed = await fetchTrackingRow(access, editForm.id).catch(() => null)
+      const nextRow = refreshed || {
+        ...rows.find((row) => row.id === editForm.id),
+        ...payload,
+        id: editForm.id,
+      }
+      setRows((prev) => prev.map((row) => (row.id === editForm.id ? nextRow : row)))
       setEditForm(null)
+      await load()
     } catch (err) {
       setEditFormError(err.message || 'Could not save tracking row.')
     }
@@ -1212,24 +1256,28 @@ function TrackingPage() {
     ]
   }, [filteredRows, selectedIds])
 
-  const createTailoredOptions = useMemo(
-    () => (createForm?.job ? tailoredOptionsForJob(createForm.job) : []),
+  const createAssociatedResumeOptions = useMemo(
+    () => (createForm?.job ? associatedResumeOptionsForJob(createForm.job) : []),
     [createForm?.job, jobOptions],
   )
-  const editTailoredOptions = useMemo(
-    () => (editForm?.job ? tailoredOptionsForJob(editForm.job) : []),
+  const editAssociatedResumeOptions = useMemo(
+    () => (editForm?.job ? associatedResumeOptionsForJob(editForm.job) : []),
     [editForm?.job, jobOptions],
   )
-  const orderedResumeOptions = useMemo(() => {
-    const options = [...(Array.isArray(resumeOptions) ? resumeOptions : [])]
-    options.sort((a, b) => {
-      const aTime = new Date(a?.created_at || 0).getTime()
-      const bTime = new Date(b?.created_at || 0).getTime()
-      if (aTime !== bTime) return aTime - bTime
-      return Number(a?.id || 0) - Number(b?.id || 0)
-    })
-    return options
-  }, [resumeOptions])
+  const baseResumeDropdownOptions = useMemo(
+    () => (Array.isArray(resumeOptions) ? resumeOptions : []).map((item) => ({
+      value: String(item.id),
+      label: String(item.title || `Resume #${item.id}`),
+    })),
+    [resumeOptions],
+  )
+  const tailoredResumeDropdownOptions = useMemo(
+    () => (Array.isArray(tailoredResumeOptions) ? tailoredResumeOptions : []).map((item) => ({
+      value: String(item.id),
+      label: String(item.name || item.title || `Tailored #${item.id}`),
+    })),
+    [tailoredResumeOptions],
+  )
   const activeEmployeeOptions = useMemo(
     () => (Array.isArray(employeeOptions) ? employeeOptions.filter((emp) => emp?.working_mail !== false) : []),
     [employeeOptions],
@@ -1267,7 +1315,6 @@ function TrackingPage() {
     () => getTemplateOptionsForBuckets(editDepartmentBuckets, editForm?.mail_type || 'fresh'),
     [editDepartmentBuckets, editForm?.mail_type],
   )
-  const createMailTypeOptions = useMemo(() => mailTypeOptionsForRow(false), [])
   const editHasFreshMilestone = useMemo(
     () => (editForm ? Boolean(editForm.has_fresh_milestone) : false),
     [editForm],
@@ -1314,20 +1361,24 @@ function TrackingPage() {
     [activeEmployeeOptions, createForm?.department, createForm?.employee_role],
   )
   const editEmployeeDropdownOptions = useMemo(
-    () => activeEmployeeOptions
-      .filter((emp) => !editForm?.department || String(emp.department || '') === String(editForm?.department || ''))
-      .filter((emp) => !editForm?.employee_role || String(emp.JobRole || '').trim() === String(editForm?.employee_role || '').trim())
-      .map((emp) => ({ value: String(emp.id), label: String(emp.name || '') })),
-    [activeEmployeeOptions, editForm?.department, editForm?.employee_role],
+    () => {
+      const source = String(editForm?.mail_type || '').trim() === 'followed_up'
+        ? editFollowUpCandidates
+        : activeEmployeeOptions
+      return source
+        .filter((emp) => !editForm?.department || String(emp.department || '') === String(editForm?.department || ''))
+        .filter((emp) => !editForm?.employee_role || String(emp.JobRole || '').trim() === String(editForm?.employee_role || '').trim())
+        .map((emp) => ({ value: String(emp.id), label: String(emp.name || '') }))
+    },
+    [activeEmployeeOptions, editFollowUpCandidates, editForm?.department, editForm?.employee_role, editForm?.mail_type],
   )
   const editFollowThreadOptions = useMemo(
     () => editFollowUpCandidates.map((item) => ({
       value: String(item.id),
       label: [
-        `ID ${item.id}`,
+        `Thread ID ${item.id}`,
         item.name,
-        item.email,
-        item.last_action_label ? `Fresh ${item.last_action_label}` : '',
+        item.last_action_label || '',
         item.replied ? 'replied' : '',
       ].filter(Boolean).join(' | '),
     })),
@@ -1358,7 +1409,7 @@ function TrackingPage() {
       .filter((item) => String(item?.category || '').trim().toLowerCase() === 'personalized')
       .map((item) => ({
         value: String(item.id),
-        label: `${String(item.name || 'Template')} | Personalized`,
+        label: `Personalized | ${String(item.name || 'Template')}`,
       })),
     [achievementOptions],
   )
@@ -1367,7 +1418,7 @@ function TrackingPage() {
       .filter((item) => String(item?.category || '').trim().toLowerCase() === 'follow_up')
       .map((item) => ({
         value: String(item.id),
-        label: `${String(item.name || 'Template')} | Follow Up`,
+        label: `Follow Up - ${String(item.name || 'Template')} | Follow Up`,
       })),
     [achievementOptions],
   )
@@ -1496,6 +1547,17 @@ function TrackingPage() {
     prevEditSubjectOptionsRef.current = editSubjectOptions.map((item) => item?.value).filter(Boolean)
   }, [editForm, editSubjectOptions])
 
+  useEffect(() => {
+    if (!employeePreview) return
+    const handlePointerDown = (event) => {
+      if (employeePreviewRef.current && !employeePreviewRef.current.contains(event.target)) {
+        setEmployeePreview(null)
+      }
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [employeePreview])
+
   const toggleSelect = (rowId, checked) => {
     setSelectedIds((prev) => {
       if (checked) return Array.from(new Set([...prev, rowId]))
@@ -1588,10 +1650,10 @@ function TrackingPage() {
                         onChange={(event) => toggleSelect(row.id, event.target.checked)}
                       />
                     </td>
-                    <td className="tracking-primary-cell">{row.company_name || '-'}</td>
+                    <td className="tracking-primary-cell">{capitalizeFirstDisplay(row.company_name) || '-'}</td>
                     <td className="tracking-mono-cell">{row.job_id || '-'}</td>
                     <td className="tracking-employee-cell">
-                      <div className="tracking-employee-summary">
+                      <div className="tracking-employee-summary" ref={employeePreview?.rowId === row.id ? employeePreviewRef : null}>
                         <span className="tracking-employee-summary-text">
                           {selectedHrValues.length ? visibleEmployeeNames.join(', ') : '-'}
                         </span>
@@ -1599,20 +1661,32 @@ function TrackingPage() {
                           <button
                             type="button"
                             className="tracking-employee-more-btn"
-                            onClick={() => setEmployeePreview({
-                              companyName: row.company_name || '',
-                              jobId: row.job_id || '',
-                              employees: selectedHrValues,
-                            })}
+                            onClick={() => setEmployeePreview((prev) => (
+                              prev?.rowId === row.id
+                                ? null
+                                : {
+                                  rowId: row.id,
+                                  companyName: row.company_name || '',
+                                  jobId: row.job_id || '',
+                                  employees: selectedHrValues,
+                                }
+                            ))}
                           >
                             +{hiddenEmployeeCount}
                           </button>
+                        ) : null}
+                        {employeePreview?.rowId === row.id ? (
+                          <div className="tracking-employee-popover">
+                            <p className="tracking-employee-preview-text">
+                              {(Array.isArray(employeePreview.employees) ? employeePreview.employees : []).join(', ') || 'No employees'}
+                            </p>
+                          </div>
                         ) : null}
                       </div>
                     </td>
                     <td><span className="tracking-badge tracking-badge-status">{formatStatusLabel(row.mail_delivery_status)}</span></td>
                     <td><span className={`tracking-badge ${row.mailed ? 'is-positive' : 'is-muted'}`}>{row.mailed ? 'Yes' : 'No'}</span></td>
-                    <td><span className="tracking-badge tracking-badge-type">{formatMailTypeLabel(rowLastActionType(row) || row.mail_type)}</span></td>
+                    <td><span className="tracking-badge tracking-badge-type">{formatMailTypeLabel(row.mail_type)}</span></td>
                     <td><span className="tracking-badge tracking-badge-send">{formatSendModeLabel(rowLastSendMode(row))}</span></td>
                     <td><span className={`tracking-badge ${row.is_freezed ? 'is-warning' : 'is-muted'}`}>{row.is_freezed ? 'Yes' : 'No'}</span></td>
                     <td><span className="tracking-badge tracking-badge-template">{humanizeLabel(row.template_choice)}</span></td>
@@ -1746,9 +1820,19 @@ function TrackingPage() {
               <SingleSelectDropdown
                 value={createForm.company || ''}
                 placeholder="Select company"
-                options={companyOptions.map((company) => ({ value: String(company.id), label: String(company.name || '') }))}
+                options={companyOptions.map((company) => ({ value: String(company.id), label: capitalizeFirstDisplay(company.name) }))}
                 onChange={async (nextValue) => {
-                  setCreateForm((prev) => ({ ...prev, company: nextValue, job: '', department: '', employee_role: '', selected_hr_ids: [], tailored_resume_id: '' }))
+                  setCreateForm((prev) => ({
+                    ...prev,
+                    company: nextValue,
+                    job: '',
+                    department: '',
+                    employee_role: '',
+                    selected_hr_ids: [],
+                    attachment_source: '',
+                    resume_id: '',
+                    tailored_resume_id: '',
+                  }))
                   await hydrateCompanyDependent(nextValue)
                 }}
               />
@@ -1790,29 +1874,20 @@ function TrackingPage() {
                 value={createForm.job || ''}
                 placeholder="Select job"
                 options={jobOptions.map((job) => ({ value: String(job.id), label: `${job.job_id || ''} - ${job.role || ''}` }))}
-                onChange={(nextValue) => setCreateForm((prev) => ({ ...prev, job: nextValue, tailored_resume_id: '' }))}
+                onChange={(nextValue) => setCreateForm((prev) => ({
+                  ...prev,
+                  job: nextValue,
+                  attachment_source: '',
+                  resume_id: '',
+                  tailored_resume_id: '',
+                }))}
               />
             </label>
             <label>
               Mail Type
-              <SingleSelectDropdown
-                value={createForm.mail_type || 'fresh'}
-                placeholder="Select mail type"
-                options={createMailTypeOptions}
-                onChange={(nextValue) => setCreateForm((prev) => {
-                  const nextMailType = nextValue || 'fresh'
-                  if (nextMailType !== 'followed_up') {
-                    return { ...prev, mail_type: nextMailType }
-                  }
-                  return {
-                    ...prev,
-                    mail_type: nextMailType,
-                    achievement_ids_ordered: [],
-                    template_ids_ordered: [],
-                  }
-                })}
-              />
+              <input value="Fresh" readOnly disabled />
             </label>
+            <p className="hint tracking-form-span-2">Follow Up is available only after a fresh tracking row exists. Add Tracking always starts with Fresh mail.</p>
             <label className="tracking-form-span-2">
               Subject
               <SingleSelectDropdown
@@ -1888,17 +1963,38 @@ function TrackingPage() {
               </div>
             ) : null}
             {createForm.mail_type === 'followed_up' ? (
-              <label className="tracking-form-span-2">
-                Follow Up Template
-                <SingleSelectDropdown
-                  value={createForm.personalized_template_id || ''}
-                  placeholder="Search and select follow-up template"
-                  searchPlaceholder="Type follow-up template name"
-                  clearLabel="No follow-up template selected"
-                  options={followUpTemplateOptions}
-                  onChange={(nextValue) => setCreateForm((prev) => ({ ...prev, personalized_template_id: nextValue || '' }))}
-                />
-              </label>
+              <div className="tracking-form-span-2 tracking-template-stack">
+                <div className="tracking-form-section-title">Follow Up Templates</div>
+                <p className="hint">For follow up, select at least 1 and at most 2 Follow Up templates.</p>
+                <div className="tracking-template-stack-list">
+                  {[0, 1].map((index) => (
+                    <label key={`create-followup-template-${index}`} className="tracking-template-stack-item">
+                      {`Follow Up Template ${index + 1}`}
+                      <SingleSelectDropdown
+                        value={Array.isArray(createForm.achievement_ids_ordered) ? (createForm.achievement_ids_ordered[index] || '') : ''}
+                        placeholder="Search and select follow-up template"
+                        searchPlaceholder="Type follow-up template name"
+                        clearLabel="No follow-up template selected"
+                        options={hardcodedAchievementOptionsForIndex(
+                          followUpTemplateOptions,
+                          createForm.achievement_ids_ordered,
+                          index,
+                        )}
+                        onChange={(nextValue) => {
+                          setCreateForm((prev) => {
+                            const nextIds = updateHardcodedAchievementIds(prev.achievement_ids_ordered, index, nextValue).slice(0, 2)
+                            return {
+                              ...prev,
+                              achievement_ids_ordered: nextIds,
+                              template_ids_ordered: nextIds,
+                            }
+                          })
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
             ) : (
               <>
                 <label className="tracking-check-row tracking-form-span-2">
@@ -1942,6 +2038,7 @@ function TrackingPage() {
                   return {
                     ...prev,
                     has_attachment: false,
+                    attachment_source: '',
                     resume_id: '',
                     tailored_resume_id: '',
                   }
@@ -1953,39 +2050,56 @@ function TrackingPage() {
             {createForm.has_attachment ? (
               <>
                 <label>
-                  Resume
+                  Base Resume
                   <SingleSelectDropdown
-                    value={createForm.resume_id || ''}
-                    placeholder="Select resume"
-                    disabled={Boolean(createForm.tailored_resume_id)}
-                    options={orderedResumeOptions.map((resume) => ({ value: String(resume.id), label: String(resume.title || `Resume #${resume.id}`) }))}
+                    value={createForm.attachment_source === 'base' ? (createForm.resume_id || '') : ''}
+                    placeholder="Select base resume"
+                    options={baseResumeDropdownOptions}
                     onChange={(value) => {
                       setCreateForm((prev) => ({
                         ...prev,
-                        resume_id: value,
-                        tailored_resume_id: value ? '' : prev.tailored_resume_id,
+                        attachment_source: value ? 'base' : '',
+                        resume_id: value || '',
+                        tailored_resume_id: '',
                       }))
                     }}
                   />
                 </label>
-                {createTailoredOptions.length ? (
-                  <label>
-                    Tailored Resume
-                    <SingleSelectDropdown
-                      value={createForm.tailored_resume_id || ''}
-                      placeholder="Select tailored resume"
-                      disabled={Boolean(createForm.resume_id)}
-                      options={createTailoredOptions.map((item) => ({ value: String(item.id), label: String(item.name || `Tailored Resume #${item.id}`) }))}
-                      onChange={(value) => {
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          tailored_resume_id: value,
-                          resume_id: value ? '' : prev.resume_id,
-                        }))
-                      }}
-                    />
-                  </label>
-                ) : null}
+                <label>
+                  Tailored Resume
+                  <SingleSelectDropdown
+                    value={createForm.attachment_source === 'tailored' ? (createForm.tailored_resume_id || '') : ''}
+                    placeholder="Select tailored resume"
+                    options={tailoredResumeDropdownOptions}
+                    onChange={(value) => {
+                      setCreateForm((prev) => ({
+                        ...prev,
+                        attachment_source: value ? 'tailored' : '',
+                        resume_id: '',
+                        tailored_resume_id: value || '',
+                      }))
+                    }}
+                  />
+                </label>
+                <label className="tracking-form-span-2">
+                  Associated To Job
+                  <SingleSelectDropdown
+                    value={createForm.attachment_source === 'associated' ? (createForm.tailored_resume_id || createForm.resume_id || '') : ''}
+                    placeholder="Select associated resume"
+                    options={createAssociatedResumeOptions}
+                    onChange={(value) => {
+                      const selectedOption = createAssociatedResumeOptions.find((item) => String(item.value) === String(value || ''))
+                      setCreateForm((prev) => ({
+                        ...prev,
+                        attachment_source: value ? 'associated' : '',
+                        resume_id: selectedOption?.isTailored ? '' : (value || ''),
+                        tailored_resume_id: selectedOption?.isTailored ? (value || '') : '',
+                      }))
+                    }}
+                  />
+                </label>
+                <p className="hint tracking-form-span-2">Only one resume can be shared. Selecting Base, Tailored, or Associated To Job will override the other choices.</p>
+                {!createAssociatedResumeOptions.length ? <p className="hint tracking-form-span-2">No resume is associated with this job yet.</p> : null}
               </>
             ) : null}
             <label className="tracking-check-row tracking-form-span-2">
@@ -2021,9 +2135,19 @@ function TrackingPage() {
               <SingleSelectDropdown
                 value={editForm.company || ''}
                 placeholder="Select company"
-                options={companyOptions.map((company) => ({ value: String(company.id), label: String(company.name || '') }))}
+                options={companyOptions.map((company) => ({ value: String(company.id), label: capitalizeFirstDisplay(company.name) }))}
                 onChange={async (value) => {
-                  setEditForm((prev) => ({ ...prev, company: value, job: '', department: '', employee_role: '', selected_hr_ids: [] }))
+                  setEditForm((prev) => ({
+                    ...prev,
+                    company: value,
+                    job: '',
+                    department: '',
+                    employee_role: '',
+                    selected_hr_ids: [],
+                    attachment_source: '',
+                    resume_id: '',
+                    tailored_resume_id: '',
+                  }))
                   await hydrateCompanyDependent(value)
                 }}
               />
@@ -2051,7 +2175,9 @@ function TrackingPage() {
               Employee (multi-select)
               <MultiSelectDropdown
                 values={Array.isArray(editForm.selected_hr_ids) ? editForm.selected_hr_ids : []}
-                placeholder={editForm.mail_type === 'followed_up' ? 'Employee is locked for follow up mode' : (editEmployeeFilterLocked ? 'Select company and department first' : 'Select employee(s)')}
+                placeholder={editForm.mail_type === 'followed_up'
+                  ? 'Employee is locked for follow up mode'
+                  : (editEmployeeFilterLocked ? 'Select company and department first' : 'Select employee(s)')}
                 options={editEmployeeDropdownOptions}
                 disabled={editForm.mail_type === 'followed_up' || editEmployeeFilterLocked}
                 onChange={(nextValues) => {
@@ -2097,6 +2223,7 @@ function TrackingPage() {
                     mail_type: nextMailType,
                     achievement_ids_ordered: [],
                     template_ids_ordered: [],
+                    use_hardcoded_personalized_intro: false,
                     selected_hr_ids: matchingIds.length ? matchingIds : [...editFollowUpCandidateIds],
                     follow_thread_id: matchingIds[0] || editFollowUpCandidateIds[0] || '',
                     follow_thread_ids: matchingIds.length ? matchingIds : [...editFollowUpCandidateIds],
@@ -2104,6 +2231,7 @@ function TrackingPage() {
                 })}
               />
             </label>
+            <p className="hint tracking-form-span-2">Edit Tracking can send Fresh again. Follow Up remains available when this row already has a fresh thread.</p>
             <label className="tracking-form-span-2">
               Subject
               <SingleSelectDropdown
@@ -2202,17 +2330,38 @@ function TrackingPage() {
               </div>
             ) : null}
             {editForm.mail_type === 'followed_up' ? (
-              <label className="tracking-form-span-2">
-                Follow Up Template
-                <SingleSelectDropdown
-                  value={editForm.personalized_template_id || ''}
-                  placeholder="Search and select follow-up template"
-                  searchPlaceholder="Type follow-up template name"
-                  clearLabel="No follow-up template selected"
-                  options={followUpTemplateOptions}
-                  onChange={(nextValue) => setEditForm((prev) => ({ ...prev, personalized_template_id: nextValue || '' }))}
-                />
-              </label>
+              <div className="tracking-form-span-2 tracking-template-stack">
+                <div className="tracking-form-section-title">Follow Up Templates</div>
+                <p className="hint">For follow up, select at least 1 and at most 2 Follow Up templates.</p>
+                <div className="tracking-template-stack-list">
+                  {[0, 1].map((index) => (
+                    <label key={`edit-followup-template-${index}`} className="tracking-template-stack-item">
+                      {`Follow Up Template ${index + 1}`}
+                      <SingleSelectDropdown
+                        value={Array.isArray(editForm.achievement_ids_ordered) ? (editForm.achievement_ids_ordered[index] || '') : ''}
+                        placeholder="Search and select follow-up template"
+                        searchPlaceholder="Type follow-up template name"
+                        clearLabel="No follow-up template selected"
+                        options={hardcodedAchievementOptionsForIndex(
+                          followUpTemplateOptions,
+                          editForm.achievement_ids_ordered,
+                          index,
+                        )}
+                        onChange={(nextValue) => {
+                          setEditForm((prev) => {
+                            const nextIds = updateHardcodedAchievementIds(prev.achievement_ids_ordered, index, nextValue).slice(0, 2)
+                            return {
+                              ...prev,
+                              achievement_ids_ordered: nextIds,
+                              template_ids_ordered: nextIds,
+                            }
+                          })
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
             ) : (
               <>
                 <label className="tracking-check-row tracking-form-span-2">
@@ -2256,6 +2405,7 @@ function TrackingPage() {
                   return {
                     ...prev,
                     has_attachment: false,
+                    attachment_source: '',
                     resume_id: '',
                     tailored_resume_id: '',
                   }
@@ -2267,39 +2417,56 @@ function TrackingPage() {
             {editForm.has_attachment ? (
               <>
                 <label>
-                  Resume
+                  Base Resume
                   <SingleSelectDropdown
-                    value={editForm.resume_id || ''}
-                    placeholder="Select resume"
-                    disabled={Boolean(editForm.tailored_resume_id)}
-                    options={orderedResumeOptions.map((resume) => ({ value: String(resume.id), label: String(resume.title || `Resume #${resume.id}`) }))}
+                    value={editForm.attachment_source === 'base' ? (editForm.resume_id || '') : ''}
+                    placeholder="Select base resume"
+                    options={baseResumeDropdownOptions}
                     onChange={(value) => {
                       setEditForm((prev) => ({
                         ...prev,
-                        resume_id: value,
-                        tailored_resume_id: value ? '' : prev.tailored_resume_id,
+                        attachment_source: value ? 'base' : '',
+                        resume_id: value || '',
+                        tailored_resume_id: '',
                       }))
                     }}
                   />
                 </label>
-                {editTailoredOptions.length ? (
-                  <label>
-                    Tailored Resume
-                    <SingleSelectDropdown
-                      value={editForm.tailored_resume_id || ''}
-                      placeholder="Select tailored resume"
-                      disabled={Boolean(editForm.resume_id)}
-                      options={editTailoredOptions.map((item) => ({ value: String(item.id), label: String(item.name || `Tailored Resume #${item.id}`) }))}
-                      onChange={(value) => {
-                        setEditForm((prev) => ({
-                          ...prev,
-                          tailored_resume_id: value,
-                          resume_id: value ? '' : prev.resume_id,
-                        }))
-                      }}
-                    />
-                  </label>
-                ) : null}
+                <label>
+                  Tailored Resume
+                  <SingleSelectDropdown
+                    value={editForm.attachment_source === 'tailored' ? (editForm.tailored_resume_id || '') : ''}
+                    placeholder="Select tailored resume"
+                    options={tailoredResumeDropdownOptions}
+                    onChange={(value) => {
+                      setEditForm((prev) => ({
+                        ...prev,
+                        attachment_source: value ? 'tailored' : '',
+                        resume_id: '',
+                        tailored_resume_id: value || '',
+                      }))
+                    }}
+                  />
+                </label>
+                <label className="tracking-form-span-2">
+                  Associated To Job
+                  <SingleSelectDropdown
+                    value={editForm.attachment_source === 'associated' ? (editForm.tailored_resume_id || editForm.resume_id || '') : ''}
+                    placeholder="Select associated resume"
+                    options={editAssociatedResumeOptions}
+                    onChange={(value) => {
+                      const selectedOption = editAssociatedResumeOptions.find((item) => String(item.value) === String(value || ''))
+                      setEditForm((prev) => ({
+                        ...prev,
+                        attachment_source: value ? 'associated' : '',
+                        resume_id: selectedOption?.isTailored ? '' : (value || ''),
+                        tailored_resume_id: selectedOption?.isTailored ? (value || '') : '',
+                      }))
+                    }}
+                  />
+                </label>
+                <p className="hint tracking-form-span-2">Only one resume can be shared. Selecting Base, Tailored, or Associated To Job will override the other choices.</p>
+                {!editAssociatedResumeOptions.length ? <p className="hint tracking-form-span-2">No resume is associated with this job yet.</p> : null}
               </>
             ) : null}
             <label className="tracking-check-row tracking-form-span-2">
@@ -2340,16 +2507,6 @@ function TrackingPage() {
         </div>
       ) : null}
 
-      {employeePreview ? (
-        <div className="modal-overlay" onClick={() => setEmployeePreview(null)}>
-          <div className="modal-panel tracking-employee-preview-modal" onClick={(event) => event.stopPropagation()}>
-            <p className="tracking-employee-preview-text">
-              {(Array.isArray(employeePreview.employees) ? employeePreview.employees : []).join(', ') || 'No employees'}
-            </p>
-          </div>
-        </div>
-      ) : null}
-
       {sendConfirmRow ? (
         <div className="modal-overlay" onClick={() => { if (!sendingRowId) { setSendConfirmRow(null); setSendConfirmError('') } }}>
           <div className="modal-panel tracking-send-confirm-modal" onClick={(event) => event.stopPropagation()}>
@@ -2358,7 +2515,7 @@ function TrackingPage() {
             <div className="tracking-send-confirm-grid">
               <div className="tracking-send-confirm-item">
                 <span>Company</span>
-                <strong>{sendConfirmRow.company_name || '-'}</strong>
+                <strong>{capitalizeFirstDisplay(sendConfirmRow.company_name) || '-'}</strong>
               </div>
               <div className="tracking-send-confirm-item">
                 <span>Job Name</span>
