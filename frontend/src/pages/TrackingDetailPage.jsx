@@ -178,7 +178,7 @@ function buildThreadGroups(sentEvents, receivedEvents) {
   return groups
 }
 
-function actionRowsForDetail(row, filteredMailEvents) {
+function actionRowsForDetail(row) {
   const milestones = Array.isArray(row?.milestones) ? row.milestones : []
   const selectedEmployeeId = String(row?.__selectedEmployeeId || '').trim()
   const milestoneRows = milestones.map((item, index) => ({
@@ -193,17 +193,8 @@ function actionRowsForDetail(row, filteredMailEvents) {
     if (!selectedEmployeeId || selectedEmployeeId === ALL_EMPLOYEES_VALUE) return true
     return item.employeeIds.includes(selectedEmployeeId)
   })
-  const eventRows = Array.isArray(filteredMailEvents)
-    ? filteredMailEvents.map((item) => ({
-      id: `event-${item.id}`,
-      type: item.mail_type,
-      mode: item.send_mode,
-      replied: Boolean(item.got_replied),
-      at: item.action_at,
-    }))
-    : []
 
-  return [...milestoneRows, ...eventRows].sort((left, right) => {
+  return milestoneRows.sort((left, right) => {
     const leftTime = new Date(left?.at || 0).getTime()
     const rightTime = new Date(right?.at || 0).getTime()
     return leftTime - rightTime
@@ -288,10 +279,7 @@ function TrackingDetailPage() {
       return String(item.employee_id || '') === String(selectedEmployeeId)
     })
     : []
-  const actionRows = actionRowsForDetail(
-    { ...(row || {}), __selectedEmployeeId: selectedEmployeeId },
-    filteredMailEvents,
-  )
+  const actionRows = actionRowsForDetail({ ...(row || {}), __selectedEmployeeId: selectedEmployeeId })
   const scopedEvents = filteredMailEvents
   const mailedAt = scopedEvents.length
     ? scopedEvents[0]?.action_at || ''
@@ -522,7 +510,7 @@ function TrackingDetailPage() {
                   </tr>
                 ))}
                 {!actionRows.length ? (
-                  <tr><td colSpan={4}>No actions available for this employee.</td></tr>
+                  <tr><td colSpan={4}>No action milestones available for this employee.</td></tr>
                 ) : null}
               </tbody>
             </table>

@@ -695,7 +695,11 @@ class TemplateSerializer(serializers.ModelSerializer):
         request = self.context.get('request') if isinstance(self.context, dict) else None
         user = getattr(request, 'user', None)
         if getattr(user, 'is_authenticated', False):
-            rows = Template.objects.filter(user=user, name__iexact=text)
+            profile = getattr(user, 'profile_info', None)
+            if profile is not None:
+                rows = Template.objects.filter(profile=profile, name__iexact=text)
+            else:
+                rows = Template.objects.none()
             if self.instance is not None:
                 rows = rows.exclude(id=self.instance.id)
             if rows.exists():

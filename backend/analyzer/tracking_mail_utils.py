@@ -28,7 +28,7 @@ def ensure_mail_tracking(tracking):
             update_fields.append("updated_at")
             mail_tracking.save(update_fields=update_fields)
         return mail_tracking
-    return MailTracking.objects.create(user=tracking.user, tracking=tracking, resume=tracking.resume)
+    return MailTracking.objects.create(profile=tracking.profile, tracking=tracking, resume=tracking.resume)
 
 
 def build_history_entry(

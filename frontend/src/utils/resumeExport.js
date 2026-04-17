@@ -75,17 +75,22 @@ function htmlToBulletList(htmlValue, options = {}) {
 }
 
 function renderExperienceItem(exp) {
-  const title = escapeHtml([exp.company, exp.title].filter(Boolean).join(' - '))
+  const company = escapeHtml(exp.company || '')
+  const title = escapeHtml(exp.title || '')
   const dates = escapeHtml([exp.startDate, exp.isCurrent ? 'Present' : exp.endDate].filter(Boolean).join(' - '))
   const content = htmlToBulletList(exp.highlights)
 
   return `
-    <div class="entry">
-      <div class="entry-head">
-        <span>${title}</span>
-        <span class="entry-dates">${dates}</span>
+    <div class="resume-exp">
+      <div class="resume-exp-head">
+        <div class="resume-exp-left">
+          ${company ? `<span class="resume-exp-company">${company}</span>` : ''}
+          ${company && title ? '<span class="resume-exp-sep"> - </span>' : ''}
+          ${title ? `<span class="resume-exp-title">${title}</span>` : ''}
+        </div>
+        <span class="resume-exp-right">${dates}</span>
       </div>
-      <div class="entry-body">${content}</div>
+      <div class="resume-exp-body resume-rich">${content}</div>
     </div>
   `
 }
@@ -93,16 +98,19 @@ function renderExperienceItem(exp) {
 function renderProjectItem(project) {
   const name = escapeHtml(project.name || '')
   const link = project.normalizedUrl
-    ? `<a class="entry-link project-link" href="${escapeHtml(project.normalizedUrl)}">link</a>`
+    ? `<a class="resume-link resume-project-link" href="${escapeHtml(project.normalizedUrl)}">link</a>`
     : ''
   const content = htmlToBulletList(project.highlights)
 
   return `
-    <div class="entry">
-      <div class="entry-head">
-        <span>${name}${link}</span>
+    <div class="resume-exp">
+      <div class="resume-exp-head">
+        <div class="resume-exp-left">
+          ${name ? `<span class="resume-exp-company">${name}</span>` : ''}
+          ${link}
+        </div>
       </div>
-      <div class="entry-body">${content}</div>
+      <div class="resume-exp-body resume-rich">${content}</div>
     </div>
   `
 }
@@ -111,17 +119,17 @@ function renderEducationItem(edu) {
   const dateLine = [edu.startDate, edu.isCurrent ? 'Present' : edu.endDate].filter(Boolean).join(' - ')
 
   return `
-    <div class="entry">
-      <div class="entry-head entry-head--edu">
-        <div class="entry-head-main">
-          ${edu.institution ? `<div class="edu-inst">${escapeHtml(edu.institution)}</div>` : ''}
+    <div class="resume-exp">
+      <div class="resume-exp-head">
+        <div class="resume-exp-left">
+          ${edu.institution ? `<div class="resume-edu-inst"><span class="resume-exp-company">${escapeHtml(edu.institution)}</span></div>` : ''}
           ${edu.program || edu.scoreText
-            ? `<div class="edu-meta">${edu.program ? `<span>${escapeHtml(edu.program)}</span>` : ''}${
-                edu.program && edu.scoreText ? '<span class="edu-sep"> | </span>' : ''
-              }${edu.scoreText ? `<span>${escapeHtml(edu.scoreText)}</span>` : ''}</div>`
+            ? `<div class="resume-edu-meta">${edu.program ? `<span class="resume-exp-title">${escapeHtml(edu.program)}</span>` : ''}${
+                edu.program && edu.scoreText ? '<span class="resume-exp-sep"> | </span>' : ''
+              }${edu.scoreText ? `<span class="resume-exp-title">${escapeHtml(edu.scoreText)}</span>` : ''}</div>`
             : ''}
         </div>
-        ${dateLine ? `<span class="entry-dates">${escapeHtml(dateLine)}</span>` : ''}
+        ${dateLine ? `<span class="resume-exp-right">${escapeHtml(dateLine)}</span>` : ''}
       </div>
     </div>
   `
@@ -133,7 +141,7 @@ function renderCustomSection(section, sectionClass) {
   return `
     <section class="${sectionClass}">
       <h2>${title}</h2>
-      <div class="section-body">${content}</div>
+      <div class="resume-rich">${content}</div>
     </section>
   `
 }
@@ -143,9 +151,9 @@ export function buildAtsPdfHtml(form) {
   const safeBodyFontFamily = String(model.bodyFontFamily || 'Arial, Helvetica, sans-serif').trim() || 'Arial, Helvetica, sans-serif'
   const safeFontSizePt = Number.isFinite(model.bodyFontSizePt) ? Math.max(8, Math.min(16, Number(model.bodyFontSizePt))) : 10
   const safeLineHeight = Number.isFinite(model.bodyLineHeight) ? Math.max(0.9, Math.min(2.0, Number(model.bodyLineHeight))) : 1.25
-  const sectionClass = model.sectionUnderline ? 'section has-underline' : 'section'
+  const sectionClass = model.sectionUnderline ? 'resume-section has-underline' : 'resume-section'
   const bodyClass = ''
-  const headerClass = model.sectionUnderline ? 'header' : 'header has-underline'
+  const headerClass = model.sectionUnderline ? 'resume-head no-divider' : 'resume-head'
   const linksHtml = model.links
     .map((item) => `<a href="${escapeHtml(item.url)}">${escapeHtml(item.label)}</a>`)
     .join(' | ')
@@ -163,7 +171,7 @@ export function buildAtsPdfHtml(form) {
       sections.push(`
         <section class="${sectionClass}">
           <h2>${escapeHtml(model.summaryHeading || 'Summary')}</h2>
-          <div class="section-body">${model.summaryHtml}</div>
+          <div class="resume-summary">${model.summaryHtml}</div>
         </section>
       `)
       return
@@ -174,7 +182,7 @@ export function buildAtsPdfHtml(form) {
       sections.push(`
         <section class="${sectionClass}">
           <h2>Skills</h2>
-          <div class="section-body">${model.skillsHtml}</div>
+          <div class="resume-rich">${model.skillsHtml}</div>
         </section>
       `)
       return
@@ -247,7 +255,25 @@ export function buildAtsPdfHtml(form) {
       line-height: ${safeLineHeight};
     }
 
-    h1 {
+    .resume-sheet {
+      color: #111827;
+      font-family: ${escapeHtml(safeBodyFontFamily)};
+      font-size: ${safeFontSizePt}pt;
+      line-height: ${safeLineHeight};
+    }
+
+    .resume-head {
+      margin-bottom: 4pt;
+      padding-bottom: 2pt;
+      text-align: center;
+      border-bottom: 1px solid #d1d5db;
+    }
+
+    .resume-head.no-divider {
+      border-bottom: 0;
+    }
+
+    .resume-head h1 {
       margin: 0;
       font-size: 20pt;
       font-weight: 700;
@@ -255,33 +281,35 @@ export function buildAtsPdfHtml(form) {
       letter-spacing: 0.02em;
     }
 
-    .contact {
-      margin-top: 1pt;
-      text-align: center;
+    .resume-head-line,
+    .resume-head-links {
+      color: #374151;
       font-size: inherit;
+      text-align: center;
     }
 
-    .contact a {
+    .resume-head-line {
+      margin-top: 1pt;
+    }
+
+    .resume-head-links {
+      margin-top: 2pt;
+      word-break: break-word;
+    }
+
+    .resume-head-links a,
+    .resume-link {
       color: inherit;
       text-decoration: none;
+      font-weight: 400;
     }
 
-    .header {
-      margin-bottom: 4pt;
-      padding-bottom: 2pt;
-      text-align: center;
-    }
-
-    .header.has-underline {
-      border-bottom: 1px solid #d1d5db;
-    }
-
-    .section {
+    .resume-section {
       margin-top: 8pt;
       margin-bottom: 3pt;
     }
 
-    .section h2 {
+    .resume-section h2 {
       margin: 0 0 2pt;
       font-size: 11pt;
       font-weight: 700;
@@ -289,18 +317,16 @@ export function buildAtsPdfHtml(form) {
       letter-spacing: 0.08em;
     }
 
-    .section.has-underline h2 {
+    .resume-section.has-underline h2 {
       border-bottom: 1px solid #d1d5db;
       padding-bottom: 1pt;
     }
 
-    .section p { margin: 2pt 0 0; }
-
-    .entry {
+    .resume-exp {
       margin-top: 4pt;
     }
 
-    .entry-head {
+    .resume-exp-head {
       display: flex;
       justify-content: space-between;
       gap: 12pt;
@@ -309,16 +335,23 @@ export function buildAtsPdfHtml(form) {
       font-weight: 700;
     }
 
-    .entry-head--edu {
-      align-items: flex-start;
-    }
-
-    .entry-head-main {
+    .resume-exp-left {
       min-width: 0;
+      flex: 1;
     }
 
-    .entry-dates,
-    .entry-link {
+    .resume-exp-company {
+      color: #111827;
+      font-weight: 700;
+    }
+
+    .resume-exp-title,
+    .resume-exp-sep {
+      color: #111827;
+    }
+
+    .resume-exp-right,
+    .resume-project-link {
       font-weight: 400;
       font-size: inherit;
       color: #374151;
@@ -326,52 +359,56 @@ export function buildAtsPdfHtml(form) {
       white-space: nowrap;
     }
 
-    .edu-inst {
-      font-weight: 700;
-      color: #111827;
+    .resume-exp-body {
+      margin-top: 0;
     }
 
-    .edu-meta {
+    .resume-edu-inst {
+      line-height: 1.25;
+    }
+
+    .resume-edu-meta {
       margin-top: 1pt;
-      font-size: inherit;
+      line-height: 1.25;
       font-weight: 400;
-      color: #111827;
     }
 
-    .edu-sep {
-      color: #4b5563;
+    .resume-edu-meta .resume-exp-title,
+    .resume-edu-meta .resume-exp-sep {
+      font-weight: 400;
     }
 
-    .project-link {
+    .resume-project-link {
       margin-left: 3pt;
       display: inline-block;
-      text-decoration: none;
     }
 
-    ul {
+    .resume-rich,
+    .resume-summary {
+      color: #111827;
+    }
+
+    .resume-rich p,
+    .resume-summary p {
+      margin: 2pt 0 0;
+      line-height: 1.35;
+    }
+
+    .resume-rich ul,
+    .resume-summary ul {
       margin: 4pt 0 0;
       padding-left: 16pt;
     }
 
-    ol {
+    .resume-rich ol,
+    .resume-summary ol {
       margin: 4pt 0 0;
       padding-left: 16pt;
     }
 
-    li {
+    .resume-rich li,
+    .resume-summary li {
       margin: 1.5pt 0;
-    }
-
-    .plain-links {
-      margin-top: 2pt;
-      text-align: center;
-      font-size: inherit;
-      word-break: break-word;
-    }
-
-    .plain-links a {
-      color: inherit;
-      text-decoration: none;
     }
 
     * {
@@ -382,12 +419,14 @@ export function buildAtsPdfHtml(form) {
   </style>
 </head>
 <body class="${bodyClass}">
+  <article class="resume-sheet">
   <header class="${headerClass}">
     <h1>${escapeHtml(model.fullName || '')}</h1>
-    <div class="contact">${escapeHtml(model.contactLine)}</div>
-    ${linksHtml ? `<div class="plain-links">${linksHtml}</div>` : ''}
+    <div class="resume-head-line">${escapeHtml(model.contactLine)}</div>
+    ${linksHtml ? `<div class="resume-head-links">${linksHtml}</div>` : ''}
   </header>
   ${sections.join('')}
+  </article>
 </body>
 </html>`
 }

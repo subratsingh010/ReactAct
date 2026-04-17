@@ -624,6 +624,7 @@ export async function fetchCompanies(accessToken, params = {}) {
   const search = new URLSearchParams()
   if (params.page) search.set('page', String(params.page))
   if (params.page_size) search.set('page_size', String(params.page_size))
+  if (params.ready_for_tracking) search.set('ready_for_tracking', String(params.ready_for_tracking))
   const suffix = search.toString() ? `?${search.toString()}` : ''
   const response = await authFetch(`${API_BASE_URL}/companies/${suffix}`, {}, accessToken)
   return parseResponse(response)

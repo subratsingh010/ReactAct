@@ -40,7 +40,11 @@ class Resume(BaseModel):
         ('optimized', 'Optimized'),
     ]
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='resumes')
+    profile = models.ForeignKey(
+        'UserProfile',
+        on_delete=models.CASCADE,
+        related_name='resumes',
+    )
     title = models.CharField(max_length=140)
     original_text = models.TextField(blank=True)
     optimized_text = models.TextField(blank=True)
@@ -67,12 +71,25 @@ class Resume(BaseModel):
     class Meta:
         ordering = ['-created_at']
 
+    @property
+    def user(self):
+        return getattr(self.profile, 'user', None)
+
+    @property
+    def user_id(self):
+        return getattr(self.profile, 'user_id', None)
+
     def __str__(self):
-        return f'{self.title} ({self.user.username})'
+        username = getattr(getattr(self.profile, 'user', None), 'username', '')
+        return f'{self.title} ({username})'
 
 
 class Company(BaseModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='companies')
+    profile = models.ForeignKey(
+        'UserProfile',
+        on_delete=models.CASCADE,
+        related_name='companies',
+    )
     name = models.CharField(max_length=180)
     mail_format = models.CharField(max_length=180, blank=True)
     career_url = models.URLField(blank=True, max_length=1000)
@@ -84,8 +101,8 @@ class Company(BaseModel):
         constraints = [
             models.UniqueConstraint(
                 Lower('name'),
-                'user',
-                name='uniq_company_user_name_ci',
+                'profile',
+                name='uniq_company_profile_name_ci',
             ),
         ]
 
@@ -93,8 +110,17 @@ class Company(BaseModel):
         self.name = ' '.join(str(self.name or '').split()).lower()
         super().save(*args, **kwargs)
 
+    @property
+    def user(self):
+        return getattr(self.profile, 'user', None)
+
+    @property
+    def user_id(self):
+        return getattr(self.profile, 'user_id', None)
+
     def __str__(self):
-        return f'{self.name} ({self.user.username})'
+        username = getattr(getattr(self.profile, 'user', None), 'username', '')
+        return f'{self.name} ({username})'
 
 
 class Location(BaseModel):
@@ -119,7 +145,11 @@ class Employee(BaseModel):
         ('Other', 'Other'),
     ]
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='employees')
+    owner_profile = models.ForeignKey(
+        'UserProfile',
+        on_delete=models.CASCADE,
+        related_name='employees',
+    )
     name = models.CharField(max_length=180)
     first_name = models.CharField(max_length=120, blank=True, default='')
     middle_name = models.CharField(max_length=120, blank=True, default='')
@@ -159,12 +189,19 @@ class Employee(BaseModel):
     class Meta:
         ordering = ['name']
 
+    @property
+    def user(self):
+        return getattr(self.owner_profile, 'user', None)
+
+    @property
+    def user_id(self):
+        return getattr(self.owner_profile, 'user_id', None)
+
     def __str__(self):
         return f'{self.name} ({self.company.name})'
 
 
 class Job(BaseModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='jobs')
     job_id = models.CharField(max_length=120)
     role = models.CharField(max_length=180)
     job_link = models.URLField(blank=True, max_length=1000)
@@ -186,7 +223,11 @@ class Job(BaseModel):
 
 
 class MailTracking(BaseModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tracking')
+    profile = models.ForeignKey(
+        'UserProfile',
+        on_delete=models.CASCADE,
+        related_name='mail_tracking',
+    )
     employee = models.ForeignKey(
         Employee,
         on_delete=models.SET_NULL,
@@ -213,9 +254,17 @@ class MailTracking(BaseModel):
     class Meta:
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['profile', '-created_at']),
             models.Index(fields=['tracking', '-created_at']),
         ]
+
+    @property
+    def user(self):
+        return getattr(self.profile, 'user', None)
+
+    @property
+    def user_id(self):
+        return getattr(self.profile, 'user_id', None)
 
     def __str__(self):
         tracking = getattr(self, 'tracking', None)
@@ -235,7 +284,11 @@ class Tracking(BaseModel):
         null=True,
         related_name='application_tracking_rows',
     )
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tracking_rows')
+    profile = models.ForeignKey(
+        'UserProfile',
+        on_delete=models.CASCADE,
+        related_name='tracking_rows',
+    )
     template = models.ForeignKey(
         'Template',
         on_delete=models.SET_NULL,
@@ -284,13 +337,22 @@ class Tracking(BaseModel):
     class Meta:
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['profile', '-created_at']),
             models.Index(fields=['job', '-created_at']),
         ]
 
+    @property
+    def user(self):
+        return getattr(self.profile, 'user', None)
+
+    @property
+    def user_id(self):
+        return getattr(self.profile, 'user_id', None)
+
     def __str__(self):
         job_name = self.job.role if self.job_id and getattr(self.job, 'role', None) else 'Tracking'
-        return f'{job_name} ({self.user.username})'
+        username = getattr(getattr(self.profile, 'user', None), 'username', '')
+        return f'{job_name} ({username})'
 
     @property
     def achievement(self):
@@ -444,7 +506,11 @@ class UserProfile(BaseModel):
 
 
 class ProfilePanel(BaseModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='profile_panels')
+    profile = models.ForeignKey(
+        'UserProfile',
+        on_delete=models.CASCADE,
+        related_name='profile_panels',
+    )
     title = models.CharField(max_length=120, blank=True)
     full_name = models.CharField(max_length=180, blank=True)
     email = models.EmailField(blank=True, max_length=320)
@@ -478,9 +544,18 @@ class ProfilePanel(BaseModel):
     class Meta:
         ordering = ['-updated_at', '-created_at']
 
+    @property
+    def user(self):
+        return getattr(self.profile, 'user', None)
+
+    @property
+    def user_id(self):
+        return getattr(self.profile, 'user_id', None)
+
     def __str__(self):
         label = str(self.title or self.full_name or f'Panel {self.pk or ""}').strip()
-        return f'{label} ({self.user.username})'
+        username = getattr(getattr(self.profile, 'user', None), 'username', '')
+        return f'{label} ({username})'
 
 
 class WorkspaceMember(BaseModel):
@@ -508,13 +583,10 @@ class Template(BaseModel):
         ('general', 'General'),
     ]
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='templates')
     profile = models.ForeignKey(
         UserProfile,
         on_delete=models.CASCADE,
         related_name='templates',
-        blank=True,
-        null=True,
     )
     name = models.CharField(max_length=220)
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='general')
@@ -524,18 +596,27 @@ class Template(BaseModel):
     class Meta:
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['profile', '-created_at']),
         ]
         constraints = [
             models.UniqueConstraint(
                 Lower('name'),
-                'user',
-                name='uniq_template_user_name_ci',
+                'profile',
+                name='uniq_template_profile_name_ci',
             ),
         ]
 
+    @property
+    def user(self):
+        return getattr(self.profile, 'user', None)
+
+    @property
+    def user_id(self):
+        return getattr(self.profile, 'user_id', None)
+
     def __str__(self):
-        return f'{self.name} ({self.user.username})'
+        username = getattr(getattr(self.profile, 'user', None), 'username', '')
+        return f'{self.name} ({username})'
 
 
 Achievement = Template
@@ -566,7 +647,11 @@ class Interview(BaseModel):
         ('skipped', 'Skipped'),
     ]
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='interviews')
+    profile = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='interviews',
+    )
     job = models.ForeignKey(
         Job,
         on_delete=models.SET_NULL,
@@ -596,11 +681,11 @@ class Interview(BaseModel):
     class Meta:
         ordering = ['-updated_at', '-created_at']
         constraints = [
-            models.UniqueConstraint(fields=['user', 'company_key', 'job_role_key'], name='uniq_interview_company_role_per_user'),
+            models.UniqueConstraint(fields=['profile', 'company_key', 'job_role_key'], name='uniq_interview_company_role_per_profile'),
         ]
         indexes = [
-            models.Index(fields=['user', '-updated_at']),
-            models.Index(fields=['user', 'company_key', 'job_role_key']),
+            models.Index(fields=['profile', '-updated_at']),
+            models.Index(fields=['profile', 'company_key', 'job_role_key']),
         ]
 
     def save(self, *args, **kwargs):
@@ -617,6 +702,14 @@ class Interview(BaseModel):
         self.company_key = self.company_name.lower()
         self.job_role_key = self.job_role.lower()
         super().save(*args, **kwargs)
+
+    @property
+    def user(self):
+        return getattr(self.profile, 'user', None)
+
+    @property
+    def user_id(self):
+        return getattr(self.profile, 'user_id', None)
 
     def __str__(self):
         return f'{self.company_name} - {self.job_role}'

@@ -33,6 +33,25 @@ class Command(BaseCommand):
     HARDCODED_SIGNATURE_EMAIL = "subratsingh010@gmail.com"
     HARDCODED_SIGNATURE_CONTACT = "+91 8546075639"
     HARDCODED_RESUME_LINK = "https://drive.google.com/file/d/1WtbiqcSXz-xjAT4y84ggbGtpEBwx-uz-/view?usp=sharing"
+    ALLOWED_DYNAMIC_PLACEHOLDERS = {
+        "name",
+        "employee_name",
+        "first_name",
+        "company_name",
+        "current_employer",
+        "role",
+        "job_id",
+        "job_id_line",
+        "job_link",
+        "department",
+        "employee_department",
+        "employee_role",
+        "resume_link",
+        "years_of_experience",
+        "yoe",
+        "interaction_time",
+        "interview_round",
+    }
 
     def add_arguments(self, parser):
         parser.add_argument("--user-id", type=int, default=None, help="Process only this user id")
@@ -220,12 +239,12 @@ class Command(BaseCommand):
             Tracking.objects
             .filter(is_freezed=False, job__isnull=False)
             .filter(schedule_time__isnull=False, schedule_time__lte=now)
-            .select_related("job__company", "mail_tracking_record", "resume", "user")
+            .select_related("job__company", "mail_tracking_record", "resume", "profile__user")
             .prefetch_related("selected_hrs")
             .order_by("created_at")
         )
         if user_id:
-            qs = qs.filter(user_id=user_id)
+            qs = qs.filter(profile__user_id=user_id)
         if scheduled_today_only:
             qs = qs.filter(schedule_time__date=timezone.localdate())
         rows = list(qs[:limit])
@@ -310,7 +329,7 @@ class Command(BaseCommand):
         row_sent = 0
         row_failed = 0
         achievements = self._get_achievements(row)
-        attachment_payload = self._resolve_attachment_payload(row)
+        attachment_payload = self._resolve_attachment_payload(row) or {}
         attachment_path = attachment_payload.get("path")
         attachment_bytes = attachment_payload.get("bytes")
         latest_status_map = build_mail_tracking_status_map(mail_tracking)
@@ -742,7 +761,7 @@ class Command(BaseCommand):
         template_ids = getattr(row, "template_ids_ordered", None)
         if isinstance(template_ids, list) and template_ids:
             target_ids = [str(item or "").strip() for item in template_ids if str(item or "").strip()]
-            rows = list(Template.objects.filter(user=row.user, id__in=target_ids))
+            rows = list(Template.objects.filter(profile=row.profile, id__in=target_ids))
             row_map = {str(item.id): item for item in rows}
             return [row_map[item_id] for item_id in target_ids if item_id in row_map]
         template = getattr(row, "template", None)
@@ -845,16 +864,20 @@ class Command(BaseCommand):
         return raw[:1].upper() + raw[1:]
 
     def _capitalize_inserted_value(self, key, value):
+        normalized_key = str(key or "").strip().lower()
+        if normalized_key == "job_id_line":
+            return str(value or "")
         text = " ".join(str(value or "").split()).strip()
         if not text:
             return ""
-        normalized_key = str(key or "").strip().lower()
         if normalized_key in {"name", "employee_name", "first_name"}:
             return self._display_first_name(text)
-        if normalized_key in {"company_name", "role", "profile_role", "employee_role", "employee_department"}:
+        if normalized_key in {"company_name", "role", "profile_role", "employee_role", "employee_department", "interview_round"}:
             return text[:1].upper() + text[1:]
         if normalized_key in {"resume_link", "job_link", "sender_linkedin", "employee_email", "sender_email"}:
             return text
+        if normalized_key == "employee_focus_area":
+            return text[:1].lower() + text[1:] if text else ""
         if normalized_key == "skills_text":
             parts = [part.strip() for part in re.split(r"\s*,\s*", text) if part.strip()]
             if not parts:
@@ -887,6 +910,41 @@ class Command(BaseCommand):
     def _profile_resume_link(self, profile):
         configured = str(getattr(profile, "resume_link", "") or "").strip() if profile else ""
         return configured or self.HARDCODED_RESUME_LINK
+
+    def _employee_focus_area_text(self, employee):
+        about = " ".join(str(getattr(employee, "about", "") or "").split()).strip()
+        role = str(getattr(employee, "JobRole", "") or "").strip()
+        department = str(getattr(employee, "department", "") or "").strip()
+
+        if about:
+            patterns = [
+                r"\bexperienced\s+in\s+([^.;,\n]{4,90})",
+                r"\bexperience\s+(?:across|in|with)\s+([^.;,\n]{4,90})",
+                r"\bbackground\s+in\s+([^.;,\n]{4,90})",
+                r"\bfocused\s+on\s+([^.;,\n]{4,90})",
+                r"\bworking\s+on\s+([^.;,\n]{4,90})",
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, about, flags=re.I)
+                if match:
+                    return " ".join(match.group(1).split()).strip(" -,:;")
+
+        merged = f"{role} {department}".lower()
+        if any(token in merged for token in ["talent", "recruit", "hiring", "acquisition", "hr"]):
+            return "technical and non-technical hiring"
+        if "backend" in merged:
+            return "backend engineering"
+        if "frontend" in merged:
+            return "frontend engineering"
+        if "full" in merged and "stack" in merged:
+            return "full-stack engineering"
+        if "software" in merged or "engineer" in merged or "engineering" in merged:
+            return "software engineering"
+        if department:
+            return department.lower()
+        if role:
+            return role.lower()
+        return "your field"
 
     def _sender_first_name(self, row, profile):
         first_name = self._display_first_name(getattr(profile, "first_name", "") or "")
@@ -958,13 +1016,20 @@ class Command(BaseCommand):
         return "I am happy to share my resume if helpful."
 
     def _build_signature(self, row, profile):
-        sign_parts = [
-            "Thanks,",
-            self.HARDCODED_SIGNATURE_NAME,
-            f"LinkedIn: {self.HARDCODED_SIGNATURE_LINKEDIN}",
-            f"Email: {self.HARDCODED_SIGNATURE_EMAIL}",
-            self.HARDCODED_SIGNATURE_CONTACT,
-        ]
+        mail_type = str(getattr(row, "mail_type", "") or "").strip().lower() if row else ""
+        if mail_type == "followed_up":
+            sign_parts = [
+                "Thanks,",
+                self.HARDCODED_SIGNATURE_NAME,
+            ]
+        else:
+            sign_parts = [
+                "Thanks,",
+                self.HARDCODED_SIGNATURE_NAME,
+                f"LinkedIn: {self.HARDCODED_SIGNATURE_LINKEDIN}",
+                f"Email: {self.HARDCODED_SIGNATURE_EMAIL}",
+                self.HARDCODED_SIGNATURE_CONTACT,
+            ]
         return "\n".join([p for p in sign_parts if str(p or "").strip()])
 
     def _inject_dynamic_names(self, text, employee_name, sender_name):
@@ -1122,51 +1187,57 @@ class Command(BaseCommand):
 
     def _mail_placeholder_map(self, row, employee, profile, *, company_name="", role="", job_id="", job_link="", sender_name="", employee_email=""):
         current_employer = str(getattr(profile, "current_employer", "") or "").strip() if profile else ""
-        sender_email = self.HARDCODED_SIGNATURE_EMAIL
-        sender_contact = self.HARDCODED_SIGNATURE_CONTACT
-        sender_linkedin = self.HARDCODED_SIGNATURE_LINKEDIN
         employee_name = self._preferred_employee_name(employee)
         employee_role = str(getattr(employee, "JobRole", "") or "").strip()
         employee_department = str(getattr(employee, "department", "") or "").strip()
         normalized_job_link = str(job_link or "").strip()
         first_name = self._display_first_name(employee_name)
+        yoe = str(getattr(profile, "years_of_experience", "") or "").strip() if profile else ""
         return {
             "name": employee_name,
             "employee_name": employee_name,
             "first_name": first_name,
-            "employee_email": str(employee_email or getattr(employee, "email", "") or "").strip(),
             "employee_role": employee_role,
+            "department": employee_department,
             "employee_department": employee_department,
             "company_name": str(company_name or "").strip(),
+            "current_employer": current_employer,
             "role": str(role or "").strip(),
             "job_id": str(job_id or "").strip(),
+            "job_id_line": f" (Job ID: {str(job_id or '').strip()})" if str(job_id or "").strip() else "",
             "job_link": normalized_job_link,
-            "current_employer": current_employer,
-            "sender_name": self.HARDCODED_SIGNATURE_NAME,
-            "sender_email": sender_email,
-            "sender_contact": sender_contact,
-            "sender_linkedin": sender_linkedin,
             "resume_link": self._profile_resume_link(profile),
-            "profile_role": self._profile_role_text(row, profile),
-            "years_of_experience": str(getattr(profile, "years_of_experience", "") or "").strip() if profile else "",
-            "skills_text": self._profile_skills_text(row),
+            "years_of_experience": yoe,
+            "yoe": yoe,
+            "interaction_time": self._format_interaction_date(row),
+            "interview_round": "",
         }
 
     def _render_mail_placeholders(self, text, replacements):
         value = str(text or "")
         if not value:
             return ""
-        mapping = replacements or {}
+        mapping = {
+            key: replacement
+            for key, replacement in (replacements or {}).items()
+            if str(key or "").strip() in self.ALLOWED_DYNAMIC_PLACEHOLDERS
+        }
         for key, replacement in mapping.items():
             safe_value = self._capitalize_inserted_value(key, replacement)
             value = value.replace(f"{{{key}}}", safe_value)
             value = value.replace(f"[{key}]", safe_value)
+        value = re.sub(r"\{[A-Za-z_][A-Za-z0-9_]*\}", "", value)
+        value = re.sub(r"\[[A-Za-z_][A-Za-z0-9_]*\]", "", value)
         # Clean punctuation artifacts left behind by empty placeholders.
         value = re.sub(r"\bAt\s*,\s*", "", value, flags=re.I)
+        value = re.sub(r"\s+\(", " (", value)
         value = re.sub(r"\s+,", ",", value)
         value = re.sub(r"\(\s*\)", "", value)
-        value = re.sub(r"\s{2,}", " ", value)
-        return " ".join(value.split()).strip()
+        value = re.sub(r"\s+-\s*(?=[,.)]|$)", "", value)
+        value = re.sub(r"[ \t]{2,}", " ", value)
+        value = re.sub(r"\s+\n", "\n", value)
+        value = re.sub(r"\n\s+", "\n", value)
+        return value.strip()
 
     def _ordered_achievement_paragraphs(self, achievements, replacements=None):
         paragraphs = []
@@ -1206,7 +1277,7 @@ class Command(BaseCommand):
             lines.append(f"LinkedIn: {str(linkedin).strip()}")
         return lines
 
-    def _build_ordered_hardcoded_mail(self, *, emp_name, intro_paragraphs=None, achievement_paragraphs=None, ask_line="", attachment_line="", sender_name="", email="", contact="", linkedin=""):
+    def _build_ordered_hardcoded_mail(self, *, row=None, emp_name, intro_paragraphs=None, achievement_paragraphs=None, ask_line="", attachment_line="", sender_name="", email="", contact="", linkedin=""):
         body_sections = [f"Hi {emp_name},"]
 
         for paragraph in intro_paragraphs or []:
@@ -1227,7 +1298,7 @@ class Command(BaseCommand):
         if attachment_text:
             body_sections.append(attachment_text)
 
-        signature_text = self._build_signature(None, None)
+        signature_text = self._build_signature(row, None)
         if signature_text:
             body_sections.append(signature_text)
 
@@ -1274,6 +1345,7 @@ class Command(BaseCommand):
         if saved_subject:
             subject = saved_subject
         body = self._build_ordered_hardcoded_mail(
+            row=row,
             emp_name=emp_name,
             intro_paragraphs=[personalized_intro] if personalized_intro else [],
             achievement_paragraphs=ordered_template_paragraphs,

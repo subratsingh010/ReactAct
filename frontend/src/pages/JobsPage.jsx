@@ -159,9 +159,23 @@ function JobsPage() {
     let cancelled = false
     ;(async () => {
       try {
-        const data = await fetchCompanies(access, { page: 1, page_size: 200 })
-        const list = Array.isArray(data?.results) ? data.results : []
-        if (!cancelled) setCompanyOptions(list)
+        const firstPage = await fetchCompanies(access, { page: 1, page_size: 200 })
+        const firstList = Array.isArray(firstPage?.results) ? firstPage.results : []
+        const totalPagesCount = Math.max(1, Number(firstPage?.total_pages || 1))
+        let allCompanies = [...firstList]
+        if (totalPagesCount > 1) {
+          const restPages = await Promise.all(
+            Array.from({ length: totalPagesCount - 1 }, (_, idx) => fetchCompanies(access, { page: idx + 2, page_size: 200 })),
+          )
+          restPages.forEach((pageData) => {
+            const pageRows = Array.isArray(pageData?.results) ? pageData.results : []
+            allCompanies = allCompanies.concat(pageRows)
+          })
+        }
+        const uniqueCompanies = allCompanies.filter((company, index, arr) => (
+          arr.findIndex((item) => String(item?.id || '') === String(company?.id || '')) === index
+        ))
+        if (!cancelled) setCompanyOptions(uniqueCompanies)
       } catch {
         if (!cancelled) setCompanyOptions([])
       }

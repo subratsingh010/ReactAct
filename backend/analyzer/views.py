@@ -108,6 +108,48 @@ def _accessible_owner_ids_for_user(user):
     return _visible_user_ids_for_user(user)
 
 
+def _workspace_profile_for_user(user):
+    if not getattr(user, 'is_authenticated', False):
+        return None
+    profile, _ = UserProfile.objects.get_or_create(
+        user=user,
+        defaults={
+            'role': UserProfile.ROLE_ADMIN,
+            'full_name': user.username,
+            'email': user.email or '',
+        },
+    )
+    if not profile.full_name:
+        profile.full_name = user.username
+    if not profile.email:
+        profile.email = user.email or ''
+    profile.save(update_fields=['full_name', 'email', 'updated_at'])
+    return profile
+
+
+def _accessible_profile_ids_for_user(user):
+    user_ids = _accessible_owner_ids_for_user(user)
+    if not user_ids:
+        return []
+    profile_ids = list(UserProfile.objects.filter(user_id__in=user_ids).values_list('id', flat=True))
+    missing_user_ids = [uid for uid in user_ids if uid not in set(UserProfile.objects.filter(user_id__in=user_ids).values_list('user_id', flat=True))]
+    for user_id in missing_user_ids:
+        auth_user = User.objects.filter(id=user_id).first()
+        if not auth_user:
+            continue
+        profile_ids.append(_workspace_profile_for_user(auth_user).id)
+    return profile_ids
+
+
+def _accessible_jobs_for_user(user):
+    return Job.objects.filter(company__profile_id__in=_accessible_profile_ids_for_user(user))
+
+
+def _workspace_owner_jobs_for_user(user):
+    owner_profile = _workspace_profile_for_user(user)
+    return Job.objects.filter(company__profile=owner_profile)
+
+
 def _is_workspace_owner(user):
     return bool(getattr(user, 'is_authenticated', False)) and not _is_read_only_user(user)
 
@@ -392,7 +434,10 @@ def _normalize_tracking_template_ids(payload, request_data=None):
 def _resolve_tracking_templates(user, template_ids):
     if not template_ids:
         return []
-    rows = list(Template.objects.filter(user=user, id__in=template_ids))
+    profile = _workspace_profile_for_user(user)
+    if not profile:
+        return []
+    rows = list(Template.objects.filter(profile=profile, id__in=template_ids))
     row_map = {str(item.id): item for item in rows}
     return [row_map[item_id] for item_id in template_ids if item_id in row_map]
 
@@ -409,13 +454,14 @@ def _selected_intro_template_category(mail_type='fresh'):
 def _validate_tracking_templates(templates, mail_type='fresh'):
     normalized_mail_type = str(mail_type or 'fresh').strip().lower()
     rows = list(templates or [])
+    if normalized_mail_type == 'followed_up':
+        if len(rows) > 5:
+            return 'Select at most 5 templates.'
+        return ''
     if not rows:
         return 'Select at least one template.'
     if len(rows) > 5:
         return 'Select at most 5 templates.'
-
-    if normalized_mail_type == 'followed_up':
-        return ''
 
     if len(rows) < 3:
         return 'For fresh mail, select at least 3 templates.'
@@ -526,7 +572,8 @@ def _user_sent_employee_map_for_day(user, action_type, action_at, employee_ids=N
     if not user or not action_at:
         return {}
     action_day = timezone.localdate(action_at)
-    query = Q(tracking__user=user) | Q(mail_tracking__user=user)
+    profile = _workspace_profile_for_user(user)
+    query = Q(tracking__profile=profile) | Q(mail_tracking__profile=profile)
     rows = (
         MailTrackingEvent.objects
         .filter(query, status='sent', mail_type=action_type, action_at__date=action_day)
@@ -553,9 +600,10 @@ def _user_fresh_tracking_employee_map_for_day(user, employee_ids=None, exclude_t
     if not user:
         return {}
     target_day = day or timezone.localdate()
+    profile = _workspace_profile_for_user(user)
     rows = (
         Tracking.objects
-        .filter(user=user, mail_type='fresh', created_at__date=target_day)
+        .filter(profile=profile, mail_type='fresh', created_at__date=target_day)
         .exclude(id=exclude_tracking_id)
     )
     if employee_ids:
@@ -583,9 +631,10 @@ def _job_fresh_tracking_employee_map_for_day(user, job, employee_ids=None, exclu
     if not user or not job:
         return {}
     target_day = day or timezone.localdate()
+    profile = _workspace_profile_for_user(user)
     rows = (
         Tracking.objects
-        .filter(user=user, job=job, mail_type='fresh', created_at__date=target_day)
+        .filter(profile=profile, job=job, mail_type='fresh', created_at__date=target_day)
         .exclude(id=exclude_tracking_id)
     )
     if employee_ids:
@@ -613,9 +662,10 @@ def _same_day_job_tracking_row(user, job, day=None, exclude_tracking_id=None):
     if not user or not job:
         return None
     target_day = day or timezone.localdate()
+    profile = _workspace_profile_for_user(user)
     rows = (
         Tracking.objects
-        .filter(user=user, job=job, created_at__date=target_day)
+        .filter(profile=profile, job=job, created_at__date=target_day)
         .exclude(id=exclude_tracking_id)
         .order_by('-created_at', '-id')
     )
@@ -1576,14 +1626,15 @@ class ProfilePanelListCreateView(APIView):
     max_panels = 2
 
     def get(self, request):
-        rows = ProfilePanel.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user)).order_by('-updated_at', '-created_at')
+        rows = ProfilePanel.objects.filter(profile_id__in=_accessible_profile_ids_for_user(request.user)).order_by('-updated_at', '-created_at')
         return Response(ProfilePanelSerializer(rows, many=True).data, status=status.HTTP_200_OK)
 
     def post(self, request):
         denied = _ensure_write_allowed(request)
         if denied:
             return denied
-        if ProfilePanel.objects.filter(user=request.user).count() >= self.max_panels:
+        profile = _workspace_profile_for_user(request.user)
+        if ProfilePanel.objects.filter(profile=profile).count() >= self.max_panels:
             return Response({'detail': 'Maximum 2 profile panels allowed.'}, status=status.HTTP_400_BAD_REQUEST)
         payload = dict(request.data or {})
         location_ref_raw = str(payload.get('location_ref') or '').strip()
@@ -1607,7 +1658,7 @@ class ProfilePanelListCreateView(APIView):
             payload['preferred_location_refs'] = preferred_location_refs
         serializer = ProfilePanelSerializer(data=payload, context={'request': request})
         if serializer.is_valid():
-            row = serializer.save(user=request.user)
+            row = serializer.save(profile=profile)
             return Response(ProfilePanelSerializer(row).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1617,7 +1668,7 @@ class ProfilePanelDetailView(APIView):
     parser_classes = [JSONParser]
 
     def _get_row(self, request, panel_id):
-        return ProfilePanel.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user), id=panel_id).first()
+        return ProfilePanel.objects.filter(profile_id__in=_accessible_profile_ids_for_user(request.user), id=panel_id).first()
 
     def put(self, request, panel_id):
         denied = _ensure_write_allowed(request)
@@ -1721,7 +1772,7 @@ class TemplateListCreateView(APIView):
     parser_classes = [JSONParser]
 
     def get(self, request):
-        rows = Template.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user)).order_by('-created_at')
+        rows = Template.objects.filter(profile_id__in=_accessible_profile_ids_for_user(request.user)).order_by('-created_at')
         return Response(TemplateSerializer(rows, many=True).data, status=status.HTTP_200_OK)
 
     def post(self, request):
@@ -1730,15 +1781,8 @@ class TemplateListCreateView(APIView):
             return denied
         serializer = TemplateSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
-            profile, _ = UserProfile.objects.get_or_create(
-                user=request.user,
-                defaults={
-                    'role': UserProfile.ROLE_ADMIN,
-                    'full_name': request.user.username,
-                    'email': request.user.email or '',
-                },
-            )
-            created = serializer.save(user=request.user, profile=profile)
+            profile = _workspace_profile_for_user(request.user)
+            created = serializer.save(profile=profile)
             return Response(TemplateSerializer(created).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1751,7 +1795,7 @@ class TemplateDetailView(APIView):
         return template_id if template_id is not None else achievement_id
 
     def _get_object(self, request, template_id=None, achievement_id=None):
-        return Template.objects.get(id=self._resolve_id(template_id, achievement_id), user_id__in=_accessible_owner_ids_for_user(request.user))
+        return Template.objects.get(id=self._resolve_id(template_id, achievement_id), profile_id__in=_accessible_profile_ids_for_user(request.user))
 
     def put(self, request, template_id=None, achievement_id=None):
         denied = _ensure_write_allowed(request)
@@ -1816,7 +1860,7 @@ class InterviewListCreateView(APIView):
         if not company_key or not job_key:
             return False
         rows = Interview.objects.filter(
-            user_id__in=_accessible_owner_ids_for_user(request.user),
+            profile_id__in=_accessible_profile_ids_for_user(request.user),
             company_key=company_key,
             job_role_key=job_key,
         )
@@ -1866,7 +1910,7 @@ class InterviewListCreateView(APIView):
         row.save(update_fields=['milestone_events', 'updated_at'])
 
     def get(self, request):
-        rows = Interview.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user)).order_by('-updated_at', '-created_at')
+        rows = Interview.objects.filter(profile_id__in=_accessible_profile_ids_for_user(request.user)).order_by('-updated_at', '-created_at')
         return Response(InterviewSerializer(rows, many=True).data, status=status.HTTP_200_OK)
 
     def post(self, request):
@@ -1879,9 +1923,8 @@ class InterviewListCreateView(APIView):
         selected_job = None
         if raw_job_id:
             try:
-                selected_job = Job.objects.get(
+                selected_job = _accessible_jobs_for_user(request.user).get(
                     id=raw_job_id,
-                    user_id__in=_accessible_owner_ids_for_user(request.user),
                     is_removed=False,
                 )
             except Job.DoesNotExist:
@@ -1918,7 +1961,7 @@ class InterviewListCreateView(APIView):
             payload['job'] = selected_job.id
         serializer = InterviewSerializer(data=payload)
         if serializer.is_valid():
-            created = serializer.save(user=request.user, max_round_reached=requested_round if requested_round else 0)
+            created = serializer.save(profile=_workspace_profile_for_user(request.user), max_round_reached=requested_round if requested_round else 0)
             self._append_milestone_event(created, created.stage, created.action)
             return Response(InterviewSerializer(created).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -1931,7 +1974,7 @@ class InterviewDetailView(APIView):
     ACTION_LABELS = InterviewListCreateView.ACTION_LABELS
 
     def _get_object(self, request, interview_id):
-        return Interview.objects.get(id=interview_id, user_id__in=_accessible_owner_ids_for_user(request.user))
+        return Interview.objects.get(id=interview_id, profile_id__in=_accessible_profile_ids_for_user(request.user))
 
     def _round_value(self, stage):
         raw = str(stage or '').strip().lower()
@@ -1991,9 +2034,8 @@ class InterviewDetailView(APIView):
         selected_job = row.job if row.job_id else None
         if raw_job_id:
             try:
-                selected_job = Job.objects.get(
+                selected_job = _accessible_jobs_for_user(request.user).get(
                     id=raw_job_id,
-                    user_id__in=_accessible_owner_ids_for_user(request.user),
                     is_removed=False,
                 )
             except Job.DoesNotExist:
@@ -2018,7 +2060,7 @@ class InterviewDetailView(APIView):
         company_key = str(company_name or '').strip().lower()
         job_key = str(job_role or '').strip().lower()
         duplicate = Interview.objects.filter(
-            user_id__in=_accessible_owner_ids_for_user(request.user),
+            profile_id__in=_accessible_profile_ids_for_user(request.user),
             company_key=company_key,
             job_role_key=job_key,
         ).exclude(id=row.id).exists()
@@ -2094,24 +2136,24 @@ class LocationListView(APIView):
 class ResumeListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def _apply_default_resume(self, user, resume):
+    def _apply_default_resume(self, profile, resume):
         if not getattr(resume, 'is_default', False):
             return
-        Resume.objects.filter(user=user).exclude(id=resume.id).update(is_default=False)
+        Resume.objects.filter(profile=profile).exclude(id=resume.id).update(is_default=False)
 
     def _resolve_job(self, request, raw_value):
         job_id = str(raw_value or '').strip()
         if not job_id:
             return None
         try:
-            return Job.objects.get(id=job_id, user_id__in=_accessible_owner_ids_for_user(request.user), is_removed=False)
+            return _accessible_jobs_for_user(request.user).get(id=job_id, is_removed=False)
         except Job.DoesNotExist:
             raise ValidationError({'job': 'Job not found.'})
 
     def get(self, request):
         # Always return the latest 6 resumes (do not de-dupe by title).
         include_tailored = str(request.query_params.get('include_tailored') or '').strip().lower() in {'1', 'true', 'yes'}
-        qs = Resume.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user))
+        qs = Resume.objects.filter(profile_id__in=_accessible_profile_ids_for_user(request.user))
         if not include_tailored:
             qs = qs.filter(is_tailored=False)
         qs = qs.order_by('-updated_at', '-created_at')[:6]
@@ -2124,6 +2166,7 @@ class ResumeListCreateView(APIView):
             return denied
         serializer = ResumeSerializer(data=request.data)
         if serializer.is_valid():
+            profile = _workspace_profile_for_user(request.user)
             title = (serializer.validated_data.get('title') or '').strip()
             if not title:
                 return Response({'title': ['This field may not be blank.']}, status=status.HTTP_400_BAD_REQUEST)
@@ -2138,7 +2181,7 @@ class ResumeListCreateView(APIView):
                 return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
 
             created = serializer.save(
-                user=request.user,
+                profile=profile,
                 is_tailored=False,
                 job=selected_job,
                 source_resume=None,
@@ -2148,23 +2191,23 @@ class ResumeListCreateView(APIView):
             )
             _remove_resume_file(created)
             created.save(update_fields=['file'])
-            self._apply_default_resume(request.user, created)
+            self._apply_default_resume(profile, created)
 
             # Enforce max 6 resumes by deleting older ones (by updated_at/created_at).
             keep_ids = list(
-                Resume.objects.filter(user=request.user)
+                Resume.objects.filter(profile=profile)
                 .order_by('-updated_at', '-created_at')
                 .values_list('id', flat=True)[:6]
             )
             default_id = (
-                Resume.objects.filter(user=request.user, is_default=True)
+                Resume.objects.filter(profile=profile, is_default=True)
                 .order_by('-updated_at', '-created_at')
                 .values_list('id', flat=True)
                 .first()
             )
             if default_id and default_id not in keep_ids and keep_ids:
                 keep_ids = keep_ids[:-1] + [default_id]
-            Resume.objects.filter(user=request.user).exclude(id__in=keep_ids).delete()
+            Resume.objects.filter(profile=profile).exclude(id__in=keep_ids).delete()
 
             return Response(ResumeSerializer(created).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -2173,10 +2216,10 @@ class ResumeListCreateView(APIView):
 class ResumeDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def _apply_default_resume(self, user, resume):
+    def _apply_default_resume(self, profile, resume):
         if not getattr(resume, 'is_default', False):
             return
-        Resume.objects.filter(user=user).exclude(id=resume.id).update(is_default=False)
+        Resume.objects.filter(profile=profile).exclude(id=resume.id).update(is_default=False)
 
     def _resolve_job(self, request, raw_value):
         if raw_value in [None, '']:
@@ -2185,12 +2228,12 @@ class ResumeDetailView(APIView):
         if not job_id:
             return None
         try:
-            return Job.objects.get(id=job_id, user_id__in=_accessible_owner_ids_for_user(request.user), is_removed=False)
+            return _accessible_jobs_for_user(request.user).get(id=job_id, is_removed=False)
         except Job.DoesNotExist:
             raise ValidationError({'job': 'Job not found.'})
 
     def get_object(self, request, resume_id):
-        return Resume.objects.get(id=resume_id, user_id__in=_accessible_owner_ids_for_user(request.user))
+        return Resume.objects.get(id=resume_id, profile_id__in=_accessible_profile_ids_for_user(request.user))
 
     def get(self, request, resume_id):
         try:
@@ -2225,7 +2268,7 @@ class ResumeDetailView(APIView):
             updated = serializer.save(**save_kwargs)
             _remove_resume_file(updated)
             updated.save(update_fields=['file'])
-            self._apply_default_resume(request.user, updated)
+            self._apply_default_resume(_workspace_profile_for_user(request.user), updated)
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -2248,7 +2291,7 @@ class TailoredResumeListCreateView(APIView):
     def get(self, request):
         rows = (
             Resume.objects
-            .filter(user_id__in=_accessible_owner_ids_for_user(request.user), is_tailored=True)
+            .filter(profile_id__in=_accessible_profile_ids_for_user(request.user), is_tailored=True)
             .select_related('job', 'source_resume')
             .order_by('-updated_at', '-created_at')
         )
@@ -2281,19 +2324,19 @@ class TailoredResumeListCreateView(APIView):
         raw_resume = str(payload.get('resume') or '').strip()
         if raw_job:
             try:
-                job = Job.objects.get(id=raw_job, user_id__in=_accessible_owner_ids_for_user(request.user))
+                job = _accessible_jobs_for_user(request.user).get(id=raw_job)
             except Job.DoesNotExist:
                 return Response({'job': ['Job not found.']}, status=status.HTTP_400_BAD_REQUEST)
         if raw_resume:
             try:
-                resume = Resume.objects.get(id=raw_resume, user_id__in=_accessible_owner_ids_for_user(request.user))
+                resume = Resume.objects.get(id=raw_resume, profile_id__in=_accessible_profile_ids_for_user(request.user))
             except Resume.DoesNotExist:
                 return Response({'resume': ['Resume not found.']}, status=status.HTTP_400_BAD_REQUEST)
         else:
             return Response({'resume': ['Original resume reference is required.']}, status=status.HTTP_400_BAD_REQUEST)
 
         created = Resume.objects.create(
-            user=request.user,
+            profile=_workspace_profile_for_user(request.user),
             title=name,
             builder_data=sanitize_builder_data(builder_data),
             is_tailored=True,
@@ -2316,21 +2359,21 @@ class TailorResumeView(APIView):
             return default
         return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
 
-    def _enforce_resume_limit(self, user):
+    def _enforce_resume_limit(self, profile):
         keep_ids = list(
-            Resume.objects.filter(user=user)
+            Resume.objects.filter(profile=profile)
             .order_by('-updated_at', '-created_at')
             .values_list('id', flat=True)[:6]
         )
         default_id = (
-            Resume.objects.filter(user=user, is_default=True)
+            Resume.objects.filter(profile=profile, is_default=True)
             .order_by('-updated_at', '-created_at')
             .values_list('id', flat=True)
             .first()
         )
         if default_id and default_id not in keep_ids and keep_ids:
             keep_ids = keep_ids[:-1] + [default_id]
-        Resume.objects.filter(user=user).exclude(id__in=keep_ids).delete()
+        Resume.objects.filter(profile=profile).exclude(id__in=keep_ids).delete()
 
     def _pick_base_builder(self, request_builder, forced_resume, matched_resume, latest_resume):
         if forced_resume and isinstance(forced_resume.builder_data, dict):
@@ -2451,7 +2494,7 @@ class TailorResumeView(APIView):
         reference_resume_id = str(request.data.get('reference_resume_id') or '').strip()
         if is_authenticated and reference_resume_id:
             try:
-                reference_resume = Resume.objects.get(id=int(reference_resume_id), user_id__in=_accessible_owner_ids_for_user(request.user))
+                reference_resume = Resume.objects.get(id=int(reference_resume_id), profile_id__in=_accessible_profile_ids_for_user(request.user))
             except Exception:  # noqa: BLE001
                 reference_resume = None
 
@@ -2470,12 +2513,12 @@ class TailorResumeView(APIView):
         if not keywords:
             return Response({'detail': 'Could not extract JD keywords.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        resumes = list(Resume.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user), is_tailored=False).order_by('-updated_at', '-created_at')) if is_authenticated else []
+        resumes = list(Resume.objects.filter(profile_id__in=_accessible_profile_ids_for_user(request.user), is_tailored=False).order_by('-updated_at', '-created_at')) if is_authenticated else []
         best = find_best_resume_match(keywords, resumes)
         latest_resume = resumes[0] if resumes else None
         selected_job = None
         if is_authenticated and job_id:
-            selected_job = Job.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user), job_id__iexact=job_id, is_removed=False).order_by('-updated_at', '-created_at').first()
+            selected_job = _accessible_jobs_for_user(request.user).filter(job_id__iexact=job_id, is_removed=False).order_by('-updated_at', '-created_at').first()
 
         if is_authenticated and (not force_rewrite) and (reference_resume is None) and best.resume and min_match <= best.score <= max_match:
             payload = ResumeSerializer(best.resume).data
@@ -2560,7 +2603,7 @@ class TailorResumeView(APIView):
             return Response({'detail': 'Read only users cannot create, update, or delete data.'}, status=status.HTTP_403_FORBIDDEN)
 
         created = Resume.objects.create(
-            user=request.user,
+            profile=_workspace_profile_for_user(request.user),
             title=title,
             original_text=plain_text,
             builder_data=tailored_builder,
@@ -2570,7 +2613,7 @@ class TailorResumeView(APIView):
             status='optimized',
             file=None,
         )
-        self._enforce_resume_limit(request.user)
+        self._enforce_resume_limit(_workspace_profile_for_user(request.user))
 
         return Response(
             {
@@ -2693,7 +2736,7 @@ class ExportAtsPdfLocalView(APIView):
         resume_id = str(request.data.get("resume_id") or "").strip()
         if resume_id:
             try:
-                resume = Resume.objects.get(id=resume_id, user_id__in=_accessible_owner_ids_for_user(request.user))
+                resume = Resume.objects.get(id=resume_id, profile_id__in=_accessible_profile_ids_for_user(request.user))
             except Resume.DoesNotExist:
                 return Response({"detail": "Resume not found for PDF export."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -2780,12 +2823,13 @@ class ApplicationTrackingListCreateView(APIView):
             return None
 
     def _resolve_company(self, request, payload):
+        profile_ids = _accessible_profile_ids_for_user(request.user)
         company_id = payload.get('company')
         if company_id:
             try:
                 return Company.objects.get(
                     id=company_id,
-                    user_id__in=_accessible_owner_ids_for_user(request.user),
+                    profile_id__in=profile_ids,
                 )
             except Company.DoesNotExist:
                 return None
@@ -2794,7 +2838,7 @@ class ApplicationTrackingListCreateView(APIView):
         if not company_name:
             company_name = 'New Company'
         company, _ = Company.objects.get_or_create(
-            user=_workspace_owner_for_user(request.user),
+            profile=_workspace_profile_for_user(request.user),
             name=company_name,
         )
         return company
@@ -2803,9 +2847,8 @@ class ApplicationTrackingListCreateView(APIView):
         explicit_job_id = payload.get('job')
         if explicit_job_id:
             try:
-                return Job.objects.get(
+                return _accessible_jobs_for_user(request.user).get(
                     id=explicit_job_id,
-                    user_id__in=_accessible_owner_ids_for_user(request.user),
                     is_removed=False,
                 )
             except Job.DoesNotExist:
@@ -2814,15 +2857,13 @@ class ApplicationTrackingListCreateView(APIView):
         job_code = str(payload.get('job_id') or '').strip()
         workspace_owner = _workspace_owner_for_user(request.user)
         if job_code:
-            job = Job.objects.filter(
-                user=workspace_owner,
+            job = _workspace_owner_jobs_for_user(request.user).filter(
                 company=company,
                 job_id__iexact=job_code,
                 is_removed=False,
             ).first()
             if not job:
                 job = Job.objects.create(
-                    user=workspace_owner,
                     company=company,
                     job_id=job_code,
                     role=str(payload.get('role') or 'Software Developer').strip() or 'Software Developer',
@@ -2830,7 +2871,6 @@ class ApplicationTrackingListCreateView(APIView):
                 )
         else:
             job = Job.objects.create(
-                user=workspace_owner,
                 company=company,
                 job_id=f"JOB-{int(timezone.now().timestamp())}",
                 role=str(payload.get('role') or 'Software Developer').strip() or 'Software Developer',
@@ -2869,7 +2909,7 @@ class ApplicationTrackingListCreateView(APIView):
         if not raw:
             return None
         try:
-            return Resume.objects.get(id=raw, user_id__in=_accessible_owner_ids_for_user(request.user))
+            return Resume.objects.get(id=raw, profile_id__in=_accessible_profile_ids_for_user(request.user))
         except Resume.DoesNotExist:
             return None
 
@@ -2897,13 +2937,13 @@ class ApplicationTrackingListCreateView(APIView):
 
         if isinstance(selected_ids, list) and selected_ids:
             targets = Employee.objects.filter(
-                user_id__in=_accessible_owner_ids_for_user(request.user),
+                owner_profile_id__in=_accessible_profile_ids_for_user(request.user),
                 id__in=selected_ids,
                 working_mail=True,
             )
         elif isinstance(selected_names, list) and selected_names and company_id:
             targets = Employee.objects.filter(
-                user_id__in=_accessible_owner_ids_for_user(request.user),
+                owner_profile_id__in=_accessible_profile_ids_for_user(request.user),
                 company_id=company_id,
                 working_mail=True,
                 name__in=[str(name or '').strip() for name in selected_names if str(name or '').strip()],
@@ -3206,9 +3246,9 @@ class ApplicationTrackingListCreateView(APIView):
         return bool(company and str(getattr(company, 'mail_format', '') or '').strip())
 
     def get(self, request):
-        visible_owner_ids = _accessible_owner_ids_for_user(request.user)
+        visible_profile_ids = _accessible_profile_ids_for_user(request.user)
         queryset = (
-            Tracking.objects.filter(user_id__in=visible_owner_ids)
+            Tracking.objects.filter(profile_id__in=visible_profile_ids)
             .select_related('job__company', 'resume', 'mail_tracking_record', 'template')
             .prefetch_related('selected_hrs', 'actions', 'job__resumes')
             .order_by('-created_at')
@@ -3220,7 +3260,7 @@ class ApplicationTrackingListCreateView(APIView):
             if row.job_id and row.job and row.job.company_id
         }
         employees = Employee.objects.filter(
-            user_id__in=visible_owner_ids,
+            owner_profile_id__in=visible_profile_ids,
             company_id__in=company_ids,
             working_mail=True,
         ).order_by('name')
@@ -3262,12 +3302,12 @@ class ApplicationTrackingListCreateView(APIView):
         if tailored_resume_id:
             tailored_resume = Resume.objects.filter(
                 id=tailored_resume_id,
-                user_id__in=_accessible_owner_ids_for_user(request.user),
+                profile_id__in=_accessible_profile_ids_for_user(request.user),
                 is_tailored=True,
             ).first()
             if not tailored_resume and job:
                 tailored_resume = job.resumes.filter(
-                    user_id__in=_accessible_owner_ids_for_user(request.user),
+                    profile_id__in=_accessible_profile_ids_for_user(request.user),
                     is_tailored=True,
                 ).order_by('created_at', 'id').first()
             if not tailored_resume:
@@ -3290,13 +3330,13 @@ class ApplicationTrackingListCreateView(APIView):
             intro_category = _selected_intro_template_category(mail_type)
             personalized_template = Template.objects.filter(
                 id=personalized_template_id,
-                user=request.user,
+                profile=_workspace_profile_for_user(request.user),
                 category=intro_category,
             ).first()
             if not personalized_template:
                 personalized_template = Template.objects.filter(
                     id=personalized_template_id,
-                    user_id__in=_accessible_owner_ids_for_user(request.user),
+                    profile_id__in=_accessible_profile_ids_for_user(request.user),
                     category=intro_category,
                 ).first()
             if not personalized_template:
@@ -3326,7 +3366,7 @@ class ApplicationTrackingListCreateView(APIView):
                     )
 
         tracking = reuse_existing_row or Tracking.objects.create(
-            user=_workspace_owner_for_user(request.user),
+            profile=_workspace_profile_for_user(request.user),
             job=job,
             template=template,
             template_ids_ordered=[item.id for item in templates],
@@ -3415,7 +3455,7 @@ class ApplicationTrackingListCreateView(APIView):
             return Response({'detail': action_error}, status=status.HTTP_400_BAD_REQUEST)
 
         available = Employee.objects.filter(
-            user_id__in=_accessible_owner_ids_for_user(request.user),
+            owner_profile_id__in=_accessible_profile_ids_for_user(request.user),
             company_id=company.id,
             working_mail=True,
         ).order_by('name')
@@ -3434,10 +3474,10 @@ class ApplicationTrackingDetailView(APIView):
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def _get_object(self, request, tracking_id):
-        return Tracking.objects.get(id=tracking_id, user_id__in=_accessible_owner_ids_for_user(request.user))
+        return Tracking.objects.get(id=tracking_id, profile_id__in=_accessible_profile_ids_for_user(request.user))
 
     def _get_object_any(self, request, tracking_id):
-        return Tracking.objects.get(id=tracking_id, user_id__in=_accessible_owner_ids_for_user(request.user))
+        return Tracking.objects.get(id=tracking_id, profile_id__in=_accessible_profile_ids_for_user(request.user))
 
     def _is_hard_delete(self, request):
         mode = str(request.query_params.get('delete_mode') or '').strip().lower()
@@ -3486,7 +3526,7 @@ class ApplicationTrackingDetailView(APIView):
         tailored_resume = row.resume if row.resume_id and row.resume and bool(getattr(row.resume, 'is_tailored', False)) else None
         available = []
         if company:
-            available = list(Employee.objects.filter(user=row.user, company_id=company.id, working_mail=True).order_by('name'))
+            available = list(Employee.objects.filter(owner_profile=row.profile, company_id=company.id, working_mail=True).order_by('name'))
         selected = list(row.selected_hrs.all())
         tailored_rows = []
         oldest_tailored = None
@@ -3714,7 +3754,7 @@ class ApplicationTrackingDetailView(APIView):
         try:
             row = (
                 Tracking.objects
-                .filter(id=tracking_id, user_id__in=_accessible_owner_ids_for_user(request.user))
+                .filter(id=tracking_id, profile_id__in=_accessible_profile_ids_for_user(request.user))
                 .select_related('job__company', 'mail_tracking_record', 'resume', 'template', 'personalized_template')
                 .prefetch_related('selected_hrs', 'actions', 'job__resumes')
                 .first()
@@ -3743,11 +3783,11 @@ class ApplicationTrackingDetailView(APIView):
         company = job.company if job and job.company_id else None
         if company_id:
             try:
-                company = Company.objects.get(id=company_id, user_id__in=_accessible_owner_ids_for_user(request.user))
+                company = Company.objects.get(id=company_id, profile_id__in=_accessible_profile_ids_for_user(request.user))
             except Company.DoesNotExist:
                 return Response({'detail': 'Company not found.'}, status=status.HTTP_400_BAD_REQUEST)
         elif company_name:
-            company, _ = Company.objects.get_or_create(user=row.user, name=company_name)
+            company, _ = Company.objects.get_or_create(profile=row.profile, name=company_name)
 
         if job and company and job.company_id != company.id:
             job.company = company
@@ -3782,7 +3822,7 @@ class ApplicationTrackingDetailView(APIView):
                 row.resume = None
             else:
                 try:
-                    row.resume = Resume.objects.get(id=raw_resume_id, user_id__in=_accessible_owner_ids_for_user(request.user))
+                    row.resume = Resume.objects.get(id=raw_resume_id, profile_id__in=_accessible_profile_ids_for_user(request.user))
                 except Resume.DoesNotExist:
                     return Response({'detail': 'Resume not found.'}, status=status.HTTP_400_BAD_REQUEST)
         if 'tailored_resume' in payload:
@@ -3793,12 +3833,12 @@ class ApplicationTrackingDetailView(APIView):
             else:
                 tailored = Resume.objects.filter(
                     id=raw_tailored_id,
-                    user_id__in=_accessible_owner_ids_for_user(request.user),
+                    profile_id__in=_accessible_profile_ids_for_user(request.user),
                     is_tailored=True,
                 ).first()
                 if not tailored and row.job_id and row.job:
                     tailored = row.job.resumes.filter(
-                        user_id__in=_accessible_owner_ids_for_user(request.user),
+                        profile_id__in=_accessible_profile_ids_for_user(request.user),
                         is_tailored=True,
                     ).order_by('created_at', 'id').first()
                 if not tailored:
@@ -3831,7 +3871,7 @@ class ApplicationTrackingDetailView(APIView):
                 )
                 selected_personalized = Template.objects.filter(
                     id=raw_personalized_id,
-                    user_id__in=_accessible_owner_ids_for_user(request.user),
+                    profile_id__in=_accessible_profile_ids_for_user(request.user),
                     category=intro_category,
                 ).first()
                 if not selected_personalized:
@@ -3874,7 +3914,7 @@ class ApplicationTrackingDetailView(APIView):
         if any(key in payload for key in ['maild_at', 'mailed_at', 'replied_at', 'mailed']):
             mail_tracking = _mail_tracking_for_row(row)
             if not mail_tracking:
-                mail_tracking = MailTracking.objects.create(user=row.user, tracking=row, resume=row.resume)
+                mail_tracking = MailTracking.objects.create(profile=row.profile, tracking=row, resume=row.resume)
 
         selected_hr_ids = payload.get('selected_hr_ids')
         selected_hrs = payload.get('selected_hrs')
@@ -3893,7 +3933,7 @@ class ApplicationTrackingDetailView(APIView):
         next_selected = None
         if isinstance(selected_hr_ids, list):
             next_selected = Employee.objects.filter(
-                user_id__in=_accessible_owner_ids_for_user(request.user),
+                owner_profile_id__in=_accessible_profile_ids_for_user(request.user),
                 id__in=selected_hr_ids,
                 working_mail=True,
             )
@@ -3901,7 +3941,7 @@ class ApplicationTrackingDetailView(APIView):
             target_names = [str(name or '').strip() for name in selected_hrs if str(name or '').strip()]
             company_id_ref = row.job.company_id if row.job_id and row.job and row.job.company_id else None
             next_selected = Employee.objects.filter(
-                user_id__in=_accessible_owner_ids_for_user(request.user),
+                owner_profile_id__in=_accessible_profile_ids_for_user(request.user),
                 company_id=company_id_ref,
                 working_mail=True,
                 name__in=target_names,
@@ -4118,8 +4158,8 @@ class ApplicationTrackingMailTestView(APIView):
     def _get_row(self, request, tracking_id):
         return (
             Tracking.objects
-            .filter(id=tracking_id, user_id__in=_accessible_owner_ids_for_user(request.user))
-            .select_related('job__company', 'resume', 'template', 'personalized_template', 'user')
+            .filter(id=tracking_id, profile_id__in=_accessible_profile_ids_for_user(request.user))
+            .select_related('job__company', 'resume', 'template', 'personalized_template', 'profile__user')
             .prefetch_related('selected_hrs')
             .first()
         )
@@ -4219,7 +4259,25 @@ class CompanyListCreateView(APIView):
     parser_classes = [JSONParser]
 
     def get(self, request):
-        queryset = Company.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user)).order_by('name')
+        queryset = Company.objects.filter(profile_id__in=_accessible_profile_ids_for_user(request.user)).order_by('name')
+        ready_for_tracking = str(request.query_params.get('ready_for_tracking') or '').strip().lower() in {'1', 'true', 'yes', 'y'}
+        if ready_for_tracking:
+            profile_ids = _accessible_profile_ids_for_user(request.user)
+            open_job_company_ids = set(
+                Job.objects.filter(
+                    company__profile_id__in=profile_ids,
+                    is_closed=False,
+                    is_removed=False,
+                ).values_list('company_id', flat=True)
+            )
+            employee_company_ids = set(
+                Employee.objects.filter(
+                    owner_profile_id__in=profile_ids,
+                    working_mail=True,
+                ).values_list('company_id', flat=True)
+            )
+            eligible_company_ids = open_job_company_ids & employee_company_ids
+            queryset = queryset.exclude(mail_format='').filter(id__in=eligible_company_ids)
         rows, meta = _paginate_queryset(queryset, request, default_page_size=10, max_page_size=100)
         return Response(
             {
@@ -4233,18 +4291,18 @@ class CompanyListCreateView(APIView):
         denied = _ensure_write_allowed(request)
         if denied:
             return denied
-        workspace_owner = _workspace_owner_for_user(request.user)
+        workspace_profile = _workspace_profile_for_user(request.user)
         payload = dict(request.data or {})
         company_name = normalize_company_name(payload.get('name'))
         if not company_name:
             return Response({'name': ['Company name is required.']}, status=status.HTTP_400_BAD_REQUEST)
-        exists = Company.objects.filter(user=workspace_owner, name__iexact=company_name).exists()
+        exists = Company.objects.filter(profile=workspace_profile, name__iexact=company_name).exists()
         if exists:
             return Response({'name': ['This company already exists.']}, status=status.HTTP_400_BAD_REQUEST)
         payload['name'] = company_name
         serializer = CompanySerializer(data=payload)
         if serializer.is_valid():
-            created = serializer.save(user=workspace_owner)
+            created = serializer.save(profile=workspace_profile)
             return Response(CompanySerializer(created).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -4254,7 +4312,7 @@ class CompanyDetailView(APIView):
     parser_classes = [JSONParser]
 
     def _get_object(self, request, company_id):
-        return Company.objects.get(id=company_id, user_id__in=_accessible_owner_ids_for_user(request.user))
+        return Company.objects.get(id=company_id, profile_id__in=_accessible_profile_ids_for_user(request.user))
 
     def put(self, request, company_id):
         if not _can_manage_workspace_fully(request.user):
@@ -4269,7 +4327,7 @@ class CompanyDetailView(APIView):
             if not company_name:
                 return Response({'name': ['Company name is required.']}, status=status.HTTP_400_BAD_REQUEST)
             duplicate = Company.objects.filter(
-                user=row.user,
+                profile=row.profile,
                 name__iexact=company_name,
             ).exclude(id=row.id).exists()
             if duplicate:
@@ -4298,7 +4356,7 @@ class EmployeeListCreateView(APIView):
 
     def get(self, request):
         company_id = request.query_params.get('company_id')
-        rows = Employee.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user))
+        rows = Employee.objects.filter(owner_profile_id__in=_accessible_profile_ids_for_user(request.user))
         if company_id:
             rows = rows.filter(company_id=company_id)
         rows = rows.order_by('name')
@@ -4312,14 +4370,14 @@ class EmployeeListCreateView(APIView):
         company_id = payload.get('company')
         if not company_id:
             return Response({'company': ['This field is required.']}, status=status.HTTP_400_BAD_REQUEST)
-        workspace_owner = _workspace_owner_for_user(request.user)
+        workspace_profile = _workspace_profile_for_user(request.user)
         try:
-            company = Company.objects.get(id=company_id, user=workspace_owner)
+            company = Company.objects.get(id=company_id, profile=workspace_profile)
         except Company.DoesNotExist:
             return Response({'company': ['Company not found.']}, status=status.HTTP_400_BAD_REQUEST)
         serializer = EmployeeSerializer(data=payload)
         if serializer.is_valid():
-            created = serializer.save(user=workspace_owner, company=company)
+            created = serializer.save(owner_profile=workspace_profile, company=company)
             return Response(EmployeeSerializer(created).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -4329,7 +4387,7 @@ class EmployeeDetailView(APIView):
     parser_classes = [JSONParser]
 
     def _get_object(self, request, employee_id):
-        return Employee.objects.get(id=employee_id, user_id__in=_accessible_owner_ids_for_user(request.user))
+        return Employee.objects.get(id=employee_id, owner_profile_id__in=_accessible_profile_ids_for_user(request.user))
 
     def put(self, request, employee_id):
         if not _can_manage_workspace_fully(request.user):
@@ -4343,7 +4401,7 @@ class EmployeeDetailView(APIView):
         company_id = payload.get('company')
         if company_id:
             try:
-                company = Company.objects.get(id=company_id, user=row.user)
+                company = Company.objects.get(id=company_id, profile=row.profile)
             except Company.DoesNotExist:
                 return Response({'company': ['Company not found.']}, status=status.HTTP_400_BAD_REQUEST)
             payload['company'] = company.id
@@ -4386,7 +4444,7 @@ class JobListCreateView(APIView):
 
     def get(self, request):
         include_removed = str(request.query_params.get('include_removed') or '').strip().lower() in {'1', 'true', 'yes', 'y'}
-        rows = Job.objects.filter(user_id__in=_accessible_owner_ids_for_user(request.user)).select_related('company').prefetch_related('resumes')
+        rows = _accessible_jobs_for_user(request.user).select_related('company').prefetch_related('resumes')
         if not include_removed:
             rows = rows.filter(is_removed=False)
 
@@ -4451,8 +4509,7 @@ class JobListCreateView(APIView):
         job_id_value = str(data.get('job_id') or '').strip()
         if not job_id_value:
             return Response({'job_id': ['This field is required.']}, status=status.HTTP_400_BAD_REQUEST)
-        exists = Job.objects.filter(
-            user=workspace_owner,
+        exists = _workspace_owner_jobs_for_user(request.user).filter(
             company=company,
             job_id__iexact=job_id_value,
             is_removed=False,
@@ -4464,7 +4521,7 @@ class JobListCreateView(APIView):
         data.pop('new_company_name', None)
         serializer = JobSerializer(data=data, context={'request': request})
         if serializer.is_valid():
-            created = serializer.save(user=workspace_owner, company=company)
+            created = serializer.save(company=company)
             return Response(
                 JobSerializer(created, context={'request': request}).data,
                 status=status.HTTP_201_CREATED,
@@ -4477,10 +4534,10 @@ class JobDetailView(APIView):
     parser_classes = [JSONParser, FormParser, MultiPartParser]
 
     def _get_object(self, request, job_id):
-        return Job.objects.get(id=job_id, user_id__in=_accessible_owner_ids_for_user(request.user), is_removed=False)
+        return _accessible_jobs_for_user(request.user).get(id=job_id, is_removed=False)
 
     def _get_object_any(self, request, job_id):
-        return Job.objects.get(id=job_id, user_id__in=_accessible_owner_ids_for_user(request.user))
+        return _accessible_jobs_for_user(request.user).get(id=job_id)
 
     def _is_hard_delete(self, request):
         mode = str(request.query_params.get('delete_mode') or '').strip().lower()
@@ -4528,7 +4585,6 @@ class JobDetailView(APIView):
         if not target_job_id:
             return Response({'job_id': ['This field may not be blank.']}, status=status.HTTP_400_BAD_REQUEST)
         duplicate = Job.objects.filter(
-            user=row.user,
             company=target_company,
             job_id__iexact=target_job_id,
             is_removed=False,
@@ -4623,10 +4679,11 @@ class BulkUploadJobsEmployeesView(APIView):
         name = normalize_company_name(raw_name)
         if not name:
             raise ValueError('company is required.')
-        existing = Company.objects.filter(user=user, name__iexact=name).first()
+        profile = _workspace_profile_for_user(user)
+        existing = Company.objects.filter(profile=profile, name__iexact=name).first()
         if existing:
             return existing, False
-        created = Company.objects.create(user=user, name=name)
+        created = Company.objects.create(profile=profile, name=name)
         return created, True
 
     def _fallback_job_id(self, company_name, role, job_link, row_index):
@@ -4699,7 +4756,7 @@ class BulkUploadJobsEmployeesView(APIView):
             if not serializer.is_valid():
                 summary['errors'].append({'row': idx, 'error': serializer.errors})
                 continue
-            serializer.save(user=request.user, company=company)
+            serializer.save(owner_profile=_workspace_profile_for_user(request.user), company=company)
             summary['created'] += 1
 
         return summary
@@ -4753,7 +4810,6 @@ class BulkUploadJobsEmployeesView(APIView):
             seen_company_job.add(key)
 
             exists = Job.objects.filter(
-                user=request.user,
                 company=company,
                 job_id__iexact=job_id,
                 is_removed=False,
@@ -4775,7 +4831,7 @@ class BulkUploadJobsEmployeesView(APIView):
             if not serializer.is_valid():
                 summary['errors'].append({'row': idx, 'error': serializer.errors})
                 continue
-            serializer.save(user=request.user, company=company)
+            serializer.save(company=company)
             summary['created'] += 1
         return summary
 
@@ -4935,7 +4991,7 @@ class ExtensionCompanySearchView(APIView):
         if not actor:
             return Response({'detail': 'Please login in web app'}, status=status.HTTP_401_UNAUTHORIZED)
         q = str(request.query_params.get('q') or '').strip()
-        rows = Company.objects.filter(user_id__in=_accessible_owner_ids_for_user(actor))
+        rows = Company.objects.filter(profile_id__in=_accessible_profile_ids_for_user(actor))
         if q:
             rows = rows.filter(name__icontains=q)
         rows = rows.order_by('name')[:50]
@@ -4985,22 +5041,23 @@ class ExtensionJobCreateView(APIView):
         return None
 
     def _resolve_company(self, user, payload, allow_create=True):
+        profile = _workspace_profile_for_user(user)
         company_id = payload.get('company_id') or payload.get('company')
         if company_id:
             try:
-                return Company.objects.get(id=company_id, user=user), ''
+                return Company.objects.get(id=company_id, profile=profile), ''
             except Company.DoesNotExist:
                 return None, 'Company not found.'
 
         company_name = normalize_company_name(payload.get('company_name') or payload.get('company'))
         if not company_name:
             return None, 'company_name is required when company_id is not provided.'
-        company = Company.objects.filter(user=user, name__iexact=company_name).first()
+        company = Company.objects.filter(profile=profile, name__iexact=company_name).first()
         if company:
             return company, ''
         if not allow_create:
             return None, 'Limited user must choose an existing company.'
-        company = Company.objects.create(user=user, name=company_name)
+        company = Company.objects.create(profile=profile, name=company_name)
         return company, ''
 
     def post(self, request):
@@ -5048,7 +5105,6 @@ class ExtensionJobCreateView(APIView):
             )
 
         duplicate = Job.objects.filter(
-            user=workspace_owner,
             company=company,
             job_id__iexact=job_id_value,
             is_removed=False,
@@ -5060,7 +5116,6 @@ class ExtensionJobCreateView(APIView):
             )
 
         created = Job.objects.create(
-            user=workspace_owner,
             company=company,
             job_id=job_id_value,
             role=role_value,
@@ -5098,22 +5153,23 @@ class ExtensionEmployeeCreateView(APIView):
         return cleaned.lower()
 
     def _resolve_company(self, user, payload, allow_create=True):
+        profile = _workspace_profile_for_user(user)
         company_id = payload.get('company_id') or payload.get('company')
         if company_id:
             try:
-                return Company.objects.get(id=company_id, user=user), ''
+                return Company.objects.get(id=company_id, profile=profile), ''
             except Company.DoesNotExist:
                 return None, 'Company not found.'
 
         company_name = normalize_company_name(payload.get('company_name') or payload.get('company'))
         if not company_name:
             return None, 'company_name is required when company_id is not provided.'
-        company = Company.objects.filter(user=user, name__iexact=company_name).first()
+        company = Company.objects.filter(profile=profile, name__iexact=company_name).first()
         if company:
             return company, ''
         if not allow_create:
             return None, 'Limited user must choose an existing company.'
-        company = Company.objects.create(user=user, name=company_name)
+        company = Company.objects.create(profile=profile, name=company_name)
         return company, ''
 
     def post(self, request):
@@ -5167,7 +5223,8 @@ class ExtensionEmployeeCreateView(APIView):
 
         linkedin_key = self._normalize_profile_url(linkedin_url)
         duplicate = False
-        for row in Employee.objects.filter(user=workspace_owner, company=company).only('id', 'profile'):
+        owner_profile = _workspace_profile_for_user(workspace_owner)
+        for row in Employee.objects.filter(owner_profile=owner_profile, company=company).only('id', 'profile'):
             if self._normalize_profile_url(row.profile) == linkedin_key:
                 duplicate = True
                 break
@@ -5195,7 +5252,7 @@ class ExtensionEmployeeCreateView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        created = serializer.save(user=workspace_owner, company=company)
+        created = serializer.save(owner_profile=owner_profile, company=company)
         return Response(
             {
                 'message': 'Employee created.',
