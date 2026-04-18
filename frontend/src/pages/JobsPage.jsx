@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import ResumeSheet from '../components/ResumeSheet'
 import { SingleSelectDropdown } from '../components/SearchableDropdown'
+import { capitalizeFirstDisplay } from '../utils/displayText'
 
 import { createJob, deleteJob, fetchCompanies, fetchJobs, updateJob } from '../api'
 
@@ -111,6 +112,8 @@ function JobsPage() {
     setLoading(true)
     try {
       const data = await fetchJobs(access, {
+        scope: 'all',
+        include_closed: false,
         page,
         page_size: pageSize,
         company_name: filters.companyName.trim() || undefined,
@@ -159,9 +162,23 @@ function JobsPage() {
     let cancelled = false
     ;(async () => {
       try {
-        const data = await fetchCompanies(access, { page: 1, page_size: 200 })
-        const list = Array.isArray(data?.results) ? data.results : []
-        if (!cancelled) setCompanyOptions(list)
+        const firstPage = await fetchCompanies(access, { page: 1, page_size: 200 })
+        const firstList = Array.isArray(firstPage?.results) ? firstPage.results : []
+        const totalPagesCount = Math.max(1, Number(firstPage?.total_pages || 1))
+        let allCompanies = [...firstList]
+        if (totalPagesCount > 1) {
+          const restPages = await Promise.all(
+            Array.from({ length: totalPagesCount - 1 }, (_, idx) => fetchCompanies(access, { page: idx + 2, page_size: 200 })),
+          )
+          restPages.forEach((pageData) => {
+            const pageRows = Array.isArray(pageData?.results) ? pageData.results : []
+            allCompanies = allCompanies.concat(pageRows)
+          })
+        }
+        const uniqueCompanies = allCompanies.filter((company, index, arr) => (
+          arr.findIndex((item) => String(item?.id || '') === String(company?.id || '')) === index
+        ))
+        if (!cancelled) setCompanyOptions(uniqueCompanies)
       } catch {
         if (!cancelled) setCompanyOptions([])
       }
@@ -380,7 +397,7 @@ function JobsPage() {
                   />
                 </td>
                 <td className="jobs-id-cell">{row.job_id || '—'}</td>
-                <td className="jobs-company-cell">{row.company_name || '—'}</td>
+                <td className="jobs-company-cell">{capitalizeFirstDisplay(row.company_name) || '—'}</td>
                 <td className="jobs-role-cell">{row.role || '—'}</td>
                 <td className="jobs-date-cell">{formatDisplayDate(row.date_of_posting)}</td>
                 <td className="jobs-tailored-cell">
@@ -453,8 +470,8 @@ function JobsPage() {
       </div>
 
       {jobForm ? (
-        <div className="modal-overlay">
-          <div className="modal-panel modal-panel-jobs jobs-modal-panel">
+        <div className="modal-overlay" onClick={() => { setJobForm(null); setFormError('') }}>
+          <div className="modal-panel modal-panel-jobs jobs-modal-panel" onClick={(event) => event.stopPropagation()}>
             <div className="tracking-modal-head">
               <h2>{jobForm.editingId ? 'Edit job' : 'Add job'}</h2>
               <p className="subtitle">Keep the company, role, posting details, and resume link structured in one place.</p>
@@ -466,7 +483,7 @@ function JobsPage() {
               <SingleSelectDropdown
                 value={jobForm.company}
                 placeholder="Select company"
-                options={companyOptions.map((c) => ({ value: String(c.id), label: String(c.name || '') }))}
+                options={companyOptions.map((c) => ({ value: String(c.id), label: capitalizeFirstDisplay(c.name) }))}
                 onChange={(nextValue) => setJobForm((prev) => ({ ...prev, company: nextValue }))}
               />
             </label>

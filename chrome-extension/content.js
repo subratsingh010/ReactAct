@@ -275,6 +275,18 @@
     return text
   }
 
+  function cleanRoleText(value) {
+    let text = String(value || '').replace(/\s+/g, ' ').trim()
+    if (!text) return ''
+    text = text
+      .replace(/\s*-\s*LinkedIn.*$/i, '')
+      .replace(/\s*\|\s*LinkedIn.*$/i, '')
+      .replace(/\s+at\s+.+$/i, '')
+      .replace(/^[|,\-:\s]+|[|,\-:\s]+$/g, '')
+      .trim()
+    return text
+  }
+
   function parseCompanyFromHeadline(headline) {
     const raw = String(headline || '').trim()
     if (!raw) return ''
@@ -309,6 +321,324 @@
     return ''
   }
 
+  function isLikelyExperienceNoise(text) {
+    const value = String(text || '').replace(/\s+/g, ' ').trim()
+    if (!value) return true
+    if (value.length > 120) return true
+    if (/^experience$/i.test(value)) return true
+    if (/^(present|full-time|part-time|contract|internship|freelance|remote|hybrid|on-site|on site)$/i.test(value)) return true
+    if (/^\d+\s*(yr|yrs|year|years|mo|mos|month|months)\b/i.test(value)) return true
+    if (/\b\d+\s*(yr|yrs|year|years|mo|mos|month|months)\b/i.test(value)) return true
+    if (/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(value) && /\b\d{4}\b/.test(value)) return true
+    if (/followers|connections|contact info/i.test(value)) return true
+    return false
+  }
+
+  function cleanExperienceCompanyLine(text) {
+    return cleanCompanyName(String(text || '').split('·')[0] || '')
+  }
+
+  function looksLikeRoleText(text) {
+    const value = cleanRoleText(text).toLowerCase()
+    if (!value) return false
+    return /(engineer|developer|recruit|recruiter|manager|lead|specialist|executive|acquisition|sourcer|architect|consultant|analyst|designer|intern|sde)\b/i.test(value)
+  }
+
+  function isLikelyCompanyCandidate(text, roleLine = '') {
+    const value = cleanExperienceCompanyLine(text)
+    if (!value) return false
+    if (roleLine && value.toLowerCase() === String(roleLine || '').trim().toLowerCase()) return false
+    if (isLikelyExperienceNoise(value)) return false
+    if (/^(software engineer|fullstack engineer|backend engineer|frontend engineer|engineer|developer|manager|team lead|hr recruiter|talent acquisition|hiring manager)$/i.test(value)) return false
+    return true
+  }
+
+  function companyCandidateFromExperienceItem(item, roleLine = '') {
+    if (!item) return ''
+
+    const textNodes = Array.from(
+      item.querySelectorAll('span[aria-hidden="true"], .t-bold span, .t-14 span, .t-16 span, .hoverable-link-text span'),
+    )
+      .map((node) => String(node.textContent || '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+
+    for (const text of textNodes) {
+      if (isLikelyCompanyCandidate(text, roleLine)) {
+        return cleanExperienceCompanyLine(text)
+      }
+    }
+
+    const groupContainer = item.closest('li, .artdeco-list__item, .pvs-list__paged-list-item')
+    if (groupContainer && groupContainer !== item) {
+      const groupTexts = Array.from(groupContainer.querySelectorAll('span[aria-hidden="true"], .t-bold span, .t-14 span, .t-16 span'))
+        .map((node) => String(node.textContent || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+      for (const text of groupTexts) {
+        if (isLikelyCompanyCandidate(text, roleLine)) {
+          return cleanExperienceCompanyLine(text)
+        }
+      }
+    }
+
+    return ''
+  }
+
+  function experienceItemPriority(item) {
+    const text = String(item?.textContent || '').replace(/\s+/g, ' ').trim()
+    if (!text) return 0
+    if (/\b(present|current)\b/i.test(text)) return 3
+    if (/\b\d{4}\s*[-–]\s*present\b/i.test(text)) return 3
+    if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\s*[-–]\s*present\b/i.test(text)) return 3
+    return 1
+  }
+
+  function extractCurrentExperienceMetaFromLines(lines) {
+    const values = Array.isArray(lines) ? lines.map((line) => String(line || '').trim()).filter(Boolean) : []
+    if (!values.length) return { role: '', companyName: '', about: '' }
+
+    const startIndex = values.findIndex((line) => /^experience$/i.test(line))
+    if (startIndex === -1) return { role: '', companyName: '', about: '' }
+
+    const windowLines = values.slice(startIndex + 1, startIndex + 24)
+    const meaningfulLines = windowLines.filter((line) => !isLikelyExperienceNoise(line))
+    if (!meaningfulLines.length) return { role: '', companyName: '', about: '' }
+
+    let roleLine = ''
+    let companyLine = ''
+
+    if (looksLikeRoleText(meaningfulLines[0])) {
+      roleLine = cleanRoleText(meaningfulLines[0])
+    } else if (isLikelyCompanyCandidate(meaningfulLines[0])) {
+      companyLine = cleanExperienceCompanyLine(meaningfulLines[0])
+    }
+
+    if (!roleLine) {
+      const roleCandidate = meaningfulLines.find((line) => looksLikeRoleText(line))
+      if (roleCandidate) roleLine = cleanRoleText(roleCandidate)
+    }
+
+    if (!companyLine && /\bat\s+/i.test(meaningfulLines[0])) {
+      companyLine = cleanCompanyName(String(meaningfulLines[0]).split(/\bat\s+/i).slice(-1)[0] || '')
+    }
+
+    if (!companyLine) {
+      for (let i = 0; i < meaningfulLines.length; i += 1) {
+        const candidate = cleanExperienceCompanyLine(meaningfulLines[i])
+        if (!isLikelyCompanyCandidate(candidate, roleLine)) continue
+        companyLine = candidate
+        break
+      }
+    }
+
+    const aboutLines = meaningfulLines
+      .slice(companyLine ? 2 : 1)
+      .filter((line) => {
+        const text = String(line || '').trim()
+        if (!text) return false
+        if (text.toLowerCase() === roleLine.toLowerCase()) return false
+        if (companyLine && text.toLowerCase() === companyLine.toLowerCase()) return false
+        return true
+      })
+      .slice(0, 4)
+
+    return {
+      role: roleLine,
+      companyName: companyLine,
+      about: aboutLines.join(' ').replace(/\s+/g, ' ').trim(),
+    }
+  }
+
+  function extractCurrentExperienceMetaFromSectionText(section) {
+    const values = String(section?.innerText || '')
+      .split('\n')
+      .map((line) => String(line || '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+    if (!values.length) return { role: '', companyName: '', about: '' }
+
+    for (let i = 0; i < values.length; i += 1) {
+      const line = values[i]
+      if (!/\b(present|current)\b/i.test(line)) continue
+
+      const windowStart = Math.max(0, i - 5)
+      const windowEnd = Math.min(values.length, i + 5)
+      const windowLines = values.slice(windowStart, windowEnd)
+      const meaningfulLines = windowLines.filter((item) => !isLikelyExperienceNoise(item))
+      if (!meaningfulLines.length) continue
+
+      let roleLine = ''
+      let companyLine = ''
+
+      const roleCandidate = meaningfulLines.find((item) => looksLikeRoleText(item))
+      if (roleCandidate) roleLine = cleanRoleText(roleCandidate)
+
+      const companyCandidate = meaningfulLines.find((item) => isLikelyCompanyCandidate(item, roleLine))
+      if (companyCandidate) companyLine = cleanExperienceCompanyLine(companyCandidate)
+
+      const aboutLines = meaningfulLines
+        .filter((item) => {
+          const text = String(item || '').trim().toLowerCase()
+          if (!text) return false
+          if (roleLine && text === roleLine.toLowerCase()) return false
+          if (companyLine && text === companyLine.toLowerCase()) return false
+          return true
+        })
+        .slice(0, 4)
+
+      if (roleLine || companyLine) {
+        return {
+          role: roleLine,
+          companyName: companyLine,
+          about: aboutLines.join(' ').replace(/\s+/g, ' ').trim(),
+        }
+      }
+    }
+
+    return { role: '', companyName: '', about: '' }
+  }
+
+  function extractAboutFromLines(lines) {
+    const values = Array.isArray(lines) ? lines.map((line) => String(line || '').trim()).filter(Boolean) : []
+    if (!values.length) return ''
+
+    const startIndex = values.findIndex((line) => /^about$/i.test(line))
+    if (startIndex === -1) return ''
+
+    const collected = []
+    for (let i = startIndex + 1; i < values.length; i += 1) {
+      const line = values[i]
+      if (!line) continue
+      if (/^(experience|activity|education|skills|licenses & certifications|projects|publications|contact info)$/i.test(line)) {
+        break
+      }
+      if (/^(followers|connections)$/i.test(line)) continue
+      collected.push(line)
+      if (collected.join(' ').length >= 900) break
+    }
+    return collected.join(' ').replace(/\s+/g, ' ').trim()
+  }
+
+  function cleanAboutText(value) {
+    const lines = String(value || '')
+      .split('\n')
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+
+    const cleaned = []
+    for (const line of lines) {
+      if (/^about$/i.test(line)) continue
+      if (/^(see more|see less)$/i.test(line)) continue
+      if (/^(experience|activity|education|skills|licenses & certifications|projects|publications|contact info)$/i.test(line)) break
+      if (/^(followers|connections)$/i.test(line)) continue
+      cleaned.push(line)
+    }
+    return cleaned.join(' ').replace(/\s+/g, ' ').trim()
+  }
+
+  function extractAboutSection() {
+    const section =
+      document.querySelector('section[id*="about"]') ||
+      document.querySelector('section[aria-label*="About"]') ||
+      document.querySelector('section[data-section="summary"]')
+    if (!section) return ''
+
+    const candidateSelectors = [
+      '.display-flex.ph5.pv3 .full-width',
+      '.pv-shared-text-with-see-more',
+      '.inline-show-more-text',
+      '.full-width',
+      'span[aria-hidden="true"]',
+    ]
+
+    const candidates = candidateSelectors
+      .flatMap((selector) => Array.from(section.querySelectorAll(selector)))
+      .map((node) => cleanAboutText(node.innerText || node.textContent || ''))
+      .filter(Boolean)
+      .sort((left, right) => right.length - left.length)
+
+    if (candidates.length) return candidates[0]
+    return cleanAboutText(section.innerText || section.textContent || '')
+  }
+
+  function extractCurrentExperienceMeta() {
+    const section =
+      document.querySelector('section[id*="experience"]') ||
+      document.querySelector('section[data-section="experience"]') ||
+      document.querySelector('section[aria-label*="Experience"]')
+    if (!section) return { role: '', companyName: '', about: '' }
+
+    const fromSectionText = extractCurrentExperienceMetaFromSectionText(section)
+    if (fromSectionText.role || fromSectionText.companyName) return fromSectionText
+
+    const items = Array.from(section.querySelectorAll('li, .artdeco-list__item, .pvs-list__paged-list-item'))
+      .filter((item) => {
+        const text = String(item.textContent || '').trim()
+        return Boolean(text)
+      })
+      .sort((left, right) => experienceItemPriority(right) - experienceItemPriority(left))
+
+    for (const item of items) {
+      const lines = Array.from(item.querySelectorAll('span[aria-hidden="true"], .t-bold span, .t-14 span, .t-16 span'))
+        .map((node) => String(node.textContent || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+
+      const uniqueLines = Array.from(new Set(lines))
+      const meaningfulLines = uniqueLines.filter((line) => !isLikelyExperienceNoise(line))
+      if (!meaningfulLines.length) continue
+
+      let titleLine = ''
+      let companyLine = ''
+
+      if (looksLikeRoleText(meaningfulLines[0])) {
+        titleLine = cleanRoleText(meaningfulLines[0])
+      } else if (isLikelyCompanyCandidate(meaningfulLines[0])) {
+        companyLine = cleanExperienceCompanyLine(meaningfulLines[0])
+      }
+
+      if (!titleLine) {
+        const roleCandidate = meaningfulLines.find((line) => looksLikeRoleText(line))
+        if (roleCandidate) titleLine = cleanRoleText(roleCandidate)
+      }
+
+      if (!companyLine) {
+        companyLine = companyCandidateFromExperienceItem(item, titleLine)
+      }
+
+      if (!companyLine) {
+        for (let i = 0; i < meaningfulLines.length; i += 1) {
+          const candidate = cleanExperienceCompanyLine(meaningfulLines[i])
+          if (!isLikelyCompanyCandidate(candidate, titleLine)) continue
+          companyLine = candidate
+          break
+        }
+      }
+
+      if (!companyLine && /\bat\s+/i.test(meaningfulLines[0])) {
+        companyLine = cleanCompanyName(String(meaningfulLines[0]).split(/\bat\s+/i).slice(-1)[0] || '')
+      }
+
+      const aboutLines = meaningfulLines
+        .slice(companyLine ? 2 : 1)
+        .filter((line) => {
+          const text = String(line || '').trim()
+          if (!text) return false
+          if (text.toLowerCase() === titleLine.toLowerCase()) return false
+          if (companyLine && text.toLowerCase() === companyLine.toLowerCase()) return false
+          return true
+        })
+        .slice(0, 4)
+
+      if (titleLine || companyLine) {
+        return {
+          role: titleLine,
+          companyName: companyLine,
+          about: aboutLines.join(' ').replace(/\s+/g, ' ').trim(),
+        }
+      }
+    }
+
+    return { role: '', companyName: '', about: '' }
+  }
+
   function extractEmployeeMeta() {
     const bodyText = String(document.body?.innerText || '')
     const lines = getBodyLines(bodyText)
@@ -316,6 +646,10 @@
     const jsonLd = parseJsonLdPerson()
     const isLinkedIn = /(^|\.)linkedin\.com$/i.test(String(window.location.hostname || ''))
     const metaDescription = String(document.querySelector('meta[name="description"]')?.content || '').trim()
+    const currentExperience = extractCurrentExperienceMeta()
+    const currentExperienceFromLines = extractCurrentExperienceMetaFromLines(lines)
+    const aboutFromSection = extractAboutSection()
+    const aboutFromLines = extractAboutFromLines(lines)
 
     const name = sanitizeName(firstNonEmpty([
       textContent('h1'),
@@ -338,21 +672,13 @@
     ])
 
     let companyName = firstNonEmpty([
-      extractCompanyFromExperienceSection(),
+      currentExperience.companyName,
+      currentExperienceFromLines.companyName,
       parseCompanyFromHeadline(headline),
-      textContent('.pv-entity__secondary-title'),
-      textContent('section[id*="experience"] li .t-14.t-normal span[aria-hidden="true"]'),
-      parseCompanyFromTitle(document.title),
       parseCompanyFromMetaDescription(metaDescription),
-      valueFromLabeledLines(lines, 'company|organization|employer|current company'),
-      getText('[data-field="experience_company_logo"] + div span'),
     ])
     if (!companyName && /\bat\s+/i.test(headline)) {
       companyName = String(headline.split(/\bat\s+/i).slice(-1)[0] || '').trim()
-    }
-    if (!companyName) {
-      const fromHost = inferCompanyFromHost()
-      if (!/^linkedin$/i.test(fromHost)) companyName = fromHost
     }
     if (!companyName && /\bat\s+/i.test(metaDescription)) {
       companyName = String(metaDescription.split(/\bat\s+/i).slice(-1)[0] || '').split(/[,.|]/)[0].trim()
@@ -369,6 +695,8 @@
     ])
 
     const about = firstNonEmpty([
+      aboutFromSection,
+      aboutFromLines,
       textContent('section[id*="about"] .display-flex.ph5.pv3 .full-width'),
       textContent('section[id*="about"] span[aria-hidden="true"]'),
       getText('[data-generated-suggestion-target]'),
@@ -377,7 +705,12 @@
       headline,
     ])
 
-    const role = headline || parseHeadlineFromTitle(document.title)
+    const role = firstNonEmpty([
+      currentExperience.role,
+      currentExperienceFromLines.role,
+      cleanRoleText(headline),
+      parseHeadlineFromTitle(document.title),
+    ])
     const department = /hr|human resources|recruit/i.test(headline) ? 'HR' : 'Engineering'
     const linkedinUrl = /linkedin\.com\/in\//i.test(currentUrl)
       ? currentUrl

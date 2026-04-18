@@ -806,4 +806,4 @@ class Command(BaseCommand):
             qs.update(working_mail=False)
 
     def _recompute_delivery_status(self, tracking):
-        recompute_tracking_delivery_status(tracking)
+        recompute_tracking_delivery_status(tracking, mark_successful=True)

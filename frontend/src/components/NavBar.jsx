@@ -41,10 +41,7 @@ function NavBar() {
   }
 
   useEffect(() => {
-    if (!accessToken) {
-      setUsername('')
-      return
-    }
+    if (!accessToken) return
     let cancelled = false
     fetchProfile(accessToken)
       .then((p) => {
@@ -57,6 +54,7 @@ function NavBar() {
       cancelled = true
     }
   }, [accessToken])
+  const displayUsername = accessToken ? username : ''
 
   return (
     <header className="nav sticky top-0">
@@ -95,9 +93,9 @@ function NavBar() {
           </div>
 
           <div className="nav-right">
-            {username ? (
+            {displayUsername ? (
               <div className="nav-user-block">
-                <div className="nav-user">{username}</div>
+                <div className="nav-user">{displayUsername}</div>
               </div>
             ) : null}
 

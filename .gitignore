@@ -36,4 +36,4 @@ frontend/dist/
 
 # Project-specific
 backend/tailored_resumes/
-backend/analyzer/migrations/
+backend/analyzer/migrations/__pycache__/

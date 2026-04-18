@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { fetchCompanies, fetchInterviews, fetchJobs, fetchProfile, fetchTrackingRows } from '../api'
+import { fetchAllCompanies, fetchAllJobs, fetchAllTrackingRows, fetchInterviews, fetchProfile } from '../api'
 import { useAuth } from '../contexts/useAuth'
 
 function formatDateTime(value) {
@@ -27,6 +27,10 @@ function HomePage() {
   const [error, setError] = useState('')
   const navigate = useNavigate()
   const { isLoggedIn } = useAuth()
+  const displayName = String(username || '').trim()
+  const capitalizedDisplayName = displayName
+    ? `${displayName.charAt(0).toUpperCase()}${displayName.slice(1)}`
+    : ''
 
   useEffect(() => {
     const run = async () => {
@@ -40,15 +44,15 @@ function HomePage() {
       try {
         const [profile, companyData, jobData, trackingData, interviewData] = await Promise.all([
           fetchProfile(access),
-          fetchCompanies(access, { page: 1, page_size: 200 }),
-          fetchJobs(access, { page: 1, page_size: 300 }),
-          fetchTrackingRows(access, { page: 1, page_size: 300 }),
+          fetchAllCompanies(access),
+          fetchAllJobs(access, { scope: 'all', include_closed: false }),
+          fetchAllTrackingRows(access),
           fetchInterviews(access),
         ])
         setUsername(String(profile?.username || ''))
-        setCompanies(Array.isArray(companyData?.results) ? companyData.results : [])
-        setJobs(Array.isArray(jobData?.results) ? jobData.results : [])
-        setTrackingRows(Array.isArray(trackingData?.results) ? trackingData.results : [])
+        setCompanies(Array.isArray(companyData) ? companyData : [])
+        setJobs(Array.isArray(jobData) ? jobData : [])
+        setTrackingRows(Array.isArray(trackingData) ? trackingData : [])
         setInterviews(Array.isArray(interviewData) ? interviewData : [])
       } catch (err) {
         setError(err?.message || 'Failed to load dashboard data.')
@@ -148,8 +152,8 @@ function HomePage() {
           <div className="tracking-head">
             <div>
               <p className="home-dashboard-eyebrow">Overview</p>
-              <h1>{username ? `${username} CRM Dashboard` : 'CRM Dashboard'}</h1>
-              <p className="subtitle">A cleaner view of companies, jobs, tracking schedule, and interview momentum.</p>
+              <h1>{capitalizedDisplayName ? `Hello, ${capitalizedDisplayName}` : 'Hello'}</h1>
+              <p className="subtitle home-dashboard-welcome">Welcome to Application Workflow Dashboard</p>
             </div>
             <div className="home-hero-actions">
               {HOME_ACTIONS.map((item) => (

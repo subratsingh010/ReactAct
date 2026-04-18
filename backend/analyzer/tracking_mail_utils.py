@@ -28,7 +28,7 @@ def ensure_mail_tracking(tracking):
             update_fields.append("updated_at")
             mail_tracking.save(update_fields=update_fields)
         return mail_tracking
-    return MailTracking.objects.create(user=tracking.user, tracking=tracking, resume=tracking.resume)
+    return MailTracking.objects.create(profile=tracking.profile, tracking=tracking, resume=tracking.resume)
 
 
 def build_history_entry(
@@ -200,7 +200,7 @@ def build_mail_tracking_status_map(mail_tracking):
     return latest_by_key
 
 
-def recompute_tracking_delivery_status(tracking):
+def recompute_tracking_delivery_status(tracking, *, mark_successful=False):
     mail_tracking = getattr(tracking, "mail_tracking_record", None)
     if not mail_tracking:
         tracking.mail_delivery_status = "pending"
@@ -234,9 +234,12 @@ def recompute_tracking_delivery_status(tracking):
     if sent_count and failed_count:
         tracking.mail_delivery_status = "partial_sent"
     elif sent_count:
-        tracking.mail_delivery_status = "complete_sent"
+        tracking.mail_delivery_status = "successful_sent" if mark_successful else "sent_via_cron"
     elif failed_count:
-        tracking.mail_delivery_status = "failed"
+        if any(value == "bounced" for value in latest_by_email.values()):
+            tracking.mail_delivery_status = "mail_bounced"
+        else:
+            tracking.mail_delivery_status = "failed"
     else:
         tracking.mail_delivery_status = "pending"
 

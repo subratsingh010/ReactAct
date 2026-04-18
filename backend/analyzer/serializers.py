@@ -75,8 +75,22 @@ class SignupSerializer(serializers.ModelSerializer):
 
 class ResumeSerializer(serializers.ModelSerializer):
     job_id = serializers.IntegerField(source='job.id', read_only=True)
+    job_label = serializers.SerializerMethodField()
     source_resume_id = serializers.IntegerField(source='source_resume.id', read_only=True)
+    source_resume_title = serializers.SerializerMethodField()
     is_tailored = serializers.BooleanField(required=False)
+
+    def get_job_label(self, obj):
+        if not getattr(obj, 'job_id', None) or not obj.job:
+            return ''
+        company_name = obj.job.company.name if getattr(obj.job, 'company_id', None) else ''
+        parts = [str(obj.job.job_id or '').strip(), str(company_name or '').strip(), str(obj.job.role or '').strip()]
+        return ' | '.join([part for part in parts if part])
+
+    def get_source_resume_title(self, obj):
+        if not getattr(obj, 'source_resume_id', None) or not obj.source_resume:
+            return ''
+        return str(obj.source_resume.title or '').strip()
 
     class Meta:
         model = Resume
@@ -91,13 +105,15 @@ class ResumeSerializer(serializers.ModelSerializer):
             'is_tailored',
             'job',
             'job_id',
+            'job_label',
             'source_resume',
             'source_resume_id',
+            'source_resume_title',
             'status',
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'optimized_text', 'status', 'ats_pdf_path', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'optimized_text', 'status', 'ats_pdf_path', 'job_id', 'job_label', 'source_resume_id', 'source_resume_title', 'created_at', 'updated_at']
 
 
 class TailoredResumeSerializer(serializers.ModelSerializer):
@@ -266,12 +282,23 @@ class EmployeeSerializer(serializers.ModelSerializer):
     company_name = serializers.SerializerMethodField()
     location_name = serializers.SerializerMethodField()
     # Backward-compatible API keys for existing frontend payload/response shape.
-    role = serializers.CharField(source='JobRole', required=False, allow_blank=True)
+    role = serializers.CharField(source='JobRole', required=True, allow_blank=False)
     personalized_template_helpful = serializers.CharField(source='helpful', required=False, allow_blank=True)
     name = serializers.CharField(required=False, allow_blank=True)
     first_name = serializers.CharField(required=False, allow_blank=True)
     middle_name = serializers.CharField(required=False, allow_blank=True)
     last_name = serializers.CharField(required=False, allow_blank=True)
+
+    def to_internal_value(self, data):
+        payload = data.copy() if hasattr(data, 'copy') else dict(data or {})
+        if 'company' in payload and str(payload.get('company') or '').strip() == '':
+            if self.instance is not None:
+                payload.pop('company', None)
+            else:
+                payload['company'] = None
+        if 'location_ref' in payload and str(payload.get('location_ref') or '').strip() == '':
+            payload['location_ref'] = None
+        return super().to_internal_value(payload)
 
     def get_company_name(self, obj):
         return obj.company.name if getattr(obj, 'company', None) else ''
@@ -280,6 +307,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
         if getattr(obj, 'location_ref_id', None) and getattr(obj, 'location_ref', None):
             return obj.location_ref.name
         return str(getattr(obj, 'location', '') or '')
+
+    def validate_email(self, value):
+        return _normalize_email(value)
 
     def validate(self, attrs):
         first_name = str(attrs.get('first_name') or '').strip()
@@ -293,16 +323,38 @@ class EmployeeSerializer(serializers.ModelSerializer):
             attrs['first_name'] = first_name
             attrs['middle_name'] = middle_name
             attrs['last_name'] = last_name
-            return attrs
-
-        if name:
+        elif name:
             attrs['name'] = name
-            return attrs
+        elif not (self.instance and str(getattr(self.instance, 'name', '') or '').strip()):
+            raise serializers.ValidationError({'name': ['Provide name or first/middle/last name.']})
 
-        if self.instance and str(getattr(self.instance, 'name', '') or '').strip():
-            return attrs
+        role_value = str(attrs.get('JobRole') or getattr(self.instance, 'JobRole', '') or '').strip()
+        if not role_value:
+            raise serializers.ValidationError({'role': ['This field is required.']})
+        attrs['JobRole'] = role_value
 
-        raise serializers.ValidationError({'name': ['Provide name or first/middle/last name.']})
+        department_value = str(attrs.get('department') or getattr(self.instance, 'department', '') or '').strip()
+        if not department_value:
+            raise serializers.ValidationError({'department': ['This field is required.']})
+        attrs['department'] = department_value
+
+        company = attrs.get('company') or getattr(self.instance, 'company', None)
+        normalized_name = str(attrs.get('name') or getattr(self.instance, 'name', '') or '').strip()
+        normalized_email = str(attrs.get('email') or getattr(self.instance, 'email', '') or '').strip().lower()
+        if company is not None and normalized_name and normalized_email:
+            duplicate_rows = Employee.objects.filter(
+                company=company,
+                name__iexact=normalized_name,
+                email__iexact=normalized_email,
+            )
+            if self.instance is not None:
+                duplicate_rows = duplicate_rows.exclude(id=self.instance.id)
+            if duplicate_rows.exists():
+                raise serializers.ValidationError({
+                    'email': ['An employee with this name and email already exists for this company.']
+                })
+
+        return attrs
 
     class Meta:
         model = Employee
@@ -370,6 +422,7 @@ class JobSerializer(serializers.ModelSerializer):
     company_name = serializers.SerializerMethodField()
     has_tailored_resume = serializers.SerializerMethodField()
     tailored_resumes = serializers.SerializerMethodField()
+    associated_resumes = serializers.SerializerMethodField()
     resume_preview = serializers.SerializerMethodField()
     applied = serializers.SerializerMethodField()
 
@@ -389,16 +442,31 @@ class JobSerializer(serializers.ModelSerializer):
             for item in rows
         ]
 
+    def get_associated_resumes(self, obj):
+        rows = obj.resumes.order_by('-updated_at', '-created_at', '-id')
+        return [
+            {
+                'id': item.id,
+                'title': str(item.title or '').strip() or f'Resume #{item.id}',
+                'is_tailored': bool(item.is_tailored),
+            }
+            for item in rows
+        ]
+
     def get_resume_preview(self, obj):
-        first = obj.resumes.filter(is_tailored=True).order_by('created_at', 'id').first()
-        if not first:
+        preview_resume = (
+            obj.resumes
+            .order_by('-is_tailored', '-updated_at', '-created_at', '-id')
+            .first()
+        )
+        if not preview_resume:
             return None
-        data = first.builder_data or {}
+        data = preview_resume.builder_data or {}
         if not isinstance(data, dict) or not data:
             return None
         return {
-            'id': first.id,
-            'title': str(first.title or '').strip() or f'Tailored Resume #{first.id}',
+            'id': preview_resume.id,
+            'title': str(preview_resume.title or '').strip() or f'Resume #{preview_resume.id}',
             'builder_data': data,
         }
 
@@ -429,6 +497,7 @@ class JobSerializer(serializers.ModelSerializer):
             'job_link',
             'has_tailored_resume',
             'tailored_resumes',
+            'associated_resumes',
             'resume_preview',
             'company',
             'company_name',
@@ -460,6 +529,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     linkedin_url = serializers.CharField(required=False, allow_blank=True)
     github_url = serializers.CharField(required=False, allow_blank=True)
     portfolio_url = serializers.CharField(required=False, allow_blank=True)
+    resume_link = serializers.CharField(required=False, allow_blank=True)
     location_name = serializers.SerializerMethodField()
     preferred_location_refs = serializers.PrimaryKeyRelatedField(
         source='preferred_locations',
@@ -489,6 +559,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def validate_portfolio_url(self, value):
         return _normalize_url(value)
 
+    def validate_resume_link(self, value):
+        return _normalize_url(value)
+
     def validate_full_name(self, value):
         return _normalize_text(value)
 
@@ -507,16 +580,25 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def validate_summary(self, value):
         return _normalize_text(value)
 
+    def validate_role(self, value):
+        text = _normalize_text(value).lower()
+        allowed = {choice[0] for choice in UserProfile.ROLE_CHOICES}
+        if text not in allowed:
+            raise serializers.ValidationError('Role must be superadmin, admin, or read_only.')
+        return text
+
     class Meta:
         model = UserProfile
         fields = [
             'id',
+            'role',
             'full_name',
             'email',
             'contact_number',
             'linkedin_url',
             'github_url',
             'portfolio_url',
+            'resume_link',
             'current_employer',
             'years_of_experience',
             'address_line_1',
@@ -541,6 +623,7 @@ class ProfilePanelSerializer(serializers.ModelSerializer):
     linkedin_url = serializers.CharField(required=False, allow_blank=True)
     github_url = serializers.CharField(required=False, allow_blank=True)
     portfolio_url = serializers.CharField(required=False, allow_blank=True)
+    resume_link = serializers.CharField(required=False, allow_blank=True)
     location_name = serializers.SerializerMethodField()
     preferred_location_refs = serializers.PrimaryKeyRelatedField(
         source='preferred_locations',
@@ -579,6 +662,9 @@ class ProfilePanelSerializer(serializers.ModelSerializer):
     def validate_portfolio_url(self, value):
         return _normalize_url(value)
 
+    def validate_resume_link(self, value):
+        return _normalize_url(value)
+
     def validate_current_employer(self, value):
         return _normalize_text(value)
 
@@ -602,6 +688,7 @@ class ProfilePanelSerializer(serializers.ModelSerializer):
             'linkedin_url',
             'github_url',
             'portfolio_url',
+            'resume_link',
             'current_employer',
             'years_of_experience',
             'address_line_1',
@@ -661,7 +748,11 @@ class TemplateSerializer(serializers.ModelSerializer):
         request = self.context.get('request') if isinstance(self.context, dict) else None
         user = getattr(request, 'user', None)
         if getattr(user, 'is_authenticated', False):
-            rows = Template.objects.filter(user=user, name__iexact=text)
+            profile = getattr(user, 'profile_info', None)
+            if profile is not None:
+                rows = Template.objects.filter(profile=profile, name__iexact=text)
+            else:
+                rows = Template.objects.none()
             if self.instance is not None:
                 rows = rows.exclude(id=self.instance.id)
             if rows.exists():
@@ -670,8 +761,8 @@ class TemplateSerializer(serializers.ModelSerializer):
 
     def validate_category(self, value):
         text = str(value or '').strip().lower()
-        if text not in {'personalized', 'opening', 'experience', 'closing', 'general'}:
-            raise serializers.ValidationError('Category must be Personalized, Opening, Experience, Closing, or General.')
+        if text not in {'personalized', 'follow_up', 'opening', 'experience', 'closing', 'general'}:
+            raise serializers.ValidationError('Category must be Personalized, Follow Up, Opening, Experience, Closing, or General.')
         return text
 
     def validate_paragraph(self, value):

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>ApplyPilot</title>
+  <defs>
+    <linearGradient id="ap-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4aa89b" />
+      <stop offset="100%" stop-color="#2f8d81" />
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="18" fill="url(#ap-grad)" />
+  <path
+    fill="#ffffff"
+    d="M24.17 43V21.73h8.6c1.93 0 3.58.35 4.95 1.05c1.37.68 2.41 1.65 3.14 2.89c.73 1.23 1.09 2.66 1.09 4.28c0 1.63-.37 3.06-1.12 4.29c-.73 1.22-1.79 2.17-3.18 2.85c-1.37.67-3.03 1.01-4.98 1.01h-4.92V43h-3.58Zm3.58-8.16h4.66c1.78 0 3.12-.4 4.03-1.2c.93-.82 1.4-1.98 1.4-3.49c0-1.5-.47-2.67-1.4-3.5c-.91-.84-2.25-1.26-4.03-1.26h-4.66v9.45Z"
+  />
+  <path
+    fill="#ffffff"
+    d="M41.5 43V21.73h3.58v18.25h8.95V43H41.5Z"
+    opacity="0.96"
+  />
+</svg>

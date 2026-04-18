@@ -8,7 +8,7 @@ import {
   createTailoredResume,
   createResume,
   exportAtsPdfLocal,
-  fetchJobs,
+  fetchAllJobs,
   fetchResume,
   fetchResumes,
   optimizeResumeQuality,
@@ -654,8 +654,10 @@ function ResumeBuilderPage({
     ],
   })
   const [resumeRecordId, setResumeRecordId] = useState(() => sessionStorage.getItem(resumeIdSessionKey))
+  const [resumeJobId, setResumeJobId] = useState('')
   const [saveMode, setSaveMode] = useState(() => (sessionStorage.getItem('builderSaveMode') === 'edit' ? 'edit' : 'create'))
   const [saveTarget, setSaveTarget] = useState('base')
+  const [allowBaseResumeSave, setAllowBaseResumeSave] = useState(false)
   const [tailoredSourceResumeId, setTailoredSourceResumeId] = useState('')
   const [saveState, setSaveState] = useState({ saving: false, message: '' })
   const [pdfSaveState, setPdfSaveState] = useState({ saving: false, message: '' })
@@ -682,6 +684,9 @@ function ResumeBuilderPage({
   const [saveModal, setSaveModal] = useState({
     open: false,
     name: '',
+    jobId: '',
+    loading: false,
+    jobs: [],
   })
   const [tailorReferenceBuilder, setTailorReferenceBuilder] = useState(() => {
     if (!enableTailorFlow) return null
@@ -787,6 +792,7 @@ function ResumeBuilderPage({
             pageMarginIn: normalizePageMarginIn(imported.pageMarginIn ?? prev.pageMarginIn),
             sectionUnderline: true,
           }))
+          setResumeJobId('')
           if (enableTailorFlow && hasBuilderSubstance(imported) && !tailorReferenceBuilder) {
             setTailorReferenceBuilder(cloneBuilderData(imported))
             setTailorReferenceResumeId('')
@@ -820,6 +826,7 @@ function ResumeBuilderPage({
         isDefaultResume: Boolean(full.is_default),
       }))
       setResumeRecordId(String(full.id))
+      setResumeJobId(full?.job ? String(full.job) : '')
       setSaveTarget(Boolean(full?.is_tailored) ? 'tailored' : 'base')
       sessionStorage.setItem(resumeIdSessionKey, String(full.id))
       if (enableTailorFlow && !tailorReferenceBuilder && hasBuilderSubstance(full.builder_data || {})) {
@@ -845,6 +852,7 @@ function ResumeBuilderPage({
             isDefaultResume: Boolean(full.is_default),
           }))
           setResumeRecordId(String(full.id))
+          setResumeJobId(full?.job ? String(full.job) : '')
           setSaveTarget(Boolean(full?.is_tailored) ? 'tailored' : 'base')
           setSaveMode('edit')
           // Stored resume was loaded successfully; do not override with default resume.
@@ -910,6 +918,7 @@ function ResumeBuilderPage({
         pageMarginIn: normalizePageMarginIn(parsed.pageMarginIn ?? prev.pageMarginIn),
         sectionUnderline: true,
       }))
+      setResumeJobId('')
       if (enableTailorFlow) {
         setTailorReferenceBuilder(cloneBuilderData(parsed))
         setTailorReferenceResumeId('')
@@ -1231,7 +1240,7 @@ function ResumeBuilderPage({
         loading: false,
         mode: '',
         message: '',
-        error: 'Paste full job description (at least 40 characters).',
+        error: 'Paste a full job description. Your base resume will be used as the reference. Best results: include role, required skills, responsibilities, tools/tech stack, and domain context. Recommended: 40+ words or about 200+ characters.',
         keywords: [],
         matchScore: null,
       })
@@ -1303,6 +1312,7 @@ function ResumeBuilderPage({
       // Tailor action is preview-first. Any subsequent Save must create/update a tailored copy, never overwrite the base.
       setTailoredSourceResumeId(String(resumeRecordId || tailorReferenceResumeId || '').trim())
       setSaveTarget('tailored')
+      setResumeJobId('')
       setResumeRecordId(null)
       setSaveMode('create')
       sessionStorage.removeItem(resumeIdSessionKey)
@@ -1377,6 +1387,7 @@ function ResumeBuilderPage({
       }
 
       if (saveMode === 'create') {
+        setResumeJobId('')
         setResumeRecordId(null)
         sessionStorage.removeItem(resumeIdSessionKey)
       }
@@ -1401,7 +1412,7 @@ function ResumeBuilderPage({
     }
   }
 
-  const saveResumeToAccount = async ({ titleOverride = '', forceCreate = false } = {}) => {
+  const saveResumeToAccount = async ({ titleOverride = '', forceCreate = false, jobIdOverride = '' } = {}) => {
     const access = localStorage.getItem('access')
     if (!access) {
       navigate('/login')
@@ -1411,11 +1422,13 @@ function ResumeBuilderPage({
     try {
       setSaveState({ saving: true, message: '' })
       const derivedTitle = String(titleOverride || '').trim() || autoTitle
+      const resolvedJobId = String(jobIdOverride || resumeJobId || '').trim()
       const payload = {
         title: derivedTitle,
         builder_data: form,
         original_text: formToPlainText(form),
-        is_default: Boolean(form.isDefaultResume),
+        is_default: true,
+        job: resolvedJobId ? Number(resolvedJobId) : null,
       }
 
       const data = (!forceCreate && resumeRecordId)
@@ -1428,6 +1441,7 @@ function ResumeBuilderPage({
           })()
 
       setResumeRecordId(String(data.id))
+      setResumeJobId(data?.job ? String(data.job) : '')
       sessionStorage.setItem(resumeIdSessionKey, String(data.id))
       setSaveMode('edit')
       setSaveTarget('base')
@@ -1436,12 +1450,10 @@ function ResumeBuilderPage({
         ...prev,
         isDefaultResume: Boolean(data.is_default),
       }))
-      const pdfSync = await syncStoredAtsPdf(access, data?.id)
+      setAllowBaseResumeSave(false)
       setSaveState({
         saving: false,
-        message: pdfSync.ok
-          ? `Saved: ${new Date().toLocaleTimeString()}`
-          : `Saved, but PDF sync failed: ${pdfSync.message}`,
+        message: `Saved: ${new Date().toLocaleTimeString()}`,
       })
       return data
     } catch (err) {
@@ -1450,7 +1462,7 @@ function ResumeBuilderPage({
     }
   }
 
-  const saveTailoredResumeToAccount = async ({ titleOverride = '' } = {}) => {
+  const saveTailoredResumeToAccount = async ({ titleOverride = '', jobIdOverride = '' } = {}) => {
     const access = localStorage.getItem('access')
     if (!access) {
       navigate('/login')
@@ -1460,17 +1472,20 @@ function ResumeBuilderPage({
     try {
       setSaveState({ saving: true, message: '' })
       const derivedTitle = String(titleOverride || '').trim() || `Tailored - ${String(autoTitle || '').trim() || 'Resume'}`
+      const resolvedJobId = String(jobIdOverride || resumeJobId || '').trim()
       const updatePayload = {
         title: derivedTitle,
         builder_data: form,
         original_text: formToPlainText(form),
         is_default: false,
         is_tailored: true,
+        job: resolvedJobId ? Number(resolvedJobId) : null,
       }
       if (resumeRecordId && saveMode === 'edit') {
         const data = await updateResume(access, resumeRecordId, updatePayload)
         if (data?.id) {
           setResumeRecordId(String(data.id))
+          setResumeJobId(data?.job ? String(data.job) : '')
           sessionStorage.setItem(resumeIdSessionKey, String(data.id))
         }
         setSaveMode('edit')
@@ -1479,12 +1494,9 @@ function ResumeBuilderPage({
           ...prev,
           isDefaultResume: false,
         }))
-        const pdfSync = await syncStoredAtsPdf(access, data?.id)
         setSaveState({
           saving: false,
-          message: pdfSync.ok
-            ? `Updated tailored copy: ${new Date().toLocaleTimeString()}`
-            : `Updated tailored copy, but PDF sync failed: ${pdfSync.message}`,
+          message: `Updated tailored copy: ${new Date().toLocaleTimeString()}`,
         })
         return data
       }
@@ -1498,11 +1510,12 @@ function ResumeBuilderPage({
         name: derivedTitle,
         builder_data: form,
         resume: Number(sourceResumeId),
-        job: tailoredModal.jobId ? Number(tailoredModal.jobId) : null,
+        job: resolvedJobId ? Number(resolvedJobId) : null,
       }
       const data = await createTailoredResume(access, payload)
       if (data?.id) {
         setResumeRecordId(String(data.id))
+        setResumeJobId(data?.job ? String(data.job) : '')
         sessionStorage.setItem(resumeIdSessionKey, String(data.id))
       }
       setSaveMode('edit')
@@ -1511,12 +1524,9 @@ function ResumeBuilderPage({
         ...prev,
         isDefaultResume: false,
       }))
-      const pdfSync = await syncStoredAtsPdf(access, data?.id)
       setSaveState({
         saving: false,
-        message: pdfSync.ok
-          ? `Saved tailored copy: ${new Date().toLocaleTimeString()}`
-          : `Saved tailored copy, but PDF sync failed: ${pdfSync.message}`,
+        message: `Saved tailored copy: ${new Date().toLocaleTimeString()}`,
       })
       return data
     } catch (err) {
@@ -1525,18 +1535,32 @@ function ResumeBuilderPage({
     }
   }
 
-  const openSaveModal = () => {
+  const openSaveModal = async () => {
     if (saveTarget === 'base' && saveMode === 'edit' && !resumeRecordId) {
       setSaveState({ saving: false, message: 'Edit mode cannot create new resume. Use Add Resume (+).' })
       return
     }
+    const access = localStorage.getItem('access')
     const suggested = saveTarget === 'tailored'
       ? `Tailored - ${String(autoTitle || '').trim() || 'Resume'}`
       : (String(autoTitle || '').trim() || 'My Resume')
     setSaveModal({
       open: true,
       name: suggested,
+      jobId: resumeJobId || '',
+      loading: true,
+      jobs: [],
     })
+    if (!access) {
+      setSaveModal((prev) => ({ ...prev, loading: false }))
+      return
+    }
+    try {
+      const jobs = await fetchAllJobs(access, { ordering: '-created_at' })
+      setSaveModal((prev) => ({ ...prev, loading: false, jobs }))
+    } catch {
+      setSaveModal((prev) => ({ ...prev, loading: false, jobs: [] }))
+    }
   }
 
   const saveFromModal = async () => {
@@ -1544,9 +1568,10 @@ function ResumeBuilderPage({
       ? `Tailored - ${String(autoTitle || '').trim() || 'Resume'}`
       : (String(autoTitle || '').trim() || 'My Resume')
     const value = String(saveModal.name || '').trim() || suggested
+    const selectedJobId = String(saveModal.jobId || '').trim()
     const saved = saveTarget === 'tailored'
-      ? await saveTailoredResumeToAccount({ titleOverride: value })
-      : await saveResumeToAccount({ titleOverride: value, forceCreate: false })
+      ? await saveTailoredResumeToAccount({ titleOverride: value, jobIdOverride: selectedJobId })
+      : await saveResumeToAccount({ titleOverride: value, forceCreate: false, jobIdOverride: selectedJobId })
     if (saved) {
       setSaveModal((prev) => ({ ...prev, open: false }))
     }
@@ -1562,13 +1587,12 @@ function ResumeBuilderPage({
     setTailoredModal({
       open: true,
       name: suggested,
-      jobId: '',
+      jobId: resumeJobId || '',
       loading: true,
       jobs: [],
     })
     try {
-      const data = await fetchJobs(access, { page: 1, page_size: 300, ordering: '-created_at' })
-      const jobs = Array.isArray(data?.results) ? data.results : []
+      const jobs = await fetchAllJobs(access, { ordering: '-created_at' })
       setTailoredModal((prev) => ({ ...prev, loading: false, jobs }))
     } catch {
       setTailoredModal((prev) => ({ ...prev, loading: false, jobs: [] }))
@@ -1598,6 +1622,7 @@ function ResumeBuilderPage({
       const data = await createTailoredResume(access, payload)
       if (data?.id) {
         setResumeRecordId(String(data.id))
+        setResumeJobId(data?.job ? String(data.job) : '')
         sessionStorage.setItem(resumeIdSessionKey, String(data.id))
         setSaveMode('edit')
       }
@@ -1608,12 +1633,9 @@ function ResumeBuilderPage({
         isDefaultResume: false,
       }))
       setTailoredModal((prev) => ({ ...prev, open: false }))
-      const pdfSync = await syncStoredAtsPdf(access, data?.id)
       setSaveState({
         saving: false,
-        message: pdfSync.ok
-          ? `Saved to Tailored: ${new Date().toLocaleTimeString()}`
-          : `Saved to Tailored, but PDF sync failed: ${pdfSync.message}`,
+        message: `Saved to Tailored: ${new Date().toLocaleTimeString()}`,
       })
     } catch (err) {
       setSaveState({ saving: false, message: err.message || 'Save failed' })
@@ -1622,53 +1644,67 @@ function ResumeBuilderPage({
 
   const Actions = ({ className, includeHome }) => (
     <div className={className}>
-      {includeHome && (!minimalTailorUi || enableTailorFlow) && (
-        <button type="button" className="secondary" onClick={openPdfPicker} disabled={importState.importing}>
-          {importState.importing ? 'Importing...' : 'Import PDF'}
+      <div className="builder-actions-row">
+        {includeHome && (!minimalTailorUi || enableTailorFlow) && (
+          <button type="button" className="secondary" onClick={openPdfPicker} disabled={importState.importing}>
+            {importState.importing ? 'Importing...' : 'Import PDF'}
+          </button>
+        )}
+        {showSaveButton && (!enableTailorFlow || allowBaseResumeSave) && (
+          <button type="button" onClick={openSaveModal} disabled={saveState.saving}>
+            {saveState.saving ? 'Saving...' : 'Save'}
+          </button>
+        )}
+        {showSaveButton && enableTailorFlow && (
+          <button type="button" className="secondary" onClick={openSaveToTailored} disabled={saveState.saving}>
+            {saveState.saving ? 'Saving...' : 'Save To Tailored'}
+          </button>
+        )}
+        {showJdBox && enableTailorFlow && (
+          <button
+            type="button"
+            className={`secondary${activeTailorAction === 'optimize' ? ' is-active' : ''}${tailorState.loading && tailorState.mode === 'optimize' ? ' is-busy' : ''}`}
+            onClick={runQualityOptimize}
+            disabled={tailorState.loading && tailorState.mode === 'optimize'}
+          >
+            {tailorState.loading && tailorState.mode === 'optimize' ? 'Optimizing...' : 'Optimize'}
+          </button>
+        )}
+        {showJdBox && enableTailorFlow && (
+          <button
+            type="button"
+            className={`secondary${activeTailorAction === 'tailor' ? ' is-active' : ''}${tailorState.loading && tailorState.mode === 'tailor' ? ' is-busy' : ''}`}
+            onClick={runTailorAndSave}
+            disabled={tailorState.loading && tailorState.mode === 'tailor'}
+          >
+            {tailorState.loading && tailorState.mode === 'tailor' ? 'Tailoring...' : 'Tailor First'}
+          </button>
+        )}
+        {minimalTailorUi && (
+          <button type="button" className="secondary" onClick={openInMainBuilder}>
+            Edit In Builder
+          </button>
+        )}
+        <button type="button" className="secondary" onClick={downloadAtsPdf}>
+          ATS PDF
         </button>
-      )}
-      {showSaveButton && (
-        <button type="button" onClick={openSaveModal} disabled={saveState.saving}>
-          {saveState.saving ? 'Saving...' : 'Save'}
-        </button>
-      )}
+        {!enableTailorFlow && (
+          <button type="button" className="secondary" onClick={saveAtsPdfLocal} disabled={pdfSaveState.saving}>
+            {pdfSaveState.saving ? 'Saving PDF...' : 'Save ATS PDF Local'}
+          </button>
+        )}
+      </div>
       {showSaveButton && enableTailorFlow && (
-        <button type="button" className="secondary" onClick={openSaveToTailored} disabled={saveState.saving}>
-          {saveState.saving ? 'Saving...' : 'Save To Tailored'}
-        </button>
-      )}
-      {showJdBox && enableTailorFlow && (
-        <button
-          type="button"
-          className={`secondary${activeTailorAction === 'optimize' ? ' is-active' : ''}${tailorState.loading && tailorState.mode === 'optimize' ? ' is-busy' : ''}`}
-          onClick={runQualityOptimize}
-          disabled={tailorState.loading && tailorState.mode === 'optimize'}
-        >
-          {tailorState.loading && tailorState.mode === 'optimize' ? 'Optimizing...' : 'Optimize'}
-        </button>
-      )}
-      {showJdBox && enableTailorFlow && (
-        <button
-          type="button"
-          className={`secondary${activeTailorAction === 'tailor' ? ' is-active' : ''}${tailorState.loading && tailorState.mode === 'tailor' ? ' is-busy' : ''}`}
-          onClick={runTailorAndSave}
-          disabled={tailorState.loading && tailorState.mode === 'tailor'}
-        >
-          {tailorState.loading && tailorState.mode === 'tailor' ? 'Tailoring...' : 'Tailor First'}
-        </button>
-      )}
-      {minimalTailorUi && (
-        <button type="button" className="secondary" onClick={openInMainBuilder}>
-          Edit In Builder
-        </button>
-      )}
-      <button type="button" className="secondary" onClick={downloadAtsPdf}>
-        ATS PDF
-      </button>
-      {!enableTailorFlow && (
-        <button type="button" className="secondary" onClick={saveAtsPdfLocal} disabled={pdfSaveState.saving}>
-          {pdfSaveState.saving ? 'Saving PDF...' : 'Save ATS PDF Local'}
-        </button>
+        <div className="builder-actions-meta">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={allowBaseResumeSave}
+              onChange={(e) => setAllowBaseResumeSave(e.target.checked)}
+            />
+            Allow saving/editing base resume
+          </label>
+        </div>
       )}
     </div>
   )
@@ -1738,13 +1774,16 @@ function ResumeBuilderPage({
                 rows={10}
                 value={jobDescription}
                 onChange={(e) => setJobDescription(e.target.value)}
-                placeholder="Paste the full job description here..."
+                placeholder="Paste a full job description here. Your base resume will be used as the reference. Best results: include role, required skills, responsibilities, tools/tech stack, and domain context. Recommended: 40+ words or about 200+ characters."
               />
               {enableTailorFlow && !tailorReferenceLoaded && (
                 <p className="hint" style={{ margin: '8px 0 0' }}>
                   Upload a reference resume PDF first.
                 </p>
               )}
+              <p className="hint" style={{ margin: '8px 0 0' }}>
+                Your base resume will be used as the reference. Best results: include role, required skills, responsibilities, tools/tech stack, and domain context.
+              </p>
               <p className="hint" style={{ margin: '8px 0 0' }}>
                 Optimize improves the current resume without using JD.
               </p>
@@ -1767,49 +1806,36 @@ function ResumeBuilderPage({
           )}
 
           {!minimalTailorUi && (
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={showSectionOrder}
-                onChange={(e) => setShowSectionOrder(e.target.checked)}
-              />
-              Change section order
-            </label>
-          )}
+            <div className="builder-inline-settings">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={showSectionOrder}
+                  onChange={(e) => setShowSectionOrder(e.target.checked)}
+                />
+                Change section order
+              </label>
 
-          {!minimalTailorUi && (
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={Boolean(form.sectionUnderline)}
-                onChange={(e) => updateField('sectionUnderline', e.target.checked)}
-              />
-              Section underline
-            </label>
-          )}
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.sectionUnderline)}
+                  onChange={(e) => updateField('sectionUnderline', e.target.checked)}
+                />
+                Section underline
+              </label>
 
-          {!minimalTailorUi && (
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={Boolean(form.isDefaultResume)}
-                onChange={(e) => updateField('isDefaultResume', e.target.checked)}
-              />
-              Default resume
-            </label>
-          )}
-
-          {!minimalTailorUi && (
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={normalizePageMarginIn(form.pageMarginIn) <= MIN_PAGE_MARGIN_IN}
-                onChange={(e) =>
-                  updateField('pageMarginIn', e.target.checked ? MIN_PAGE_MARGIN_IN : DEFAULT_PAGE_MARGIN_IN)
-                }
-              />
-              Minimum margin
-            </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={normalizePageMarginIn(form.pageMarginIn) <= MIN_PAGE_MARGIN_IN}
+                  onChange={(e) =>
+                    updateField('pageMarginIn', e.target.checked ? MIN_PAGE_MARGIN_IN : DEFAULT_PAGE_MARGIN_IN)
+                  }
+                />
+                Minimum margin
+              </label>
+            </div>
           )}
 
           {saveState.message && <p className={saveState.message.startsWith('Saved') ? 'success' : 'error'}>{saveState.message}</p>}
@@ -2313,7 +2339,7 @@ function ResumeBuilderPage({
 
       {tailoredModal.open ? (
         <div className="modal-overlay" onClick={() => setTailoredModal((prev) => ({ ...prev, open: false }))}>
-          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel builder-save-modal" onClick={(e) => e.stopPropagation()}>
             <h2>Save Tailored Resume</h2>
             <label>
               Name
@@ -2351,7 +2377,7 @@ function ResumeBuilderPage({
 
       {saveModal.open ? (
         <div className="modal-overlay" onClick={() => setSaveModal((prev) => ({ ...prev, open: false }))}>
-          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel builder-save-modal" onClick={(e) => e.stopPropagation()}>
             <h2>Save Resume</h2>
             <label>
               Name
@@ -2361,8 +2387,22 @@ function ResumeBuilderPage({
                 placeholder="Enter resume name"
               />
             </label>
+            <label>
+              Job (Optional)
+              <SingleSelectDropdown
+                value={saveModal.jobId || ''}
+                placeholder="Search/select job"
+                clearLabel="No job association"
+                disabled={saveModal.loading}
+                options={(Array.isArray(saveModal.jobs) ? saveModal.jobs : []).map((job) => ({
+                  value: String(job.id),
+                  label: `${job.job_id || '-'} | ${job.role || '-'} | ${job.company_name || '-'}`,
+                }))}
+                onChange={(nextValue) => setSaveModal((prev) => ({ ...prev, jobId: nextValue }))}
+              />
+            </label>
             <div className="actions">
-              <button type="button" onClick={saveFromModal} disabled={saveState.saving}>
+              <button type="button" onClick={saveFromModal} disabled={saveState.saving || saveModal.loading}>
                 {saveState.saving ? 'Saving...' : 'Save'}
               </button>
               <button type="button" className="secondary" onClick={() => setSaveModal((prev) => ({ ...prev, open: false }))}>

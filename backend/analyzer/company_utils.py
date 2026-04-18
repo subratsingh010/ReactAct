@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from django.db import transaction
 
-from .models import Company
+from .models import Company, UserProfile
 
 
 def normalize_company_name(raw: str | None) -> str:
@@ -12,11 +12,24 @@ def normalize_company_name(raw: str | None) -> str:
     return ' '.join(str(raw or '').split()).lower()
 
 
+def _profile_for_user(user):
+    profile, _ = UserProfile.objects.get_or_create(
+        user=user,
+        defaults={
+            'role': UserProfile.ROLE_ADMIN,
+            'full_name': user.username,
+            'email': user.email or '',
+        },
+    )
+    return profile
+
+
 def find_company_by_normalized_name(user, normalized: str) -> Company | None:
     key = normalize_company_name(normalized)
     if not key:
         return None
-    for company in Company.objects.filter(user=user).only('id', 'name'):
+    profile = _profile_for_user(user)
+    for company in Company.objects.filter(profile=profile).only('id', 'name'):
         if normalize_company_name(company.name) == key:
             return company
     return None
@@ -38,7 +51,7 @@ def get_or_create_company_normalized(user, raw_name: str) -> tuple[Company, bool
             existing.name = norm
             existing.save(update_fields=['name', 'updated_at'])
         return existing, False
-    company = Company.objects.create(user=user, name=norm)
+    company = Company.objects.create(profile=_profile_for_user(user), name=norm)
     return company, True
 
 
@@ -61,4 +74,4 @@ def resolve_company_for_job(user, *, company_id=None, new_company_name=None) -> 
     except (TypeError, ValueError):
         raise ValueError('Invalid company.') from None
 
-    return Company.objects.get(id=cid_int, user=user)
+    return Company.objects.get(id=cid_int, profile=_profile_for_user(user))

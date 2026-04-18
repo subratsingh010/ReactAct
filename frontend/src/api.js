@@ -1,56 +1,4 @@
-const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api').replace(/\/+$/, '')
-
-function collectMessagesFromApiPayload(payload, bucket = []) {
-  if (payload === null || payload === undefined) return bucket
-  if (typeof payload === 'string' || typeof payload === 'number' || typeof payload === 'boolean') {
-    const text = String(payload).trim()
-    if (text) bucket.push(text)
-    return bucket
-  }
-  if (Array.isArray(payload)) {
-    payload.forEach((item) => collectMessagesFromApiPayload(item, bucket))
-    return bucket
-  }
-  if (typeof payload === 'object') {
-    for (const [key, value] of Object.entries(payload)) {
-      if (key === 'warning' || key === 'warnings') continue
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-        const text = String(value).trim()
-        if (text) bucket.push(`${key}: ${text}`)
-      } else if (Array.isArray(value)) {
-        value.forEach((item) => {
-          const text = String(item ?? '').trim()
-          if (text) bucket.push(`${key}: ${text}`)
-        })
-      } else {
-        collectMessagesFromApiPayload(value, bucket)
-      }
-    }
-    return bucket
-  }
-  return bucket
-}
-
-function extractWarningText(data) {
-  if (!data || typeof data !== 'object') return ''
-  const raw = data.warning ?? data.warnings ?? ''
-  if (!raw) return ''
-  if (typeof raw === 'string') return raw.trim()
-  if (Array.isArray(raw)) return raw.map((x) => String(x ?? '').trim()).filter(Boolean).join(' | ')
-  return String(raw).trim()
-}
-
-function buildApiErrorMessage(data) {
-  if (data && typeof data === 'object') {
-    const detail = String(data.detail || '').trim()
-    if (detail) return detail
-    const message = String(data.message || '').trim()
-    if (message) return message
-  }
-  const messages = collectMessagesFromApiPayload(data, [])
-  if (messages.length) return messages.join(' | ')
-  return 'Request failed'
-}
+const API_BASE_URL = '/api'
 
 async function parseResponse(response) {
   const data = await response.json().catch(() => ({}))
@@ -126,6 +74,22 @@ async function authFetch(url, options = {}, accessToken) {
   } catch (err) {
     throw toNetworkError(err)
   }
+}
+
+async function fetchAllPaginatedRows(fetchPage, params = {}) {
+  const firstPage = await fetchPage({ ...params, page: 1 })
+  const firstRows = Array.isArray(firstPage?.results) ? firstPage.results : []
+  const totalPages = Math.max(1, Number(firstPage?.total_pages || 1))
+  if (totalPages === 1) return firstRows
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) => fetchPage({ ...params, page: index + 2 })),
+  )
+
+  return remainingPages.reduce((allRows, pageData) => {
+    const rows = Array.isArray(pageData?.results) ? pageData.results : []
+    return allRows.concat(rows)
+  }, [...firstRows])
 }
 
 export async function loginUser(username, password) {
@@ -554,11 +518,32 @@ export async function exportAtsPdfLocal(accessToken, payload) {
 
 export async function fetchTrackingRows(accessToken, params = {}) {
   const search = new URLSearchParams()
-  if (params.page) search.set('page', String(params.page))
-  if (params.page_size) search.set('page_size', String(params.page_size))
+  const keys = [
+    'page',
+    'page_size',
+    'company_name',
+    'job_id',
+    'applied_date',
+    'mailed',
+    'last_action',
+    'ordering',
+  ]
+  for (const key of keys) {
+    const value = params[key]
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      search.set(key, String(value))
+    }
+  }
   const suffix = search.toString() ? `?${search.toString()}` : ''
   const response = await authFetch(`${API_BASE_URL}/tracking/${suffix}`, {}, accessToken)
   return parseResponse(response)
+}
+
+export async function fetchAllTrackingRows(accessToken, params = {}) {
+  return fetchAllPaginatedRows(
+    (nextParams) => fetchTrackingRows(accessToken, { page_size: 100, ...params, ...nextParams }),
+    params,
+  )
 }
 
 export async function createTrackingRow(accessToken, payload) {
@@ -624,9 +609,18 @@ export async function fetchCompanies(accessToken, params = {}) {
   const search = new URLSearchParams()
   if (params.page) search.set('page', String(params.page))
   if (params.page_size) search.set('page_size', String(params.page_size))
+  if (params.scope) search.set('scope', String(params.scope))
+  if (params.ready_for_tracking) search.set('ready_for_tracking', String(params.ready_for_tracking))
   const suffix = search.toString() ? `?${search.toString()}` : ''
   const response = await authFetch(`${API_BASE_URL}/companies/${suffix}`, {}, accessToken)
   return parseResponse(response)
+}
+
+export async function fetchAllCompanies(accessToken, params = {}) {
+  return fetchAllPaginatedRows(
+    (nextParams) => fetchCompanies(accessToken, { page_size: 100, ...params, ...nextParams }),
+    params,
+  )
 }
 
 export async function createCompany(accessToken, payload) {
@@ -665,8 +659,11 @@ export async function deleteCompany(accessToken, companyId) {
   return parseResponse(response)
 }
 
-export async function fetchEmployees(accessToken, companyId = '') {
-  const suffix = companyId ? `?company_id=${encodeURIComponent(companyId)}` : ''
+export async function fetchEmployees(accessToken, companyId = '', options = {}) {
+  const search = new URLSearchParams()
+  if (companyId) search.set('company_id', String(companyId))
+  if (options.scope) search.set('scope', String(options.scope))
+  const suffix = search.toString() ? `?${search.toString()}` : ''
   const response = await authFetch(`${API_BASE_URL}/employees/${suffix}`, {}, accessToken)
   return parseResponse(response)
 }
@@ -712,6 +709,8 @@ export async function fetchJobs(accessToken, params = {}) {
   const keys = [
     'page',
     'page_size',
+    'scope',
+    'include_closed',
     'company_id',
     'company_name',
     'posting_date',
@@ -730,6 +729,13 @@ export async function fetchJobs(accessToken, params = {}) {
   const suffix = search.toString() ? `?${search.toString()}` : ''
   const response = await authFetch(`${API_BASE_URL}/jobs/${suffix}`, {}, accessToken)
   return parseResponse(response)
+}
+
+export async function fetchAllJobs(accessToken, params = {}) {
+  return fetchAllPaginatedRows(
+    (nextParams) => fetchJobs(accessToken, { page_size: 100, ...params, ...nextParams }),
+    params,
+  )
 }
 
 export async function createJob(accessToken, payload) {
