@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { fetchTrackingRows } from '../api'
+import { fetchAllTrackingRows } from '../api'
 
 function OpenIcon() {
   return (
@@ -59,8 +59,7 @@ function TrackingSchedulePage() {
           setError('Please login first.')
           return
         }
-        const data = await fetchTrackingRows(access, { page: 1, page_size: 300 })
-        const list = Array.isArray(data?.results) ? data.results : []
+        const list = await fetchAllTrackingRows(access)
         setRows(list)
       } catch (err) {
         setError(err?.message || 'Failed to load schedule.')

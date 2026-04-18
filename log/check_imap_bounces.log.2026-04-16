@@ -1,0 +1,57 @@
+2026-04-16 06:08:40,468 [INFO] Starting IMAP scan folder=INBOX host=imap.gmail.com since_days=7 limit=10 unseen_only=False dry_run=False
+2026-04-16 06:08:42,988 [INFO] Loaded candidate sent events: 6
+2026-04-16 06:08:44,413 [INFO] Skipped unrelated inbox mail uid='47370' from=jobalerts-noreply@linkedin.com subject='“python”: Capco - Python Developer with Azure posted on 4/15/26' thread_ids=[]
+2026-04-16 06:08:45,329 [INFO] Skipped unrelated inbox mail uid='47371' from=talent@uplers.network subject='Your Python, FastAPI, SQL experience aligns with Datavio' thread_ids=[]
+2026-04-16 06:08:46,154 [INFO] Skipped unrelated inbox mail uid='47372' from=donotreply@match.indeed.com subject='Senior Engineer @ Nagarro' thread_ids=[]
+2026-04-16 06:08:46,969 [INFO] Processing related mail uid='47373' from=subrat30122000@gmail.com subject='Re: Follow up on my application for Backend at Test' bounce=False thread_ids=['<69e0135e.630a0220.3b7408.c4f8@mx.google.com>']
+2026-04-16 06:08:46,985 [WARNING] No tracking row matched reply uid='47373' from=subrat30122000@gmail.com subject='Re: Follow up on my application for Backend at Test'
+2026-04-16 06:08:48,301 [INFO] Skipped unrelated inbox mail uid='47374' from=founder@ambitionbox.com subject='subrat, did your company make it?' thread_ids=[]
+2026-04-16 06:08:49,074 [INFO] Processing related mail uid='47375' from=subratsingh010@gmail.com subject='Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=[]
+2026-04-16 06:08:49,086 [WARNING] No tracking row matched reply uid='47375' from=subratsingh010@gmail.com subject='Application for Backend at Test (Job ID: test-10101)'
+2026-04-16 06:08:50,191 [INFO] Processing related mail uid='47376' from=subratsingh010@gmail.com subject='Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=[]
+2026-04-16 06:08:50,196 [WARNING] No tracking row matched reply uid='47376' from=subratsingh010@gmail.com subject='Application for Backend at Test (Job ID: test-10101)'
+2026-04-16 06:08:51,272 [INFO] Processing related mail uid='47377' from=subratsingh010@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=['<177631783502.19823.4820212694791220344@gmail.com>']
+2026-04-16 06:08:51,281 [WARNING] No tracking row matched reply uid='47377' from=subratsingh010@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)'
+2026-04-16 06:08:52,600 [INFO] Processing related mail uid='47378' from=subratsingh010@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=['<177631790424.20145.7382676701839843061@gmail.com>', '<177631783502.19823.4820212694791220344@gmail.com>']
+2026-04-16 06:08:52,609 [WARNING] No tracking row matched reply uid='47378' from=subratsingh010@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)'
+2026-04-16 06:08:53,924 [INFO] Skipped unrelated inbox mail uid='47379' from=services@custcomm.icicibank.com subject='One more way to save tax' thread_ids=[]
+2026-04-16 06:08:54,276 [INFO] Done. processed=5 matched=0 updated=0 recomputed=1 dry_run=False
+2026-04-16 06:13:29,458 [INFO] Starting IMAP scan folder=INBOX host=imap.gmail.com since_days=3 limit=10 unseen_only=False dry_run=False
+2026-04-16 06:13:31,475 [INFO] Loaded candidate sent events: 6
+2026-04-16 06:13:32,325 [INFO] Skipped unrelated inbox mail uid='47372' from=donotreply@match.indeed.com subject='Senior Engineer @ Nagarro' thread_ids=[]
+2026-04-16 06:13:33,073 [INFO] Processing related mail uid='47373' from=subrat30122000@gmail.com subject='Re: Follow up on my application for Backend at Test' bounce=False thread_ids=['<69e0135e.630a0220.3b7408.c4f8@mx.google.com>']
+2026-04-16 06:13:33,081 [WARNING] No tracking row matched reply uid='47373' from=subrat30122000@gmail.com subject='Re: Follow up on my application for Backend at Test' reason=sender is mailbox owner/sent-mail copy
+2026-04-16 06:13:34,102 [INFO] Skipped unrelated inbox mail uid='47374' from=founder@ambitionbox.com subject='subrat, did your company make it?' thread_ids=[]
+2026-04-16 06:13:35,020 [INFO] Processing related mail uid='47375' from=subratsingh010@gmail.com subject='Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=[]
+2026-04-16 06:13:35,029 [WARNING] No tracking row matched reply uid='47375' from=subratsingh010@gmail.com subject='Application for Backend at Test (Job ID: test-10101)' reason=sender is mailbox owner/sent-mail copy
+2026-04-16 06:13:36,070 [INFO] Processing related mail uid='47376' from=subratsingh010@gmail.com subject='Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=[]
+2026-04-16 06:13:36,081 [WARNING] No tracking row matched reply uid='47376' from=subratsingh010@gmail.com subject='Application for Backend at Test (Job ID: test-10101)' reason=sender is mailbox owner/sent-mail copy
+2026-04-16 06:13:37,172 [INFO] Processing related mail uid='47377' from=subratsingh010@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=['<177631783502.19823.4820212694791220344@gmail.com>']
+2026-04-16 06:13:37,188 [WARNING] No tracking row matched reply uid='47377' from=subratsingh010@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' reason=sender is mailbox owner/sent-mail copy
+2026-04-16 06:13:38,401 [INFO] Processing related mail uid='47378' from=subratsingh010@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=['<177631790424.20145.7382676701839843061@gmail.com>', '<177631783502.19823.4820212694791220344@gmail.com>']
+2026-04-16 06:13:38,416 [WARNING] No tracking row matched reply uid='47378' from=subratsingh010@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' reason=sender is mailbox owner/sent-mail copy
+2026-04-16 06:13:39,633 [INFO] Skipped unrelated inbox mail uid='47379' from=services@custcomm.icicibank.com subject='One more way to save tax' thread_ids=[]
+2026-04-16 06:13:40,481 [INFO] Skipped unrelated inbox mail uid='47380' from=messages-noreply@linkedin.com subject='Chahak and 90+ others are hiring for Python Developer roles.' thread_ids=[]
+2026-04-16 06:13:41,524 [INFO] Processing related mail uid='47381' from=subrat30122000@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=['<177631752743.17690.10913283588286708419@gmail.com>']
+2026-04-16 06:13:41,549 [INFO] Recorded reply events=1 for uid='47381'
+2026-04-16 06:13:42,267 [INFO] Done. processed=6 matched=1 updated=1 recomputed=1 dry_run=False
+2026-04-16 06:42:04,557 [INFO] Starting IMAP scan folder=INBOX host=imap.gmail.com since_days=7 limit=10 unseen_only=False dry_run=False
+2026-04-16 06:42:14,616 [INFO] Starting IMAP scan folder=INBOX host=imap.gmail.com since_days=3 limit=10 unseen_only=False dry_run=False
+2026-04-16 06:42:16,845 [INFO] Loaded candidate sent events: 7
+2026-04-16 06:42:17,701 [INFO] Processing related mail uid='47373' from=subrat30122000@gmail.com subject='Re: Follow up on my application for Backend at Test' bounce=False thread_ids=['<69e0135e.630a0220.3b7408.c4f8@mx.google.com>']
+2026-04-16 06:42:17,719 [WARNING] No tracking row matched reply uid='47373' from=subrat30122000@gmail.com subject='Re: Follow up on my application for Backend at Test' reason=sender is mailbox owner/sent-mail copy
+2026-04-16 06:42:18,944 [INFO] Skipped unrelated inbox mail uid='47374' from=founder@ambitionbox.com subject='subrat, did your company make it?' thread_ids=[]
+2026-04-16 06:42:19,750 [INFO] Processing related mail uid='47375' from=subratsingh010@gmail.com subject='Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=[]
+2026-04-16 06:42:19,750 [WARNING] No tracking row matched reply uid='47375' from=subratsingh010@gmail.com subject='Application for Backend at Test (Job ID: test-10101)' reason=sender is mailbox owner/sent-mail copy
+2026-04-16 06:42:20,973 [INFO] Processing related mail uid='47376' from=subratsingh010@gmail.com subject='Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=[]
+2026-04-16 06:42:20,973 [WARNING] No tracking row matched reply uid='47376' from=subratsingh010@gmail.com subject='Application for Backend at Test (Job ID: test-10101)' reason=sender is mailbox owner/sent-mail copy
+2026-04-16 06:42:22,308 [INFO] Processing related mail uid='47377' from=subratsingh010@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=['<177631783502.19823.4820212694791220344@gmail.com>']
+2026-04-16 06:42:22,327 [WARNING] No tracking row matched reply uid='47377' from=subratsingh010@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' reason=sender is mailbox owner/sent-mail copy
+2026-04-16 06:42:23,945 [INFO] Processing related mail uid='47378' from=subratsingh010@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=['<177631790424.20145.7382676701839843061@gmail.com>', '<177631783502.19823.4820212694791220344@gmail.com>']
+2026-04-16 06:42:23,960 [WARNING] No tracking row matched reply uid='47378' from=subratsingh010@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' reason=sender is mailbox owner/sent-mail copy
+2026-04-16 06:42:25,418 [INFO] Skipped unrelated inbox mail uid='47379' from=services@custcomm.icicibank.com subject='One more way to save tax' thread_ids=[]
+2026-04-16 06:42:26,381 [INFO] Skipped unrelated inbox mail uid='47380' from=messages-noreply@linkedin.com subject='Chahak and 90+ others are hiring for Python Developer roles.' thread_ids=[]
+2026-04-16 06:42:27,221 [INFO] Processing related mail uid='47381' from=subrat30122000@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' bounce=False thread_ids=['<177631752743.17690.10913283588286708419@gmail.com>']
+2026-04-16 06:42:27,231 [WARNING] No tracking row matched reply uid='47381' from=subrat30122000@gmail.com subject='Re: Application for Backend at Test (Job ID: test-10101)' reason=sender is mailbox owner/sent-mail copy
+2026-04-16 06:42:28,732 [INFO] Skipped unrelated inbox mail uid='47382' from=jobalerts-noreply@linkedin.com subject='“Django”: Joveo Ai - Python Developer (Remote) posted on 4/14/26' thread_ids=[]
+2026-04-16 06:42:29,179 [INFO] Done. processed=6 matched=0 updated=0 recomputed=1 dry_run=False

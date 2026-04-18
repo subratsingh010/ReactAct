@@ -128,6 +128,22 @@ async function authFetch(url, options = {}, accessToken) {
   }
 }
 
+async function fetchAllPaginatedRows(fetchPage, params = {}) {
+  const firstPage = await fetchPage({ ...params, page: 1 })
+  const firstRows = Array.isArray(firstPage?.results) ? firstPage.results : []
+  const totalPages = Math.max(1, Number(firstPage?.total_pages || 1))
+  if (totalPages === 1) return firstRows
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) => fetchPage({ ...params, page: index + 2 })),
+  )
+
+  return remainingPages.reduce((allRows, pageData) => {
+    const rows = Array.isArray(pageData?.results) ? pageData.results : []
+    return allRows.concat(rows)
+  }, [...firstRows])
+}
+
 export async function loginUser(username, password) {
   const response = await fetch(`${API_BASE_URL}/token/`, {
     method: 'POST',
@@ -554,11 +570,32 @@ export async function exportAtsPdfLocal(accessToken, payload) {
 
 export async function fetchTrackingRows(accessToken, params = {}) {
   const search = new URLSearchParams()
-  if (params.page) search.set('page', String(params.page))
-  if (params.page_size) search.set('page_size', String(params.page_size))
+  const keys = [
+    'page',
+    'page_size',
+    'company_name',
+    'job_id',
+    'applied_date',
+    'mailed',
+    'last_action',
+    'ordering',
+  ]
+  for (const key of keys) {
+    const value = params[key]
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      search.set(key, String(value))
+    }
+  }
   const suffix = search.toString() ? `?${search.toString()}` : ''
   const response = await authFetch(`${API_BASE_URL}/tracking/${suffix}`, {}, accessToken)
   return parseResponse(response)
+}
+
+export async function fetchAllTrackingRows(accessToken, params = {}) {
+  return fetchAllPaginatedRows(
+    (nextParams) => fetchTrackingRows(accessToken, { page_size: 100, ...params, ...nextParams }),
+    params,
+  )
 }
 
 export async function createTrackingRow(accessToken, payload) {
@@ -624,9 +661,18 @@ export async function fetchCompanies(accessToken, params = {}) {
   const search = new URLSearchParams()
   if (params.page) search.set('page', String(params.page))
   if (params.page_size) search.set('page_size', String(params.page_size))
+  if (params.scope) search.set('scope', String(params.scope))
+  if (params.ready_for_tracking) search.set('ready_for_tracking', String(params.ready_for_tracking))
   const suffix = search.toString() ? `?${search.toString()}` : ''
   const response = await authFetch(`${API_BASE_URL}/companies/${suffix}`, {}, accessToken)
   return parseResponse(response)
+}
+
+export async function fetchAllCompanies(accessToken, params = {}) {
+  return fetchAllPaginatedRows(
+    (nextParams) => fetchCompanies(accessToken, { page_size: 100, ...params, ...nextParams }),
+    params,
+  )
 }
 
 export async function createCompany(accessToken, payload) {
@@ -665,8 +711,11 @@ export async function deleteCompany(accessToken, companyId) {
   return parseResponse(response)
 }
 
-export async function fetchEmployees(accessToken, companyId = '') {
-  const suffix = companyId ? `?company_id=${encodeURIComponent(companyId)}` : ''
+export async function fetchEmployees(accessToken, companyId = '', options = {}) {
+  const search = new URLSearchParams()
+  if (companyId) search.set('company_id', String(companyId))
+  if (options.scope) search.set('scope', String(options.scope))
+  const suffix = search.toString() ? `?${search.toString()}` : ''
   const response = await authFetch(`${API_BASE_URL}/employees/${suffix}`, {}, accessToken)
   return parseResponse(response)
 }
@@ -712,6 +761,8 @@ export async function fetchJobs(accessToken, params = {}) {
   const keys = [
     'page',
     'page_size',
+    'scope',
+    'include_closed',
     'company_id',
     'company_name',
     'posting_date',
@@ -730,6 +781,13 @@ export async function fetchJobs(accessToken, params = {}) {
   const suffix = search.toString() ? `?${search.toString()}` : ''
   const response = await authFetch(`${API_BASE_URL}/jobs/${suffix}`, {}, accessToken)
   return parseResponse(response)
+}
+
+export async function fetchAllJobs(accessToken, params = {}) {
+  return fetchAllPaginatedRows(
+    (nextParams) => fetchJobs(accessToken, { page_size: 100, ...params, ...nextParams }),
+    params,
+  )
 }
 
 export async function createJob(accessToken, payload) {

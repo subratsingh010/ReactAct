@@ -11,15 +11,10 @@ export function SingleSelectDropdown({
 }) {
   const wrapRef = useRef(null)
   const inputRef = useRef(null)
-  const [text, setText] = useState('')
   const [open, setOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-
-  useEffect(() => {
-    const found = (options || []).find((opt) => String(opt.value) === String(value || ''))
-    setText(found ? String(found.label || '') : '')
-    setSearchQuery('')
-  }, [options, value])
+  const selectedOption = (options || []).find((opt) => String(opt.value) === String(value || ''))
+  const inputValue = open ? searchQuery : (selectedOption ? String(selectedOption.label || '') : '')
 
   useEffect(() => {
     const onDocMouseDown = (event) => {
@@ -39,12 +34,12 @@ export function SingleSelectDropdown({
   })
 
   return (
-    <div ref={wrapRef} className={`search-dd ${disabled ? 'is-disabled' : ''}`}>
+    <div ref={wrapRef} className={`search-dd ${disabled ? 'is-disabled' : ''} ${open ? 'is-open' : ''}`.trim()}>
       <div className="search-dd-input-wrap">
         <input
           ref={inputRef}
           className="search-dd-input"
-          value={text}
+          value={inputValue}
           disabled={disabled}
           placeholder={open && searchPlaceholder ? searchPlaceholder : placeholder}
           onClick={() => {
@@ -60,7 +55,6 @@ export function SingleSelectDropdown({
           }}
           onChange={(event) => {
             const nextText = event.target.value
-            setText(nextText)
             setSearchQuery(nextText)
             setOpen(true)
           }}
@@ -92,7 +86,6 @@ export function SingleSelectDropdown({
             type="button"
             className={`search-dd-item ${String(value || '') ? '' : 'is-active'}`}
             onClick={() => {
-              setText('')
               setSearchQuery('')
               setOpen(false)
               onChange('')
@@ -107,7 +100,6 @@ export function SingleSelectDropdown({
                 type="button"
                 className={`search-dd-item ${String(value || '') === String(opt.value) ? 'is-active' : ''}`}
                 onClick={() => {
-                  setText(String(opt.label || ''))
                   setSearchQuery('')
                   setOpen(false)
                   onChange(String(opt.value))
@@ -162,7 +154,6 @@ export function MultiSelectDropdown({
     const text = String(query || '').trim().toLowerCase()
     return !text || label.includes(text)
   })
-  const filteredIds = filtered.map((opt) => String(opt.value))
 
   const summary = selectedLabels.length
     ? `${selectedLabels.slice(0, 2).join(', ')}${selectedLabels.length > 2 ? ` +${selectedLabels.length - 2}` : ''}`
@@ -170,7 +161,7 @@ export function MultiSelectDropdown({
   const inputValue = open ? query : summary
 
   return (
-    <div ref={wrapRef} className={`search-dd ${disabled ? 'is-disabled' : ''} ${className}`.trim()}>
+    <div ref={wrapRef} className={`search-dd ${disabled ? 'is-disabled' : ''} ${open ? 'is-open' : ''} ${className}`.trim()}>
       <div className="search-dd-input-wrap">
         <input
           ref={inputRef}

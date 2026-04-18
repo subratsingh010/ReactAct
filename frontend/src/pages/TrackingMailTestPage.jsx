@@ -2,11 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { fetchTrackingMailTest, fetchTrackingRow, generateTrackingMailTest, saveTrackingMailTest } from '../api'
+import { capitalizeFirstDisplay } from '../utils/displayText'
 
 function MailTestIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-      <path fill="currentColor" d="M9 3h6v2h4v2h-1l-1.1 12.2A2 2 0 0 1 14.9 21H9.1a2 2 0 0 1-1.99-1.8L6 7H5V5h4V3Zm2 8v6h2v-6h-2Zm-3 0v6h2v-6H8Zm6 0v6h2v-6h-2Z" />
+      <path
+        fill="currentColor"
+        d="M4.75 5A2.75 2.75 0 0 0 2 7.75v8.5A2.75 2.75 0 0 0 4.75 19h14.5A2.75 2.75 0 0 0 22 16.25v-8.5A2.75 2.75 0 0 0 19.25 5H4.75Zm.41 1.5h13.68c.37 0 .72.14.98.39l-7.07 5.42a1.25 1.25 0 0 1-1.52 0L4.18 6.89c.26-.25.61-.39.98-.39Zm-1.66 1.46l5.5 4.21l-5.5 4.23V7.96Zm17 0v8.44L15 12.17l5.5-4.21Zm-10.28 5.54l.1.07a2.75 2.75 0 0 0 3.36 0l.1-.07l5.37 4.12a1.2 1.2 0 0 1-.2.02H4.75a1.2 1.2 0 0 1-.2-.02l5.67-4.35Z"
+      />
     </svg>
   )
 }
@@ -105,7 +109,7 @@ function TrackingMailTestPage() {
           <p className="subtitle">Preview the exact mail per employee before cron sends it.</p>
         </div>
         <div className="actions">
-          <button type="button" className="secondary" onClick={() => navigate(`/tracking/${trackingId}`)}>Back To Detail</button>
+          <button type="button" className="secondary" onClick={() => navigate('/tracking')}>Back To Tracking</button>
         </div>
       </div>
 
@@ -120,7 +124,7 @@ function TrackingMailTestPage() {
               <h2>Tracking Snapshot</h2>
             </div>
             <div className="tracking-detail-grid">
-              <div className="tracking-detail-item"><span className="tracking-detail-label">Company</span><span className="tracking-detail-value">{row.company_name || '-'}</span></div>
+              <div className="tracking-detail-item"><span className="tracking-detail-label">Company</span><span className="tracking-detail-value">{capitalizeFirstDisplay(row.company_name) || '-'}</span></div>
               <div className="tracking-detail-item"><span className="tracking-detail-label">Role</span><span className="tracking-detail-value">{row.role || '-'}</span></div>
               <div className="tracking-detail-item"><span className="tracking-detail-label">Template</span><span className="tracking-detail-value">{String(row.template_choice || '-').replaceAll('_', ' ')}</span></div>
               <div className="tracking-detail-item"><span className="tracking-detail-label">Compose Mode</span><span className="tracking-detail-value">{String(row.compose_mode || '-').replaceAll('_', ' ')}</span></div>
@@ -166,7 +170,7 @@ function TrackingMailTestPage() {
               {aiEnabled ? <button type="button" className="secondary" onClick={() => generate(true)} disabled={generating}>{generating ? 'Regenerating...' : 'Regenerate With Options'}</button> : null}
               <button type="button" className="secondary" onClick={save} disabled={saving || !previews.length}>{saving ? 'Saving...' : 'Save Approved Mail'}</button>
             </div>
-            {!aiEnabled ? <p className="hint">Mail preview uses your selected achievement paragraphs. AI is only used for the employee intro fallback on `Cold Applied` when personalized employee text is missing.</p> : null}
+            {!aiEnabled ? <p className="hint">Mail preview uses your selected templates. If you choose a personalized template, that content is added as the employee-specific intro block.</p> : null}
           </section>
 
           <section className="tracking-mail-preview-list">

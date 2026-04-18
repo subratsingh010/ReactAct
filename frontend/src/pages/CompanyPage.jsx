@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { SingleSelectDropdown } from '../components/SearchableDropdown'
+import { capitalizeFirstDisplay } from '../utils/displayText'
 
 import {
   createCompany,
@@ -93,6 +94,7 @@ function CompanyPage() {
   const filteredCompanies = useMemo(() => {
     const out = companies.filter((company) => {
       const hrs = employeesByCompany[String(company.id)] || []
+      if (!hrs.length) return false
       const companyName = String(company.name || '').toLowerCase()
       const companyFilter = String(filters.company || '').trim().toLowerCase()
       if (companyFilter && !companyName.includes(companyFilter)) return false
@@ -101,7 +103,6 @@ function CompanyPage() {
       const roleFilter = String(filters.role || '').trim().toLowerCase()
       const locationFilter = String(filters.location || '').trim().toLowerCase()
       if (!hrFilter && !roleFilter && !locationFilter) return true
-      if (!hrs.length) return false
 
       return hrs.some((hr) => {
         const hrName = String(hr.name || '').toLowerCase()
@@ -162,7 +163,7 @@ function CompanyPage() {
     try {
       const [firstCompanyPage, employeeRows] = await Promise.all([
         fetchCompanies(access, { page: 1, page_size: 200 }),
-        fetchEmployees(access),
+        fetchEmployees(access, '', { scope: 'all' }),
       ])
       const firstRows = Array.isArray(firstCompanyPage?.results) ? firstCompanyPage.results : []
       let allCompanies = [...firstRows]
@@ -313,21 +314,37 @@ function CompanyPage() {
       setEmployeeFormError('Select company for employee.')
       return
     }
-    const fullName = mergeNameParts(employeeForm.first_name, employeeForm.middle_name, employeeForm.last_name)
-    if (!fullName) {
-      setEmployeeFormError('Enter at least first or last name.')
+    const firstName = String(employeeForm.first_name || '').trim()
+    const lastName = String(employeeForm.last_name || '').trim()
+    const department = String(employeeForm.department || '').trim()
+    const role = String(employeeForm.role || '').trim()
+    if (!firstName) {
+      setEmployeeFormError('First name is required.')
       return
     }
+    if (!lastName) {
+      setEmployeeFormError('Last name is required.')
+      return
+    }
+    if (!department) {
+      setEmployeeFormError('Department is required.')
+      return
+    }
+    if (!role) {
+      setEmployeeFormError('Role is required.')
+      return
+    }
+    const fullName = mergeNameParts(firstName, employeeForm.middle_name, lastName)
     try {
       if (employeeForm.id) {
         const updated = await updateEmployeeApi(access, employeeForm.id, {
           company: companyId,
           name: fullName,
-          first_name: employeeForm.first_name,
+          first_name: firstName,
           middle_name: employeeForm.middle_name,
-          last_name: employeeForm.last_name,
-          role: employeeForm.role,
-          department: employeeForm.department,
+          last_name: lastName,
+          role,
+          department,
           email: employeeForm.email,
           working_mail: Boolean(employeeForm.working_mail),
           contact_number: employeeForm.contact_number,
@@ -341,12 +358,12 @@ function CompanyPage() {
       } else {
         const created = await createEmployee(access, {
           company: companyId,
-          name: fullName || 'HR',
-          first_name: employeeForm.first_name,
+          name: fullName,
+          first_name: firstName,
           middle_name: employeeForm.middle_name,
-          last_name: employeeForm.last_name,
-          role: employeeForm.role,
-          department: employeeForm.department,
+          last_name: lastName,
+          role,
+          department,
           email: employeeForm.email,
           working_mail: Boolean(employeeForm.working_mail),
           contact_number: employeeForm.contact_number,
@@ -448,7 +465,7 @@ function CompanyPage() {
             <section key={company.id} className="company-row">
               <div className="company-row-head">
                 <div className="company-title-wrap">
-                  <h2 className="company-title">{company.name}</h2>
+                  <h2 className="company-title">{capitalizeFirstDisplay(company.name)}</h2>
                   <p className="company-subline">
                   {hrs.length} contact{hrs.length === 1 ? '' : 's'}
                   {' | '}
@@ -501,7 +518,6 @@ function CompanyPage() {
                         <p className="company-hr-meta"><strong>Department:</strong> {hr.department}</p>
                       ) : null}
                       {hr.email ? <p className="company-hr-meta">{hr.email}</p> : null}
-                      <p className="company-hr-meta"><strong>Working Mail:</strong> {hr.working_mail ? 'Yes' : 'No'}</p>
                       {hr.contact_number ? <p className="company-hr-meta">{hr.contact_number}</p> : null}
                       {hr.location ? <p className="company-hr-meta">{hr.location}</p> : null}
                       <div className="company-hr-actions">
@@ -536,8 +552,8 @@ function CompanyPage() {
       </div>
 
       {companyForm ? (
-        <div className="modal-overlay">
-          <div className="modal-panel jobs-modal-panel">
+        <div className="modal-overlay" onClick={() => { setCompanyForm(null); setCompanyFormError('') }}>
+          <div className="modal-panel jobs-modal-panel" onClick={(event) => event.stopPropagation()}>
             <div className="tracking-modal-head">
               <h2>{companyForm.id ? 'Edit Company' : 'Add Company'}</h2>
               <p className="subtitle">Set the company identity, mail pattern, and hiring links cleanly.</p>
@@ -560,8 +576,8 @@ function CompanyPage() {
       ) : null}
 
       {employeeForm ? (
-        <div className="modal-overlay">
-          <div className="modal-panel jobs-modal-panel">
+        <div className="modal-overlay" onClick={() => { setEmployeeForm(null); setEmployeeFormError('') }}>
+          <div className="modal-panel jobs-modal-panel" onClick={(event) => event.stopPropagation()}>
             <div className="tracking-modal-head">
               <h2>{employeeForm.id ? 'Edit Employee' : 'Add Employee'}</h2>
               <p className="subtitle">Capture contact identity, role, workability, and profile details in one clean form.</p>
@@ -573,7 +589,7 @@ function CompanyPage() {
               <SingleSelectDropdown
                 value={employeeForm.company}
                 placeholder="Select company"
-                options={companies.map((company) => ({ value: String(company.id), label: String(company.name || '') }))}
+                options={companies.map((company) => ({ value: String(company.id), label: capitalizeFirstDisplay(company.name) }))}
                 onChange={(nextValue) => setEmployeeForm((prev) => ({ ...prev, company: nextValue }))}
               />
             </label>

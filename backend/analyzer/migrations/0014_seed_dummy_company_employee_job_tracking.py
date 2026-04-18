@@ -2,80 +2,8 @@ from django.db import migrations
 
 
 def seed_dummy_rows(apps, schema_editor):
-    User = apps.get_model('auth', 'User')
-    Company = apps.get_model('analyzer', 'Company')
-    Employee = apps.get_model('analyzer', 'Employee')
-    Job = apps.get_model('analyzer', 'Job')
-    Tracking = apps.get_model('analyzer', 'Tracking')
-
-    user, _ = User.objects.get_or_create(
-        username='dummy_seed_user',
-        defaults={
-            'email': 'dummy_seed_user@example.com',
-        },
-    )
-
-    companies = []
-    for i in range(1, 11):
-        company, _ = Company.objects.get_or_create(
-            user=user,
-            name=f'Dummy Company {i}',
-            defaults={
-                'career_url': f'https://dummy-company-{i}.example.com/careers',
-                'workday_domain_url': f'https://dummy-company-{i}.myworkdayjobs.com/external',
-            },
-        )
-        companies.append(company)
-
-    employees = []
-    helpful_values = ['good', 'partial_somewhat', 'never']
-    for i in range(1, 11):
-        company = companies[(i - 1) % len(companies)]
-        employee, _ = Employee.objects.get_or_create(
-            user=user,
-            company=company,
-            name=f'Dummy Employee {i}',
-            defaults={
-                'department': 'Talent Acquisition',
-                'about': f'Dummy about text for employee {i}.',
-                'personalized_template_helpful': helpful_values[(i - 1) % len(helpful_values)],
-                'profile': f'https://linkedin.com/in/dummy-employee-{i}',
-                'location': 'Bengaluru, India',
-            },
-        )
-        employees.append(employee)
-
-    jobs = []
-    for i in range(1, 11):
-        company = companies[(i - 1) % len(companies)]
-        job, _ = Job.objects.get_or_create(
-            user=user,
-            company=company,
-            job_id=f'DJ-{1000 + i}',
-            defaults={
-                'role': f'Software Engineer {i}',
-                'job_link': f'https://jobs.example.com/dummy-job-{i}',
-                'date_of_posting': f'2026-04-{i:02d}',
-            },
-        )
-        jobs.append(job)
-
-    for i in range(1, 11):
-        company = companies[(i - 1) % len(companies)]
-        employee = employees[(i - 1) % len(employees)]
-        job = jobs[(i - 1) % len(jobs)]
-        Tracking.objects.get_or_create(
-            user=user,
-            company=company,
-            employee=employee,
-            job=job,
-            defaults={
-                'mailed': i % 2 == 0,
-                'applied_date': f'2026-04-{i:02d}',
-                'is_open': i % 3 != 0,
-                'got_replied': i % 4 == 0,
-            },
-        )
+    # Intentionally left blank. Dummy seed data must never be inserted automatically.
+    return
 
 
 def remove_dummy_rows(apps, schema_editor):

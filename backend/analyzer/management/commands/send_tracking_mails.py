@@ -1,9 +1,13 @@
 import re
 import json
+import html
+import io
 import os
+import shutil
 import smtplib
 import time
 import tempfile
+import subprocess
 import urllib.error
 import urllib.request
 import logging
@@ -21,12 +25,41 @@ from django.utils import timezone
 from analyzer.models import Template, Tracking, TrackingAction, UserProfile
 from analyzer.tracking_mail_utils import build_mail_tracking_status_map, ensure_mail_tracking, log_mail_event, recompute_tracking_delivery_status
 
+try:
+    from pypdf import PdfReader
+except Exception:  # noqa: BLE001
+    PdfReader = None
+
 
 LOGGER_NAME = "analyzer.send_tracking_mails"
 
 
 class Command(BaseCommand):
     help = "Send tracking mails one-by-one using company mail pattern; log all attempts in MailTracking and MailTrackingEvent."
+    HARDCODED_SIGNATURE_NAME = "Subrat Singh"
+    HARDCODED_SIGNATURE_LINKEDIN = "https://www.linkedin.com/in/subrat-s-81720a22a/"
+    HARDCODED_SIGNATURE_EMAIL = "subratsingh010@gmail.com"
+    HARDCODED_SIGNATURE_CONTACT = "+91 8546075639"
+    HARDCODED_RESUME_LINK = "https://drive.google.com/file/d/1WtbiqcSXz-xjAT4y84ggbGtpEBwx-uz-/view?usp=sharing"
+    ALLOWED_DYNAMIC_PLACEHOLDERS = {
+        "name",
+        "employee_name",
+        "first_name",
+        "company_name",
+        "current_employer",
+        "role",
+        "job_id",
+        "job_id_line",
+        "job_link",
+        "department",
+        "employee_department",
+        "employee_role",
+        "resume_link",
+        "years_of_experience",
+        "yoe",
+        "interaction_time",
+        "interview_round",
+    }
 
     def add_arguments(self, parser):
         parser.add_argument("--user-id", type=int, default=None, help="Process only this user id")
@@ -156,9 +189,7 @@ class Command(BaseCommand):
         return {}
 
     def _should_use_ai_for_row(self, row, explicit_use_ai=False):
-        if explicit_use_ai:
-            return True
-        return not bool(getattr(row, "use_hardcoded_personalized_intro", False))
+        return bool(explicit_use_ai)
 
     def _set_employee_working_mail(self, employee, is_working):
         if not employee:
@@ -216,12 +247,12 @@ class Command(BaseCommand):
             Tracking.objects
             .filter(is_freezed=False, job__isnull=False)
             .filter(schedule_time__isnull=False, schedule_time__lte=now)
-            .select_related("job__company", "mail_tracking_record", "resume", "user")
+            .select_related("job__company", "mail_tracking_record", "resume", "profile__user")
             .prefetch_related("selected_hrs")
             .order_by("created_at")
         )
         if user_id:
-            qs = qs.filter(user_id=user_id)
+            qs = qs.filter(profile__user_id=user_id)
         if scheduled_today_only:
             qs = qs.filter(schedule_time__date=timezone.localdate())
         rows = list(qs[:limit])
@@ -306,7 +337,9 @@ class Command(BaseCommand):
         row_sent = 0
         row_failed = 0
         achievements = self._get_achievements(row)
-        attachment_path = self._resolve_attachment_file(row)
+        attachment_payload = self._resolve_attachment_payload(row) or {}
+        attachment_path = attachment_payload.get("path")
+        attachment_bytes = attachment_payload.get("bytes")
         latest_status_map = build_mail_tracking_status_map(mail_tracking)
         is_scheduled_replay = bool(getattr(row, "schedule_time", None))
         pending_employees = []
@@ -377,6 +410,8 @@ class Command(BaseCommand):
                         subject,
                         body,
                         attachment_path=attachment_path,
+                        attachment_bytes=attachment_bytes,
+                        attachment_name=self._attachment_download_name(row, profile, attachment_path),
                         in_reply_to=thread_context.get("in_reply_to", ""),
                         references=thread_context.get("references", []),
                     )
@@ -534,26 +569,347 @@ class Command(BaseCommand):
             notes=notes,
         )
 
-    def _resolve_attachment_file(self, row):
+    def _resolve_attachment_payload(self, row):
         saved_pdf_path = str(getattr(row.resume, "ats_pdf_path", "") or "").strip() if row and row.resume else ""
         if saved_pdf_path:
             saved_path = Path(saved_pdf_path)
             if saved_path.exists() and saved_path.is_file():
-                return str(saved_path)
+                return {"path": str(saved_path), "bytes": None}
 
-        # Only use the single resume associated with this tracking row.
-        builder = {}
-        title = ""
-        if row.resume and isinstance(row.resume.builder_data, dict):
-            builder = row.resume.builder_data
-            title = str(row.resume.title or "").strip() or "Resume"
+        builder = row.resume.builder_data if row and row.resume and isinstance(row.resume.builder_data, dict) else {}
+        title = str(getattr(row.resume, "title", "") or "").strip() or "Resume"
         if not builder:
             return None
 
         text = self._builder_data_to_text(builder, fallback_title=title)
-        if not text.strip():
+        if text.strip():
+            return {"path": None, "bytes": self._build_simple_pdf_bytes(text, filename_hint=title)}
+        return None
+
+    def _build_builder_pdf_bytes(self, builder_data, filename_hint="resume"):
+        browser_bins = self._available_browser_binaries()
+        if not browser_bins:
             return None
-        return self._write_simple_pdf(text, filename_hint=title)
+        exact_html = self._build_frontend_ats_pdf_html(builder_data)
+        if not exact_html:
+            return None
+        pdf_bytes = self._render_browser_pdf_bytes(exact_html, browser_bins)
+        if not pdf_bytes:
+            return None
+        if self._pdf_page_count(pdf_bytes) > 1:
+            compact_builder_data = builder_data.copy() if isinstance(builder_data, dict) else {}
+            compact_builder_data["bodyFontSizePt"] = 10
+            compact_builder_data["bodyLineHeight"] = 1
+            compact_builder_data["pageMarginIn"] = 0.3
+            compact_html = self._build_frontend_ats_pdf_html(compact_builder_data)
+            compact_pdf_bytes = self._render_browser_pdf_bytes(compact_html, browser_bins)
+            if compact_pdf_bytes:
+                return compact_pdf_bytes
+        return pdf_bytes
+
+    def _render_browser_pdf_bytes(self, html_text, browser_bins):
+        if not str(html_text or "").strip():
+            return None
+
+        with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as tmp_html:
+            tmp_html.write(html_text)
+            tmp_html_path = Path(tmp_html.name)
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+            tmp_pdf_path = Path(tmp_pdf.name)
+
+        html_url = tmp_html_path.as_uri()
+        try:
+            for browser_bin in browser_bins:
+                cmd = [
+                    browser_bin,
+                    "--headless=new",
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    "--no-pdf-header-footer",
+                    f"--print-to-pdf={str(tmp_pdf_path)}",
+                    html_url,
+                ]
+                run = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=45,
+                    check=False,
+                )
+                if run.returncode == 0 and tmp_pdf_path.exists() and tmp_pdf_path.stat().st_size > 0:
+                    return tmp_pdf_path.read_bytes()
+        except Exception:
+            return None
+        finally:
+            tmp_html_path.unlink(missing_ok=True)
+            tmp_pdf_path.unlink(missing_ok=True)
+        return None
+
+    def _pdf_page_count(self, pdf_bytes):
+        if not pdf_bytes or PdfReader is None:
+            return 0
+        try:
+            reader = PdfReader(io.BytesIO(pdf_bytes))
+            return len(reader.pages or [])
+        except Exception:
+            return 0
+
+    def _available_browser_binaries(self):
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        ]
+        return [path for path in candidates if Path(path).exists()]
+
+    def _build_frontend_ats_pdf_html(self, builder_data):
+        if not isinstance(builder_data, dict) or not builder_data:
+            return ""
+        node_bin = shutil.which("node")
+        if not node_bin:
+            return ""
+
+        project_root = Path(__file__).resolve().parents[4]
+        module_path = project_root / "frontend" / "src" / "utils" / "resumeExport.js"
+        if not module_path.exists():
+            return ""
+
+        script = (
+            "import fs from 'node:fs';"
+            "import { buildAtsPdfHtml } from 'file://%s';"
+            "const raw = fs.readFileSync(process.argv[1], 'utf8');"
+            "const form = JSON.parse(raw || '{}');"
+            "process.stdout.write(buildAtsPdfHtml(form));"
+        ) % str(module_path).replace("\\", "/")
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as tmp_json:
+            json.dump(builder_data, tmp_json)
+            tmp_json_path = Path(tmp_json.name)
+
+        try:
+            run = subprocess.run(
+                [node_bin, "--experimental-specifier-resolution=node", "--input-type=module", "-e", script, str(tmp_json_path)],
+                capture_output=True,
+                text=True,
+                timeout=45,
+                check=False,
+                cwd=str(project_root),
+            )
+            if run.returncode == 0:
+                return str(run.stdout or "").strip()
+            return ""
+        except Exception:
+            return ""
+        finally:
+            tmp_json_path.unlink(missing_ok=True)
+
+    def _sanitize_resume_html(self, value):
+        raw = str(value or "")
+        if not raw.strip():
+            return ""
+        text = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", raw, flags=re.I)
+        text = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", text, flags=re.I)
+        text = re.sub(r"\son[a-zA-Z]+\s*=\s*(['\"]).*?\1", "", text, flags=re.I | re.S)
+        text = re.sub(r"\s(href|src)\s*=\s*(['\"])\s*javascript:.*?\2", "", text, flags=re.I | re.S)
+        return text.strip()
+
+    def _escape_html(self, value):
+        return html.escape(str(value or ""), quote=True)
+
+    def _resume_html_to_block(self, value):
+        safe = self._sanitize_resume_html(value)
+        if safe:
+            return safe
+        plain = self._plain_text_from_html(value)
+        if not plain:
+            return ""
+        return f"<p>{self._escape_html(plain)}</p>"
+
+    def _render_experience_html(self, item):
+        if not isinstance(item, dict):
+            return ""
+        company = self._escape_html(item.get("company") or "")
+        title = self._escape_html(item.get("title") or item.get("role") or "")
+        start = str(item.get("startDate") or "").strip()
+        end = "Present" if item.get("isCurrent") else str(item.get("endDate") or "").strip()
+        date_line = self._escape_html(" - ".join(part for part in [start, end] if part))
+        content = self._resume_html_to_block(item.get("highlights") or "")
+        if not any([company, title, date_line, content]):
+            return ""
+        return f"""
+        <div class="resume-exp">
+          <div class="resume-exp-head">
+            <div class="resume-exp-left">
+              {f'<span class="resume-exp-company">{company}</span>' if company else ''}
+              {'<span class="resume-exp-sep"> - </span>' if company and title else ''}
+              {f'<span class="resume-exp-title">{title}</span>' if title else ''}
+            </div>
+            {f'<span class="resume-exp-right">{date_line}</span>' if date_line else ''}
+          </div>
+          <div class="resume-exp-body resume-rich">{content}</div>
+        </div>
+        """
+
+    def _render_project_html(self, item):
+        if not isinstance(item, dict):
+            return ""
+        name = self._escape_html(item.get("name") or "")
+        link = str(item.get("normalizedUrl") or item.get("link") or "").strip()
+        link_html = ""
+        if link:
+            safe_link = self._escape_html(link)
+            link_html = f'<a class="resume-link resume-project-link" href="{safe_link}">link</a>'
+        content = self._resume_html_to_block(item.get("highlights") or "")
+        if not any([name, link_html, content]):
+            return ""
+        return f"""
+        <div class="resume-exp">
+          <div class="resume-exp-head">
+            <div class="resume-exp-left">
+              {f'<span class="resume-exp-company">{name}</span>' if name else ''}
+              {link_html}
+            </div>
+          </div>
+          <div class="resume-exp-body resume-rich">{content}</div>
+        </div>
+        """
+
+    def _render_education_html(self, item):
+        if not isinstance(item, dict):
+            return ""
+        institution = self._escape_html(item.get("institution") or "")
+        program = self._escape_html(item.get("program") or "")
+        score = self._escape_html(item.get("scoreText") or item.get("score") or "")
+        start = str(item.get("startDate") or "").strip()
+        end = "Present" if item.get("isCurrent") else str(item.get("endDate") or "").strip()
+        date_line = self._escape_html(" - ".join(part for part in [start, end] if part))
+        return f"""
+        <div class="resume-exp">
+          <div class="resume-exp-head">
+            <div class="resume-exp-left">
+              {f'<div class="resume-edu-inst"><span class="resume-exp-company">{institution}</span></div>' if institution else ''}
+              {f'<div class="resume-edu-meta">{program}{(" | " + score) if program and score else score}</div>' if (program or score) else ''}
+            </div>
+            {f'<span class="resume-exp-right">{date_line}</span>' if date_line else ''}
+          </div>
+        </div>
+        """
+
+    def _render_custom_section_html(self, item):
+        if not isinstance(item, dict):
+            return ""
+        title = self._escape_html(item.get("title") or "Custom Section")
+        content = self._resume_html_to_block(item.get("content") or "")
+        if not content:
+            return ""
+        return f'<section class="resume-section"><h2>{title}</h2><div class="resume-rich">{content}</div></section>'
+
+    def _build_resume_pdf_html(self, builder_data, fallback_title="Resume", page_margin_in=0.55):
+        data = builder_data if isinstance(builder_data, dict) else {}
+        basics = data.get("basics") if isinstance(data.get("basics"), dict) else {}
+        full_name = self._escape_html(
+            basics.get("fullName")
+            or data.get("fullName")
+            or data.get("resumeTitle")
+            or fallback_title
+            or "Resume"
+        )
+        contact_line = " | ".join(
+            self._escape_html(part)
+            for part in [
+                basics.get("location") or data.get("location"),
+                basics.get("phone"),
+                basics.get("email"),
+            ]
+            if str(part or "").strip()
+        )
+        links = []
+        for label, key in [
+            ("LinkedIn", "linkedin"),
+            ("GitHub", "github"),
+            ("Portfolio", "portfolio"),
+        ]:
+            value = str(basics.get(key) or "").strip()
+            if value:
+                links.append(f'<a href="{self._escape_html(value)}">{label}</a>')
+        sections = []
+        summary_html = self._resume_html_to_block(data.get("summary") or "")
+        if summary_html:
+            sections.append(f'<section class="resume-section"><h2>Summary</h2><div class="resume-summary">{summary_html}</div></section>')
+
+        skills = data.get("skills")
+        skills_html = ""
+        if isinstance(skills, list):
+            skills_values = ", ".join(str(item).strip() for item in skills if str(item).strip())
+            if skills_values:
+                skills_html = f"<p>{self._escape_html(skills_values)}</p>"
+        else:
+            skills_html = self._resume_html_to_block(skills or "")
+        if skills_html:
+            sections.append(f'<section class="resume-section"><h2>Skills</h2><div class="resume-rich">{skills_html}</div></section>')
+
+        experiences = "".join(self._render_experience_html(item) for item in (data.get("experiences") or []))
+        if experiences.strip():
+            sections.append(f'<section class="resume-section"><h2>Experience</h2>{experiences}</section>')
+
+        projects = "".join(self._render_project_html(item) for item in (data.get("projects") or []))
+        if projects.strip():
+            sections.append(f'<section class="resume-section"><h2>Projects</h2>{projects}</section>')
+
+        educations = "".join(self._render_education_html(item) for item in (data.get("educations") or []))
+        if educations.strip():
+            sections.append(f'<section class="resume-section"><h2>Education</h2>{educations}</section>')
+
+        for item in (data.get("customSections") or []):
+            custom = self._render_custom_section_html(item)
+            if custom:
+                sections.append(custom)
+
+        if not sections:
+            return ""
+
+        safe_margin_in = max(0.2, min(0.75, float(page_margin_in or 0.55)))
+
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>{full_name}</title>
+  <style>
+    @page {{ size: A4; margin: {safe_margin_in}in; }}
+    html, body {{ margin: 0; padding: 0; background: #fff; color: #111827; font-family: Arial, Helvetica, sans-serif; }}
+    body {{ padding: 0.1in 0; font-size: 10pt; line-height: 1.25; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+    .resume-sheet {{ color: #111827; }}
+    .resume-head {{ margin-bottom: 6pt; padding-bottom: 2pt; text-align: center; border-bottom: 0; }}
+    .resume-head h1 {{ margin: 0; font-size: 20pt; font-weight: 700; letter-spacing: 0.02em; }}
+    .resume-head-line, .resume-head-links {{ color: #374151; }}
+    .resume-head-line {{ margin-top: 2pt; }}
+    .resume-head-links {{ margin-top: 2pt; word-break: break-word; }}
+    .resume-head-links a, .resume-link {{ color: inherit; text-decoration: none; }}
+    .resume-section {{ margin-top: 8pt; }}
+    .resume-section h2 {{ margin: 0 0 2pt; font-size: 11pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid #d1d5db; padding-bottom: 1pt; }}
+    .resume-exp {{ margin-top: 4pt; }}
+    .resume-exp-head {{ display: flex; justify-content: space-between; gap: 12pt; align-items: baseline; font-weight: 700; }}
+    .resume-exp-left {{ min-width: 0; flex: 1; }}
+    .resume-exp-right, .resume-project-link {{ font-weight: 400; color: #374151; text-decoration: none; white-space: nowrap; }}
+    .resume-rich p, .resume-summary p {{ margin: 2pt 0 0; line-height: 1.35; }}
+    .resume-rich ul, .resume-summary ul, .resume-rich ol, .resume-summary ol {{ margin: 4pt 0 0; padding-left: 16pt; }}
+    .resume-rich li, .resume-summary li {{ margin: 1.5pt 0; }}
+    .resume-edu-meta {{ margin-top: 1pt; font-weight: 400; }}
+    * {{ box-shadow: none !important; text-shadow: none !important; filter: none !important; }}
+  </style>
+</head>
+<body>
+  <article class="resume-sheet">
+    <header class="resume-head">
+      <h1>{full_name}</h1>
+      {f'<div class="resume-head-line">{contact_line}</div>' if contact_line else ''}
+      {f'<div class="resume-head-links">{" | ".join(links)}</div>' if links else ''}
+    </header>
+    {"".join(sections)}
+  </article>
+</body>
+</html>"""
 
     def _builder_data_to_text(self, builder_data, fallback_title="Resume"):
         b = builder_data if isinstance(builder_data, dict) else {}
@@ -623,12 +979,7 @@ class Command(BaseCommand):
         text = re.sub(r"[ \t]{2,}", " ", text)
         return text.strip()
 
-    def _write_simple_pdf(self, text, filename_hint="resume"):
-        safe_hint = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(filename_hint or "resume")).strip("_") or "resume"
-        fd, tmp_path = tempfile.mkstemp(prefix=f"{safe_hint}_", suffix=".pdf")
-        os.close(fd)
-        path = Path(tmp_path)
-
+    def _build_simple_pdf_bytes(self, text, filename_hint="resume"):
         # Minimal one-page PDF writer.
         lines = [ln[:110] for ln in str(text or "").splitlines()[:80]]
         if not lines:
@@ -654,20 +1005,33 @@ class Command(BaseCommand):
         )
         objects.append(b"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n")
 
+        payload = bytearray()
+        offsets = [0]
+
+        def write(chunk):
+            payload.extend(chunk)
+
+        write(b"%PDF-1.4\n")
+        for obj in objects:
+            offsets.append(len(payload))
+            write(obj)
+        xref_pos = len(payload)
+        write(f"xref\n0 {len(offsets)}\n".encode("latin-1"))
+        write(b"0000000000 65535 f \n")
+        for off in offsets[1:]:
+            write(f"{off:010d} 00000 n \n".encode("latin-1"))
+        write(
+            f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("latin-1")
+        )
+        return bytes(payload)
+
+    def _write_simple_pdf(self, text, filename_hint="resume"):
+        safe_hint = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(filename_hint or "resume")).strip("_") or "resume"
+        fd, tmp_path = tempfile.mkstemp(prefix=f"{safe_hint}_", suffix=".pdf")
+        os.close(fd)
+        path = Path(tmp_path)
         with path.open("wb") as f:
-            f.write(b"%PDF-1.4\n")
-            offsets = [0]
-            for obj in objects:
-                offsets.append(f.tell())
-                f.write(obj)
-            xref_pos = f.tell()
-            f.write(f"xref\n0 {len(offsets)}\n".encode("latin-1"))
-            f.write(b"0000000000 65535 f \n")
-            for off in offsets[1:]:
-                f.write(f"{off:010d} 00000 n \n".encode("latin-1"))
-            f.write(
-                f"trailer << /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("latin-1")
-            )
+            f.write(self._build_simple_pdf_bytes(text, filename_hint=filename_hint))
         return str(path)
 
     def _pdf_escape(self, value):
@@ -681,11 +1045,52 @@ class Command(BaseCommand):
         except UserProfile.DoesNotExist:
             return None
 
+    def _slug_attachment_name(self, value):
+        return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+    def _normalized_yoe_token(self, value):
+        raw = str(value or "").strip().lower()
+        if not raw:
+            return ""
+        match = re.search(r"\d+(?:\.\d+)?", raw)
+        if not match:
+            return ""
+        token = match.group(0)
+        if "." in token:
+            token = token.rstrip("0").rstrip(".")
+        return token
+
+    def _attachment_download_name(self, row, profile=None, attachment_path=None):
+        builder = row.resume.builder_data if row and row.resume and isinstance(getattr(row.resume, "builder_data", None), dict) else {}
+        basics = builder.get("basics") if isinstance(builder.get("basics"), dict) else {}
+        full_name = (
+            str(basics.get("fullName") or "").strip()
+            or str(builder.get("fullName") or "").strip()
+            or str(getattr(profile, "full_name", "") or "").strip()
+            or str(getattr(row.user, "get_full_name", lambda: "")() or "").strip()
+            or str(getattr(row.user, "username", "") or "").strip()
+        )
+        name_token = self._slug_attachment_name(full_name) or "resume"
+
+        yoe_token = (
+            self._normalized_yoe_token(getattr(profile, "years_of_experience", "") or "")
+            or self._normalized_yoe_token(basics.get("yearsOfExperience") or "")
+            or self._normalized_yoe_token(builder.get("yearsOfExperience") or "")
+        )
+        if not yoe_token and attachment_path:
+            match = re.search(r"_(\d+(?:\.\d+)?)yoe\.pdf$", Path(attachment_path).name, flags=re.I)
+            if match:
+                yoe_token = match.group(1)
+
+        if yoe_token:
+            return f"{name_token}_{yoe_token}yoe.pdf"
+        return f"{name_token}.pdf"
+
     def _get_achievements(self, row):
         template_ids = getattr(row, "template_ids_ordered", None)
         if isinstance(template_ids, list) and template_ids:
             target_ids = [str(item or "").strip() for item in template_ids if str(item or "").strip()]
-            rows = list(Template.objects.filter(user=row.user, id__in=target_ids))
+            rows = list(Template.objects.filter(profile=row.profile, id__in=target_ids))
             row_map = {str(item.id): item for item in rows}
             return [row_map[item_id] for item_id in target_ids if item_id in row_map]
         template = getattr(row, "template", None)
@@ -787,6 +1192,89 @@ class Command(BaseCommand):
             return "Your company"
         return raw[:1].upper() + raw[1:]
 
+    def _capitalize_inserted_value(self, key, value):
+        normalized_key = str(key or "").strip().lower()
+        if normalized_key == "job_id_line":
+            return str(value or "")
+        text = " ".join(str(value or "").split()).strip()
+        if not text:
+            return ""
+        if normalized_key in {"name", "employee_name", "first_name"}:
+            return self._display_first_name(text)
+        if normalized_key in {"company_name", "role", "profile_role", "employee_role", "employee_department", "interview_round"}:
+            return text[:1].upper() + text[1:]
+        if normalized_key in {"resume_link", "job_link", "sender_linkedin", "employee_email", "sender_email"}:
+            return text
+        if normalized_key == "employee_focus_area":
+            return text[:1].lower() + text[1:] if text else ""
+        if normalized_key == "skills_text":
+            parts = [part.strip() for part in re.split(r"\s*,\s*", text) if part.strip()]
+            if not parts:
+                return text[:1].upper() + text[1:]
+            return ", ".join(part[:1].upper() + part[1:] for part in parts)
+        return text
+
+    def _profile_role_text(self, row, profile):
+        job = getattr(row, "job", None)
+        if getattr(row, "job_id", None) and job and str(getattr(job, "role", "") or "").strip():
+            return str(job.role).strip()
+        summary = self._plain_text_from_html(getattr(profile, "summary", "") or "") if profile else ""
+        first_line = next((line.strip() for line in summary.splitlines() if line.strip()), "")
+        if first_line:
+            return first_line
+        return "Software engineer"
+
+    def _profile_skills_text(self, row):
+        builder = row.resume.builder_data if row and row.resume and isinstance(getattr(row.resume, "builder_data", None), dict) else {}
+        skills = builder.get("skills")
+        if isinstance(skills, list):
+            values = [str(item).strip() for item in skills if str(item).strip()]
+            if values:
+                return ", ".join(values)
+        text = self._plain_text_from_html(skills or "")
+        if text:
+            return text
+        return "Python, Django, React, FastAPI, MCP"
+
+    def _profile_resume_link(self, profile):
+        configured = str(getattr(profile, "resume_link", "") or "").strip() if profile else ""
+        return configured or self.HARDCODED_RESUME_LINK
+
+    def _employee_focus_area_text(self, employee):
+        about = " ".join(str(getattr(employee, "about", "") or "").split()).strip()
+        role = str(getattr(employee, "JobRole", "") or "").strip()
+        department = str(getattr(employee, "department", "") or "").strip()
+
+        if about:
+            patterns = [
+                r"\bexperienced\s+in\s+([^.;,\n]{4,90})",
+                r"\bexperience\s+(?:across|in|with)\s+([^.;,\n]{4,90})",
+                r"\bbackground\s+in\s+([^.;,\n]{4,90})",
+                r"\bfocused\s+on\s+([^.;,\n]{4,90})",
+                r"\bworking\s+on\s+([^.;,\n]{4,90})",
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, about, flags=re.I)
+                if match:
+                    return " ".join(match.group(1).split()).strip(" -,:;")
+
+        merged = f"{role} {department}".lower()
+        if any(token in merged for token in ["talent", "recruit", "hiring", "acquisition", "hr"]):
+            return "technical and non-technical hiring"
+        if "backend" in merged:
+            return "backend engineering"
+        if "frontend" in merged:
+            return "frontend engineering"
+        if "full" in merged and "stack" in merged:
+            return "full-stack engineering"
+        if "software" in merged or "engineer" in merged or "engineering" in merged:
+            return "software engineering"
+        if department:
+            return department.lower()
+        if role:
+            return role.lower()
+        return "your field"
+
     def _sender_first_name(self, row, profile):
         first_name = self._display_first_name(getattr(profile, "first_name", "") or "")
         if first_name:
@@ -857,18 +1345,20 @@ class Command(BaseCommand):
         return "I am happy to share my resume if helpful."
 
     def _build_signature(self, row, profile):
-        full_name = self._sender_first_name(row, profile)
-        linkedin = str(getattr(profile, "linkedin_url", "") or "").strip()
-        contact = str(getattr(profile, "contact_number", "") or "").strip()
-        email = str(getattr(profile, "email", "") or row.user.email or "").strip()
-
-        sign_parts = [f"Sincerely,\n{full_name}".strip()]
-        if linkedin:
-            sign_parts.append(f"LinkedIn: {linkedin}")
-        if email:
-            sign_parts.append(f"Email: {email}")
-        if contact:
-            sign_parts.append(contact)
+        mail_type = str(getattr(row, "mail_type", "") or "").strip().lower() if row else ""
+        if mail_type == "followed_up":
+            sign_parts = [
+                "Thanks,",
+                self.HARDCODED_SIGNATURE_NAME,
+            ]
+        else:
+            sign_parts = [
+                "Thanks,",
+                self.HARDCODED_SIGNATURE_NAME,
+                f"LinkedIn: {self.HARDCODED_SIGNATURE_LINKEDIN}",
+                f"Email: {self.HARDCODED_SIGNATURE_EMAIL}",
+                self.HARDCODED_SIGNATURE_CONTACT,
+            ]
         return "\n".join([p for p in sign_parts if str(p or "").strip()])
 
     def _inject_dynamic_names(self, text, employee_name, sender_name):
@@ -877,7 +1367,7 @@ class Command(BaseCommand):
         snd = str(sender_name or "").strip()
 
         if emp:
-            for token in ["[Name]", "[Employee Name]", "<name>", "<employee_name>", "{{name}}", "{name}"]:
+            for token in ["[]", "[Name]", "[Employee Name]", "<name>", "<employee_name>", "{{name}}", "{name}"]:
                 value = value.replace(token, emp)
             value = re.sub(r"\bHi\s+there\s*,", f"Hi {emp},", value, flags=re.I)
             value = re.sub(r"\bHello\s+there\s*,", f"Hi {emp},", value, flags=re.I)
@@ -1026,45 +1516,57 @@ class Command(BaseCommand):
 
     def _mail_placeholder_map(self, row, employee, profile, *, company_name="", role="", job_id="", job_link="", sender_name="", employee_email=""):
         current_employer = str(getattr(profile, "current_employer", "") or "").strip() if profile else ""
-        sender_email = str(getattr(profile, "email", "") or getattr(getattr(row, "user", None), "email", "") or "").strip()
-        sender_contact = str(getattr(profile, "contact_number", "") or "").strip()
-        sender_linkedin = str(getattr(profile, "linkedin_url", "") or "").strip()
         employee_name = self._preferred_employee_name(employee)
         employee_role = str(getattr(employee, "JobRole", "") or "").strip()
         employee_department = str(getattr(employee, "department", "") or "").strip()
         normalized_job_link = str(job_link or "").strip()
+        first_name = self._display_first_name(employee_name)
+        yoe = str(getattr(profile, "years_of_experience", "") or "").strip() if profile else ""
         return {
             "name": employee_name,
             "employee_name": employee_name,
-            "employee_email": str(employee_email or getattr(employee, "email", "") or "").strip(),
+            "first_name": first_name,
             "employee_role": employee_role,
+            "department": employee_department,
             "employee_department": employee_department,
             "company_name": str(company_name or "").strip(),
+            "current_employer": current_employer,
             "role": str(role or "").strip(),
             "job_id": str(job_id or "").strip(),
+            "job_id_line": f" (Job ID: {str(job_id or '').strip()})" if str(job_id or "").strip() else "",
             "job_link": normalized_job_link,
-            "current_employer": current_employer,
-            "sender_name": str(sender_name or "").strip(),
-            "sender_email": sender_email,
-            "sender_contact": sender_contact,
-            "sender_linkedin": sender_linkedin,
+            "resume_link": self._profile_resume_link(profile),
+            "years_of_experience": yoe,
+            "yoe": yoe,
+            "interaction_time": self._format_interaction_date(row),
+            "interview_round": "",
         }
 
     def _render_mail_placeholders(self, text, replacements):
         value = str(text or "")
         if not value:
             return ""
-        mapping = replacements or {}
+        mapping = {
+            key: replacement
+            for key, replacement in (replacements or {}).items()
+            if str(key or "").strip() in self.ALLOWED_DYNAMIC_PLACEHOLDERS
+        }
         for key, replacement in mapping.items():
-            safe_value = str(replacement or "").strip()
+            safe_value = self._capitalize_inserted_value(key, replacement)
             value = value.replace(f"{{{key}}}", safe_value)
             value = value.replace(f"[{key}]", safe_value)
+        value = re.sub(r"\{[A-Za-z_][A-Za-z0-9_]*\}", "", value)
+        value = re.sub(r"\[[A-Za-z_][A-Za-z0-9_]*\]", "", value)
         # Clean punctuation artifacts left behind by empty placeholders.
         value = re.sub(r"\bAt\s*,\s*", "", value, flags=re.I)
+        value = re.sub(r"\s+\(", " (", value)
         value = re.sub(r"\s+,", ",", value)
         value = re.sub(r"\(\s*\)", "", value)
-        value = re.sub(r"\s{2,}", " ", value)
-        return " ".join(value.split()).strip()
+        value = re.sub(r"\s+-\s*(?=[,.)]|$)", "", value)
+        value = re.sub(r"[ \t]{2,}", " ", value)
+        value = re.sub(r"\s+\n", "\n", value)
+        value = re.sub(r"\n\s+", "\n", value)
+        return value.strip()
 
     def _ordered_achievement_paragraphs(self, achievements, replacements=None):
         paragraphs = []
@@ -1083,7 +1585,7 @@ class Command(BaseCommand):
 
     def _hardcoded_personalized_intro(self, row, replacements=None):
         template = getattr(row, "personalized_template", None)
-        if not getattr(row, "use_hardcoded_personalized_intro", False) or not template:
+        if not template:
             return ""
         text = self._render_mail_placeholders(getattr(template, "achievement", "") or "", replacements)
         if not text:
@@ -1104,7 +1606,7 @@ class Command(BaseCommand):
             lines.append(f"LinkedIn: {str(linkedin).strip()}")
         return lines
 
-    def _build_ordered_hardcoded_mail(self, *, emp_name, intro_paragraphs=None, achievement_paragraphs=None, ask_line="", attachment_line="", sender_name="", email="", contact="", linkedin=""):
+    def _build_ordered_hardcoded_mail(self, *, row=None, emp_name, intro_paragraphs=None, achievement_paragraphs=None, ask_line="", attachment_line="", sender_name="", email="", contact="", linkedin=""):
         body_sections = [f"Hi {emp_name},"]
 
         for paragraph in intro_paragraphs or []:
@@ -1125,9 +1627,9 @@ class Command(BaseCommand):
         if attachment_text:
             body_sections.append(attachment_text)
 
-        sender_lines = self._sender_detail_lines(sender_name, email, contact, linkedin)
-        if sender_lines:
-            body_sections.append("Thanks,\n" + "\n".join(sender_lines))
+        signature_text = self._build_signature(row, None)
+        if signature_text:
+            body_sections.append(signature_text)
 
         return "\n\n".join([section for section in body_sections if section])
 
@@ -1160,13 +1662,6 @@ class Command(BaseCommand):
         attachment_line = self._resume_attachment_line(row)
         ordered_template_paragraphs = self._ordered_achievement_paragraphs(achievements, placeholder_values)
         personalized_intro = self._hardcoded_personalized_intro(row, placeholder_values)
-        if not personalized_intro:
-            personalized_intro = self._cold_applied_personalized_intro(
-                employee,
-                company_name,
-                role,
-                allow_generate=bool(use_ai),
-            )
 
         subject = self._default_subject_for_template(
             choice,
@@ -1175,7 +1670,11 @@ class Command(BaseCommand):
             emp_name,
             job_id,
         )
+        saved_subject = self._render_mail_placeholders(str(getattr(row, "mail_subject", "") or "").strip(), placeholder_values)
+        if saved_subject:
+            subject = saved_subject
         body = self._build_ordered_hardcoded_mail(
+            row=row,
             emp_name=emp_name,
             intro_paragraphs=[personalized_intro] if personalized_intro else [],
             achievement_paragraphs=ordered_template_paragraphs,
@@ -1192,7 +1691,38 @@ class Command(BaseCommand):
         body = self._inject_dynamic_names(body, emp_name, sender_name)
         return subject, body
 
-    def _send_email(self, user, to_email, subject, body, attachment_path=None, *, in_reply_to="", references=None):
+    def _body_html(self, body):
+        text = str(body or "").replace("\r\n", "\n")
+        if not text.strip():
+            return ""
+
+        def _linkify(segment):
+            escaped = html.escape(segment, quote=True)
+            escaped = re.sub(
+                r'(https?://[^\s<]+)',
+                lambda match: f'<a href="{match.group(1)}">{match.group(1)}</a>',
+                escaped,
+            )
+            escaped = re.sub(
+                r'(?<!["/=])\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b',
+                lambda match: f'<a href="mailto:{match.group(1)}">{match.group(1)}</a>',
+                escaped,
+            )
+            return escaped
+
+        paragraphs = []
+        for block in re.split(r"\n\s*\n", text):
+            lines = [line.strip() for line in block.split("\n")]
+            rendered_lines = [_linkify(line) if line else "" for line in lines]
+            paragraphs.append("<br>".join(rendered_lines))
+
+        return (
+            '<html><body style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #111827;">'
+            + "".join(f"<p>{paragraph}</p>" for paragraph in paragraphs if paragraph.strip())
+            + "</body></html>"
+        )
+
+    def _send_email(self, user, to_email, subject, body, attachment_path=None, attachment_bytes=None, *, attachment_name=None, in_reply_to="", references=None):
         host = str(__import__("os").environ.get("SMTP_HOST", "")).strip()
         port = int(str(__import__("os").environ.get("SMTP_PORT", "587")).strip() or 587)
         username = str(__import__("os").environ.get("SMTP_USER", "")).strip()
@@ -1202,22 +1732,34 @@ class Command(BaseCommand):
         if not host or not from_email:
             raise RuntimeError("SMTP_HOST / SMTP_FROM_EMAIL (or SMTP_USER) is not configured.")
 
-        if attachment_path:
+        html_body = self._body_html(body)
+        content_part = MIMEMultipart("alternative")
+        content_part.attach(MIMEText(body, "plain", "utf-8"))
+        if html_body:
+            content_part.attach(MIMEText(html_body, "html", "utf-8"))
+
+        if attachment_path or attachment_bytes:
             msg = MIMEMultipart()
-            msg.attach(MIMEText(body, "plain", "utf-8"))
+            msg.attach(content_part)
             try:
-                file_path = Path(attachment_path)
-                with file_path.open("rb") as fh:
-                    part = MIMEBase("application", "octet-stream")
-                    part.set_payload(fh.read())
+                part = MIMEBase("application", "octet-stream")
+                if attachment_bytes is not None:
+                    part.set_payload(attachment_bytes)
+                    fallback_name = "resume.pdf"
+                else:
+                    file_path = Path(attachment_path)
+                    with file_path.open("rb") as fh:
+                        part.set_payload(fh.read())
+                    fallback_name = file_path.name
                 encoders.encode_base64(part)
-                part.add_header("Content-Disposition", f'attachment; filename="{file_path.name}"')
+                download_name = str(attachment_name or "").strip() or fallback_name
+                part.add_header("Content-Disposition", f'attachment; filename="{download_name}"')
                 msg.attach(part)
             except Exception:  # noqa: BLE001
-                # Soft-fail attachment and continue with plain body.
-                msg = MIMEText(body, "plain", "utf-8")
+                # Soft-fail attachment and continue with multipart mail body.
+                msg = content_part
         else:
-            msg = MIMEText(body, "plain", "utf-8")
+            msg = content_part
         msg["Subject"] = subject
         msg["From"] = from_email
         msg["To"] = to_email
