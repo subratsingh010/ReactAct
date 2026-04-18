@@ -10,6 +10,14 @@ cd "$ROOT_DIR"
 
 git pull origin "${DEPLOY_BRANCH:-main}"
 
+NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  # Ensure the frontend build runs on a Vite-compatible Node version.
+  . "$NVM_DIR/nvm.sh"
+  nvm install 20 >/dev/null
+  nvm use 20 >/dev/null
+fi
+
 cd "$BACKEND_DIR"
 if [ -d "venv" ]; then
   source venv/bin/activate
