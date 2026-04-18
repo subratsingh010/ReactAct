@@ -1,5 +1,44 @@
 const API_BASE_URL = '/api'
 
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function collectMessagesFromApiPayload(payload) {
+  if (payload == null) return []
+  if (typeof payload === 'string') return [payload.trim()].filter(Boolean)
+  if (Array.isArray(payload)) {
+    return payload.flatMap((item) => collectMessagesFromApiPayload(item))
+  }
+  if (!isPlainObject(payload)) return [String(payload).trim()].filter(Boolean)
+
+  const directKeys = ['detail', 'message', 'error', 'non_field_errors']
+  for (const key of directKeys) {
+    if (key in payload) {
+      const messages = collectMessagesFromApiPayload(payload[key])
+      if (messages.length) return messages
+    }
+  }
+
+  return Object.entries(payload).flatMap(([key, value]) => {
+    if (key === 'warning' || key === 'warnings') return []
+    return collectMessagesFromApiPayload(value)
+  })
+}
+
+function extractWarningText(payload) {
+  if (!isPlainObject(payload)) return ''
+  const warning = payload.warning ?? payload.warnings
+  if (!warning) return ''
+  return collectMessagesFromApiPayload(warning).join(' ').trim()
+}
+
+function buildApiErrorMessage(payload) {
+  const messages = collectMessagesFromApiPayload(payload)
+  if (!messages.length) return 'Request failed. Please try again.'
+  return messages.join(' | ')
+}
+
 async function parseResponse(response) {
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
