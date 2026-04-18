@@ -8,7 +8,7 @@ BACKEND_SERVICE="${BACKEND_SERVICE:-reactact}"
 
 cd "$ROOT_DIR"
 
-git pull origin "${DEPLOY_BRANCH:-master}"
+git pull origin "${DEPLOY_BRANCH:-main}"
 
 cd "$BACKEND_DIR"
 if [ -d "venv" ]; then
