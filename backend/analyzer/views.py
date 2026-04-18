@@ -4916,6 +4916,7 @@ class BulkUploadJobsEmployeesView(APIView):
             'duplicate_in_db': 0,
             'errors': [],
         }
+        
 
         has_any_errors = bool(employees_summary.get('errors') or jobs_summary.get('errors'))
         response_status = status.HTTP_207_MULTI_STATUS if has_any_errors else status.HTTP_201_CREATED
