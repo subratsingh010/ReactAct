@@ -1,0 +1,52 @@
+JOB LINK	 GOT ?	mailed ?
+https://jobs.gartner.com/jobs/job/106838-software-engineer-2-4-yrs-in-be-dev-dsa/yes	Yes	
+https://jobs.gartner.com/jobs/job/105672-software-engineer-python/	Yes	
+https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs/preview/210672475/?keyword=Software+Engineering&location=India&locationId=300000000289360&locationLevel=country&mode=location	yes	
+https://careers.blackrock.com/job/-/-/45831/91402741632?source=LinkedIn		
+https://careers.msci.com/job/technology/mumbai/python-developer-in-climate-engineering/2025-4779?mode=apply&iis=LinkedIn	yes	
+https://ats.rippling.com/en-GB/rippling/jobs/c5332e4d-2ea9-428f-b5a5-7021ce127473?jobSite=LinkedIn		
+https://jobs.ea.com/en_US/careers/JobDetail/Software-Engineer-I/210749?source=LinkedIn		
+https://fa-extu-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/1938?utm_medium=jobboard&utm_source=linkedin	yes	
+https://recruitment.macquarie.com/en_US/careers/JobDetail?jobId=19565&source=LinkedIn.com#		
+https://careers.bcg.com/global/en/job/BCG1US55449EXTERNALENGLOBAL/Software-Engineer-X-Delivery?utm_source=linkedin&utm_medium=phenom-feeds&Source+=LinkedIn+Job+Board	yes	
+https://jobs.clanx.ai/o/senior-backend-engineer-python-bengaluru-1		
+https://career5.successfactors.eu/careers?company=capgemitecP3		
+https://job-boards.greenhouse.io/postman/jobs/7636725003?gh_src=7ad26f843us	closed	
+https://jobs.natwestgroup.com/jobs/17275746-python-software-engineer?bid=370	Applied	
+https://boards.greenhouse.io/embed/job_app?token=7637795003&gh_src=961e65dc3us	Applied	
+https://ibqbjb.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/Honeywell/job/139613?utm_medium=jobboard&utm_source=linkedin		
+https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210711920?utm_medium=jobboard&utm_source=LinkedIn		
+https://careers.hpe.com/us/en/job/1197635/Software-Engineer?utm_source=linkedin		
+https://jobs.ea.com/en_US/careers/JobDetail/Software-Engineer-I/212869?source=LinkedIn		
+https://careers.qualcomm.com/careers/job/446716305199?hl=en-US&utm_source=linkedin&domain=qualcomm.com&source=APPLICANT_SOURCE-6-2		
+https://www.amazon.jobs/en/jobs/3151439/sde-1-ftc?no_int_redir=1		
+https://www.rubrik.com/company/careers/departments/job.6866686?gh_jid=6866686&gh_src=2e352a8a1us		
+https://careers.ibm.com/en_US/careers/JobDetail?jobId=94401	yes	
+https://jobs.smartrecruiters.com/TheNielsenCompany/3743990011746246-member-of-technical-staff-2-?trid=2d92f286-613b-4daf-9dfa-6340ffbecf73		
+https://www.globallogic.com/careers/python-full-stack-irc285546/?utm_source=LinkedIn&utm_medium=jobboard&utm_campaign=career		
+https://jobs.lever.co/gohighlevel/623f9d4b-7e38-4d04-aa61-1db23c5e63ad/apply?source=LinkedIn		
+https://issgovernance.wd1.myworkdayjobs.com/ISScareers/job/Gurgaon-India/Python-Developer_JR_9400?source=LinkedIn		
+https://aptiv.wd5.myworkdayjobs.com/APTIV_CAREERS/job/IND-Bangalore-India-2-SEZ---WR/Senior-Engineer---Python_9919/apply?AdCode=LINKEDIN13&source=Linkedin		
+https://www.orioninc.com/careers/job/?gh_jid=4645573006		
+https://jobs.jobvite.com/legalzoom/job/o3JTyfwX?__jvst=Job%20Board&__jvsd=LinkedIn		
+https://jobs.ashbyhq.com/kong/358b8739-3d42-4e9b-9e00-1487671baff0/application?utm_source=o2YQ6W6j14		
+https://careers.equinix.com/jobs/staff-python-full-stack-engineer-bengaluru-karnataka-india?source=linkedin&utm_source=linkedin		
+https://careers.united.com/us/en/job/UAIUADUSGGN00002424EXTERNALENUSTALEO/Developer-I?utm_source=linkedin&utm_medium=phenom-feeds		
+https://job-boards.greenhouse.io/cloudflare/jobs/7603643?gh_jid=7603643&gh_src=5ylsd31&source=LinkedIn		
+https://careers.bain.com/jobs/FolderDetail?folderId=100086&source=Linked-In		
+https://relx.wd3.myworkdayjobs.com/LexisNexisLegal/job/Gurgaon/Software-Engineer-II_R102440/apply?source=LinkedIn		
+https://careers.moodys.com/software-engineer/job/12682?utm_source=linkedin&jobPipeline=linkedin		
+https://job-boards.eu.greenhouse.io/nice/jobs/4774027101?gh_jid=4774027101		
+https://jobs.lever.co/netomi/b0262b57-4744-4ae0-b1a5-b08f481b2aea/apply?source=LinkedIn		
+https://search.jobs.barclays/job/-/-/13015/91658541680?src=JB-12860		
+https://careers.expediagroup.com/job/software-development-engineer-2-full-stack-developer/gurgaon-hary-na/R-100996/?source=LinkedIn		
+https://recruitment.macquarie.com/en_US/careers/JobDetail?jobId=20684&qtvc=89da56e7370f6d6fe978a82ca8984c761b8cc6683099fa07834b3ce6f5a7e76f	20684	
+https://jobs.smartrecruiters.com/Visa/744000117635105-software-engineer-2024-25-genai-must-?source=LinkedIn		
+https://careers.cisco.com/global/en/job/CISCISGLOBAL2005236EXTERNALENGLOBAL/Software-Engineer?utm_source=linkedin&utm_medium=phenom-feeds	2005236	
+https://workday.wd5.myworkdayjobs.com/en-US/Workday/job/Software-Development-Engineer_JR-0105664	JR-0105664
+https://blackrock.wd1.myworkdayjobs.com/en-US/BlackRock_Professional/job/Gurgaon-India/Full-Stack-Engineer--Portfolio-Management-Group--Associate_R258183	R258183	
+https://mastercard.wd1.myworkdayjobs.com/CorporateCareers/job/Pune-India/Senior-Software-Engineer_R-273413	R-273413	
+https://equifax.wd5.myworkdayjobs.com/en-US/External/job/Software-Engineer---Intermediate_J00173765-1	J00173765
+https://q2ebanking.wd5.myworkdayjobs.com/en-US/Q2/job/Bangalore-India/Intermediate-Software-Engineer_REQ-12380	REQ-12380
+https://quantiphi.wd1.myworkdayjobs.com/Careers_at_Quantiphi/job/IN-MH-Mumbai-Eureka/Software-Developer---Full-Stack_JR9371	JR9371
+https://reliaquest.wd5.myworkdayjobs.com/reliaquest_careers/job/Pune-India-Office/Associate-Software-Engineer_R15032	R15032	yes

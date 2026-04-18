@@ -1,16 +1,36 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { fetchProfile } from '../api'
+import { useAuth } from '../contexts/useAuth'
+import { useTheme } from '../contexts/useTheme'
 
-function NavBar({ navigate, onLogout, currentPath, theme, onToggleTheme }) {
+function MenuIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="currentColor" d="M4 7h16v2H4V7Zm0 8h16v2H4v-2Zm0-4h16v2H4v-2Z" />
+    </svg>
+  )
+}
+
+function NavBar() {
   const [open, setOpen] = useState(false)
   const [username, setUsername] = useState('')
+  const { accessToken, logout } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { theme, toggleTheme } = useTheme()
+  const currentPath = location.pathname
 
   const items = useMemo(
     () => [
       { label: 'Home', path: '/' },
-      { label: 'Dashboard', path: '/dashboard' },
-      { label: 'Resume Builder', path: '/builder' },
+      { label: 'Profile', path: '/profile' },
+      { label: 'Companies', path: '/companies' },
+      { label: 'Tracking', path: '/tracking' },
+      { label: 'Schedule', path: '/tracking-schedule' },
+      { label: 'Jobs', path: '/jobs' },
+      { label: 'Bulk Upload', path: '/bulk-upload' },
     ],
     [],
   )
@@ -21,18 +41,30 @@ function NavBar({ navigate, onLogout, currentPath, theme, onToggleTheme }) {
   }
 
   useEffect(() => {
-    const access = localStorage.getItem('access')
-    if (!access) return
-    fetchProfile(access)
-      .then((p) => setUsername(String(p?.username || '')))
-      .catch(() => {})
-  }, [])
+    if (!accessToken) return
+    let cancelled = false
+    fetchProfile(accessToken)
+      .then((p) => {
+        if (!cancelled) setUsername(String(p?.username || ''))
+      })
+      .catch(() => {
+        if (!cancelled) setUsername('')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken])
+  const displayUsername = accessToken ? username : ''
 
   return (
-    <header className="nav">
-      <div className="nav-inner">
+    <header className="nav sticky top-0">
+      <div className="nav-inner mx-auto flex w-full items-center justify-between">
         <button type="button" className="nav-brand" onClick={() => go('/')}>
-          ResumeBuilder
+          <span className="nav-brand-mark">AP</span>
+          <span className="nav-brand-copy">
+            <strong>ApplyPilot</strong>
+            <small>Jobs, Tracking, Resumes</small>
+          </span>
         </button>
 
         <button
@@ -42,11 +74,12 @@ function NavBar({ navigate, onLogout, currentPath, theme, onToggleTheme }) {
           aria-expanded={open ? 'true' : 'false'}
           aria-controls="nav-links"
         >
-          Menu
+          <MenuIcon />
+          <span>Menu</span>
         </button>
 
         <nav id="nav-links" className={`nav-links${open ? ' is-open' : ''}`}>
-          <div className="nav-left">
+          <div className="nav-left nav-link-cluster">
             {items.map((item) => (
               <button
                 key={item.path}
@@ -60,12 +93,18 @@ function NavBar({ navigate, onLogout, currentPath, theme, onToggleTheme }) {
           </div>
 
           <div className="nav-right">
+            {displayUsername ? (
+              <div className="nav-user-block">
+                <div className="nav-user">{displayUsername}</div>
+              </div>
+            ) : null}
+
             <button
               type="button"
               className="nav-icon-btn"
               onClick={() => {
                 setOpen(false)
-                onToggleTheme()
+                toggleTheme()
               }}
               aria-label="Toggle dark mode"
               title="Toggle dark mode"
@@ -87,14 +126,12 @@ function NavBar({ navigate, onLogout, currentPath, theme, onToggleTheme }) {
               )}
             </button>
 
-            {username && <div className="nav-user">{username}</div>}
-
             <button
               type="button"
-              className="nav-link danger"
+              className="nav-link nav-link-logout danger"
               onClick={() => {
                 setOpen(false)
-                onLogout()
+                logout()
                 navigate('/login')
               }}
             >

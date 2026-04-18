@@ -1,0 +1,132 @@
+2026-04-15 19:49:41,042 [INFO] Processing tracking rows: 0
+2026-04-15 19:49:41,043 [INFO] Done. sent=0 failed=0
+2026-04-15 19:50:34,907 [INFO] Processing tracking rows: 0
+2026-04-15 19:50:34,907 [INFO] Done. sent=0 failed=0
+2026-04-15 19:59:29,622 [INFO] Processing tracking rows: 0
+2026-04-15 19:59:29,623 [INFO] Done. sent=0 failed=0
+2026-04-15 20:03:09,193 [INFO] Processing tracking rows: 2
+2026-04-15 20:03:19,116 [INFO] [tracking:25] sent=0 failed=3
+2026-04-15 20:03:20,792 [INFO] [tracking:26] sent=0 failed=1
+2026-04-15 20:03:20,792 [INFO] Done. sent=0 failed=4
+2026-04-15 20:05:38,203 [INFO] Processing tracking rows: 0
+2026-04-15 20:05:38,203 [INFO] Done. sent=0 failed=0
+2026-04-15 20:09:26,741 [INFO] Processing tracking rows: 2
+2026-04-15 20:09:26,751 [INFO] [tracking:25] sent=0 failed=2
+2026-04-15 20:09:26,756 [INFO] [tracking:26] sent=0 failed=1
+2026-04-15 20:09:26,756 [INFO] Done. sent=0 failed=3
+2026-04-15 20:13:49,830 [INFO] Processing tracking rows: 2
+2026-04-15 20:13:49,834 [WARNING] [tracking:25] skipped (no pending employees left to process)
+2026-04-15 20:13:49,839 [WARNING] [tracking:26] skipped (no pending employees left to process)
+2026-04-15 20:13:49,839 [INFO] Done. sent=0 failed=0
+2026-04-15 20:13:57,358 [INFO] Processing tracking rows: 0
+2026-04-15 20:13:57,358 [INFO] Done. sent=0 failed=0
+2026-04-15 20:15:05,377 [INFO] Processing tracking rows: 2
+2026-04-15 20:15:05,381 [WARNING] [tracking:25] skipped (no pending employees left to process)
+2026-04-15 20:15:05,384 [WARNING] [tracking:26] skipped (no pending employees left to process)
+2026-04-15 20:15:05,384 [INFO] Done. sent=0 failed=0
+2026-04-15 20:20:39,461 [INFO] Processing tracking rows: 1
+2026-04-15 20:20:39,465 [WARNING] [tracking:25] skipped (no pending employees left to process)
+2026-04-15 20:20:39,466 [INFO] Done. sent=0 failed=0
+2026-04-15 20:22:30,702 [INFO] Processing tracking rows: 1
+2026-04-15 20:22:30,706 [WARNING] [tracking:26] skipped (no pending employees left to process)
+2026-04-15 20:22:30,706 [INFO] Done. sent=0 failed=0
+2026-04-15 20:27:53,730 [INFO] Processing tracking rows: 0
+2026-04-15 20:27:53,730 [INFO] Done. sent=0 failed=0
+2026-04-15 20:28:24,171 [INFO] Processing tracking rows: 2
+2026-04-15 20:28:24,175 [WARNING] [tracking:25] skipped (no pending employees left to process)
+2026-04-15 20:28:24,177 [WARNING] [tracking:26] skipped (no pending employees left to process)
+2026-04-15 20:28:24,177 [INFO] Done. sent=0 failed=0
+2026-04-15 20:31:04,829 [INFO] Processing tracking rows: 2
+2026-04-15 20:31:04,833 [WARNING] [tracking:25] skipped (no pending employees left to process)
+2026-04-15 20:31:04,836 [WARNING] [tracking:26] skipped (no pending employees left to process)
+2026-04-15 20:31:04,836 [INFO] Done. sent=0 failed=0
+2026-04-15 20:35:31,697 [INFO] Processing tracking rows: 2
+2026-04-15 20:35:31,702 [WARNING] [tracking:25] skipped (no pending employees left to process)
+2026-04-15 20:35:31,706 [WARNING] [tracking:26] skipped (no pending employees left to process)
+2026-04-15 20:35:31,706 [INFO] Done. sent=0 failed=0
+2026-04-15 20:36:47,130 [INFO] Processing tracking rows: 1
+2026-04-15 20:36:47,134 [WARNING] [tracking:26] skipped (no pending employees left to process)
+2026-04-15 20:36:47,134 [INFO] Done. sent=0 failed=0
+2026-04-15 20:38:12,555 [INFO] Processing tracking rows: 1
+2026-04-15 20:42:42,234 [WARNING] [tracking:26] skipped (no pending employees left to process)
+2026-04-15 20:42:46,361 [INFO] Done. sent=0 failed=0
+2026-04-15 20:48:50,433 [INFO] Processing tracking rows: 0
+2026-04-15 20:48:50,433 [INFO] Done. sent=0 failed=0
+2026-04-15 20:49:20,097 [INFO] Processing tracking rows: 0
+2026-04-15 20:49:20,097 [INFO] Done. sent=0 failed=0
+2026-04-15 20:51:27,060 [INFO] Processing tracking rows: 2
+2026-04-15 20:51:47,904 [INFO] [tracking:25] sent=0 failed=5
+2026-04-15 20:51:47,912 [INFO] [tracking:26] sent=0 failed=1
+2026-04-15 20:51:47,912 [INFO] Done. sent=0 failed=6
+2026-04-15 20:52:52,934 [INFO] Processing tracking rows: 2
+2026-04-15 20:52:52,942 [INFO] [tracking:25] test mode simulated send to aashi.goyal@gartner.com
+2026-04-15 20:52:52,946 [INFO] [tracking:25] test mode simulated send to akanksha.gupta@gartner.com
+2026-04-15 20:52:52,949 [INFO] [tracking:25] test mode simulated send to anuradha.singh@gartner.com
+2026-04-15 20:52:52,952 [INFO] [tracking:25] test mode simulated send to shivangee.prasad@gartner.com
+2026-04-15 20:52:52,956 [INFO] [tracking:25] test mode simulated send to sunita.nair@covered.ca.gov
+2026-04-15 20:52:52,962 [INFO] [tracking:25] sent=5 failed=0
+2026-04-15 20:52:52,965 [INFO] [tracking:26] test mode simulated send to unnati.tak@blackrock.com
+2026-04-15 20:52:52,969 [INFO] [tracking:26] sent=1 failed=0
+2026-04-15 20:52:52,969 [INFO] Done. sent=6 failed=0
+2026-04-15 21:07:37,407 [INFO] Processing tracking rows: 1
+2026-04-15 21:07:37,432 [INFO] [tracking:25] sent=0 failed=5
+2026-04-15 21:07:37,432 [INFO] Done. sent=0 failed=5
+2026-04-15 21:09:26,872 [INFO] Processing tracking rows: 0
+2026-04-15 21:09:26,872 [INFO] Done. sent=0 failed=0
+2026-04-15 21:09:41,508 [INFO] Processing tracking rows: 1
+2026-04-15 21:09:41,529 [INFO] [tracking:25] sent=0 failed=5
+2026-04-15 21:09:41,529 [INFO] Done. sent=0 failed=5
+2026-04-15 22:13:16,304 [INFO] Processing tracking rows: 1
+2026-04-15 22:13:36,575 [INFO] [tracking:29] sent=2 failed=0
+2026-04-15 22:13:36,575 [INFO] Done. sent=2 failed=0
+2026-04-15 22:18:48,682 [INFO] Processing tracking rows: 1
+2026-04-15 22:19:06,004 [INFO] [tracking:30] sent=2 failed=0
+2026-04-15 22:19:06,005 [INFO] Done. sent=2 failed=0
+2026-04-15 22:21:08,728 [INFO] Processing tracking rows: 1
+2026-04-15 22:21:25,778 [INFO] [tracking:30] sent=2 failed=0
+2026-04-15 22:21:25,778 [INFO] Done. sent=2 failed=0
+2026-04-15 22:37:52,137 [INFO] Processing tracking rows: 0
+2026-04-15 22:37:52,137 [INFO] Done. sent=0 failed=0
+2026-04-15 22:37:56,318 [INFO] Processing tracking rows: 0
+2026-04-15 22:37:56,319 [INFO] Done. sent=0 failed=0
+2026-04-15 22:38:09,452 [INFO] Processing tracking rows: 1
+2026-04-15 22:38:28,186 [INFO] [tracking:30] sent=2 failed=0
+2026-04-15 22:38:28,187 [INFO] Done. sent=2 failed=0
+2026-04-15 23:01:24,650 [INFO] Processing tracking rows: 1
+2026-04-15 23:01:34,964 [INFO] [tracking:31] sent=1 failed=0
+2026-04-15 23:01:34,964 [INFO] Done. sent=1 failed=0
+2026-04-15 23:06:21,203 [INFO] Processing tracking rows: 1
+2026-04-15 23:06:30,885 [INFO] [tracking:31] sent=1 failed=0
+2026-04-15 23:06:30,885 [INFO] Done. sent=1 failed=0
+2026-04-15 23:19:48,884 [INFO] Processing tracking rows: 1
+2026-04-15 23:19:58,328 [INFO] [tracking:32] sent=1 failed=0
+2026-04-15 23:19:58,328 [INFO] Done. sent=1 failed=0
+2026-04-15 23:21:09,457 [INFO] Processing tracking rows: 1
+2026-04-15 23:21:18,066 [INFO] [tracking:32] sent=1 failed=0
+2026-04-15 23:21:18,066 [INFO] Done. sent=1 failed=0
+2026-04-15 23:22:39,616 [INFO] Processing tracking rows: 1
+2026-04-15 23:22:48,281 [INFO] [tracking:32] sent=1 failed=0
+2026-04-15 23:22:48,282 [INFO] Done. sent=1 failed=0
+2026-04-15 23:23:19,513 [INFO] Processing tracking rows: 1
+2026-04-15 23:23:28,758 [INFO] [tracking:32] sent=1 failed=0
+2026-04-15 23:23:28,758 [INFO] Done. sent=1 failed=0
+2026-04-15 23:24:08,464 [INFO] Processing tracking rows: 1
+2026-04-15 23:24:17,090 [INFO] [tracking:33] sent=1 failed=0
+2026-04-15 23:24:17,090 [INFO] Done. sent=1 failed=0
+2026-04-15 23:24:45,742 [INFO] Processing tracking rows: 1
+2026-04-15 23:24:54,989 [INFO] [tracking:33] sent=1 failed=0
+2026-04-15 23:24:54,989 [INFO] Done. sent=1 failed=0
+2026-04-15 23:25:53,979 [INFO] Processing tracking rows: 1
+2026-04-15 23:26:03,390 [INFO] [tracking:33] sent=1 failed=0
+2026-04-15 23:26:03,390 [INFO] Done. sent=1 failed=0
+2026-04-15 23:26:36,737 [INFO] Processing tracking rows: 0
+2026-04-15 23:26:36,737 [INFO] Done. sent=0 failed=0
+2026-04-15 23:27:16,271 [INFO] Processing tracking rows: 1
+2026-04-15 23:27:25,539 [INFO] [tracking:33] sent=1 failed=0
+2026-04-15 23:27:25,540 [INFO] Done. sent=1 failed=0
+2026-04-15 23:28:07,038 [INFO] Processing tracking rows: 1
+2026-04-15 23:28:16,616 [INFO] [tracking:33] sent=1 failed=0
+2026-04-15 23:28:16,616 [INFO] Done. sent=1 failed=0
+2026-04-15 23:29:08,655 [INFO] Processing tracking rows: 1
+2026-04-15 23:29:18,203 [INFO] [tracking:33] sent=1 failed=0
+2026-04-15 23:29:18,204 [INFO] Done. sent=1 failed=0

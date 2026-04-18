@@ -1,0 +1,202 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ApplyPilot Companion</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="hero">
+      <div class="hero-mark">AP</div>
+      <div class="hero-copy">
+        <h1>ApplyPilot Companion</h1>
+        <p class="hero-subtitle">Capture jobs and employee contacts faster from hiring pages and LinkedIn.</p>
+      </div>
+      <p id="status" class="status"></p>
+    </header>
+
+    <section class="card card-settings">
+      <div class="card-head">
+        <div>
+          <h2>Connection</h2>
+          <p class="card-note">Point the extension to your local ApplyPilot backend and refresh shared data.</p>
+        </div>
+      </div>
+      <div class="row">
+        <label>API Base</label>
+        <input id="apiBase" value="http://127.0.0.1:8000/api" />
+      </div>
+      <div class="actions actions-inline">
+        <button id="refreshBtn" type="button">Refresh Data</button>
+      </div>
+    </section>
+
+    <section class="card card-auth">
+      <div class="card-head">
+        <div>
+          <h2>Extension Login</h2>
+          <p class="card-note">Sign in once here. The extension will auto-refresh your session and also lets you refresh it manually.</p>
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <label>Username</label>
+          <input id="authUsername" autocomplete="username" placeholder="Enter username" />
+        </div>
+        <div>
+          <label>Password</label>
+          <input id="authPassword" type="password" autocomplete="current-password" placeholder="Enter password" />
+        </div>
+      </div>
+      <div class="auth-meta">
+        <span id="authState" class="auth-pill">Logged out</span>
+        <span id="authUser" class="auth-user"></span>
+      </div>
+      <p id="authStatus" class="section-status"></p>
+      <div class="actions">
+        <button id="loginBtn" type="button">Login</button>
+        <button id="refreshSessionBtn" type="button">Refresh Session</button>
+        <button id="logoutBtn" type="button">Logout</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Job Create</h2>
+          <p class="card-note">Pull the current job page details, review them, and save directly.</p>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Company</label>
+          <input id="jobCompanyName" placeholder="Type company" required />
+        </div>
+      </div>
+      <div class="row three">
+        <div><label>Job ID</label><input id="jobId" /></div>
+        <div>
+          <label>Role</label>
+          <select id="jobRole" required>
+            <option value="">Select role</option>
+            <option value="Software Engineer">Software Engineer</option>
+            <option value="Fullstack Engineer">Fullstack Engineer</option>
+            <option value="Backend Engineer">Backend Engineer</option>
+            <option value="Sr. Software Engineer">Sr. Software Engineer</option>
+          </select>
+        </div>
+        <div><label>Location</label><select id="jobLocation" required></select></div>
+      </div>
+      <div class="row two">
+        <div>
+          <label>Posted Date</label>
+          <input id="postedDate" type="date" />
+        </div>
+        <div>
+          <label>Applied</label>
+          <select id="jobApplied">
+            <option value="no">No</option>
+            <option value="yes">Yes</option>
+          </select>
+        </div>
+      </div>
+      <div class="row"><label>Job Link</label><input id="jobLink" required /></div>
+      <div class="row"><label>JD</label><textarea id="jdText" rows="5"></textarea></div>
+      <p id="jobStatus" class="section-status"></p>
+      <div class="actions">
+        <button id="fetchFromPageBtn" type="button">Fetch From Page</button>
+        <button id="saveJobBtn" type="button">Save Job</button>
+        <button id="clearJobBtn" type="button">Clear Fields</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Employee Create</h2>
+          <p class="card-note">Capture recruiters or team contacts from LinkedIn profile pages.</p>
+        </div>
+      </div>
+      <div class="row two">
+        <div><label>Name</label><input id="empName" required /></div>
+        <div>
+          <label>Department</label>
+          <select id="empDepartment" required>
+            <option value="">Select department</option>
+            <option value="HR" selected>HR</option>
+            <option value="Engineering">Engineering</option>
+            <option value="Data">Data</option>
+            <option value="Product">Product</option>
+            <option value="Design">Design</option>
+            <option value="Operations">Operations</option>
+            <option value="Sales">Sales</option>
+            <option value="Marketing">Marketing</option>
+            <option value="Finance">Finance</option>
+            <option value="Support">Support</option>
+          </select>
+        </div>
+      </div>
+      <div class="row two">
+        <div><label>LinkedIn URL</label><input id="empLinkedin" required /></div>
+        <div>
+          <label>Role</label>
+          <select id="empRole" required>
+            <option value="">Select role</option>
+            <option value="Software Engineer">Software Engineer</option>
+            <option value="Fullstack Engineer">Fullstack Engineer</option>
+            <option value="Backend Engineer">Backend Engineer</option>
+            <option value="Frontend Engineer">Frontend Engineer</option>
+            <option value="Sr. Software Engineer">Sr. Software Engineer</option>
+            <option value="Sr. Fullstack Engineer">Sr. Fullstack Engineer</option>
+            <option value="Sr. Backend Engineer">Sr. Backend Engineer</option>
+            <option value="Sr. Frontend Engineer">Sr. Frontend Engineer</option>
+            <option value="Manager">Manager</option>
+            <option value="Team Lead">Team Lead</option>
+            <option value="HR Recruiter">HR Recruiter</option>
+            <option value="Sr. HR Recruiter">Sr. HR Recruiter</option>
+            <option value="Sr. Talent Acquisition Executive">Sr. Talent Acquisition Executive</option>
+            <option value="Sr. Talent Acquisition Specialist">Sr. Talent Acquisition Specialist</option>
+            <option value="General Talent Acquisition">General Talent Acquisition</option>
+            <option value="Talent Acquisition Executive">Talent Acquisition Executive</option>
+            <option value="Talent Acquisition Specialist">Talent Acquisition Specialist</option>
+            <option value="Talent Sourcer">Talent Sourcer</option>
+            <option value="Hiring Manager">Hiring Manager</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <label>About</label>
+        <textarea id="empAbout" rows="3" required></textarea>
+      </div>
+      <div class="row three">
+        <div><label>First</label><input id="empFirst" /></div>
+        <div><label>Middle</label><input id="empMiddle" /></div>
+        <div><label>Last</label><input id="empLast" /></div>
+      </div>
+      <div class="row two">
+        <div><label>Contact</label><input id="empContact" /></div>
+        <div><label>Email</label><input id="empEmail" /></div>
+      </div>
+      <div class="row two">
+        <div>
+          <label>Company</label>
+          <input id="empCompanyName" placeholder="Type company" required />
+        </div>
+        <div>
+          <label>Location</label>
+          <select id="empLocation" required></select>
+        </div>
+      </div>
+      <p id="employeeStatus" class="section-status"></p>
+      <div class="actions">
+        <button id="fetchEmployeeFromPageBtn" type="button">Fetch Employee</button>
+        <button id="saveEmployeeBtn" type="button">Save Employee</button>
+        <button id="clearEmployeeBtn" type="button">Clear Fields</button>
+      </div>
+    </section>
+  </main>
+  <script src="panel.js"></script>
+</body>
+</html>

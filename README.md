@@ -18,7 +18,7 @@ Resume Builder + ATS Analyzer.
 cd backend
 
 # activate conda env
-source /Users/subrat/miniconda3/etc/profile.d/conda.sh
+source ./etc/profile.d/conda.sh
 conda activate agent
 
 # install deps
@@ -51,7 +51,7 @@ Terminal A:
 
 ```bash
 cd backend
-source /Users/subrat/miniconda3/etc/profile.d/conda.sh
+source ./etc/profile.d/conda.sh
 conda activate agent
 python manage.py runserver 8000
 ```

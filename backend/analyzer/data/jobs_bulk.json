@@ -1,0 +1,464 @@
+{
+  "jobs": [
+    {
+      "job_link": "https://jobs.gartner.com/jobs/job/106838-software-engineer-2-4-yrs-in-be-dev-dsa/yes",
+      "company_name": "gartner",
+      "workday_domain_url": null,
+      "job_id": "106838",
+      "role": "Yes",
+      "applied": true,
+      "closed": false
+    },
+    {
+      "job_link": "https://jobs.gartner.com/jobs/job/105672-software-engineer-python/",
+      "company_name": "gartner",
+      "workday_domain_url": null,
+      "job_id": "105672",
+      "role": "105672 Software Engineer Python",
+      "applied": true,
+      "closed": false
+    },
+    {
+      "job_link": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs/preview/210672475/?keyword=Software+Engineering&location=India&locationId=300000000289360&locationLevel=country&mode=location",
+      "company_name": "jpmc",
+      "workday_domain_url": null,
+      "job_id": "210672475",
+      "role": "210672475",
+      "applied": true,
+      "closed": false
+    },
+    {
+      "job_link": "https://careers.blackrock.com/job/-/-/45831/91402741632?source=LinkedIn",
+      "company_name": "blackrock",
+      "workday_domain_url": null,
+      "job_id": "45831",
+      "role": "91402741632",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://careers.msci.com/job/technology/mumbai/python-developer-in-climate-engineering/2025-4779?mode=apply&iis=LinkedIn",
+      "company_name": "msci",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "2025 4779",
+      "applied": true,
+      "closed": false
+    },
+    {
+      "job_link": "https://ats.rippling.com/en-GB/rippling/jobs/c5332e4d-2ea9-428f-b5a5-7021ce127473?jobSite=LinkedIn",
+      "company_name": "ats",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "C5332E4D 2Ea9 428F B5A5 7021Ce127473",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://jobs.ea.com/en_US/careers/JobDetail/Software-Engineer-I/210749?source=LinkedIn",
+      "company_name": "com",
+      "workday_domain_url": null,
+      "job_id": "210749",
+      "role": "210749",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://fa-extu-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/1938?utm_medium=jobboard&utm_source=linkedin",
+      "company_name": "ocs",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "1938",
+      "applied": true,
+      "closed": false
+    },
+    {
+      "job_link": "https://recruitment.macquarie.com/en_US/careers/JobDetail?jobId=19565&source=LinkedIn.com#",
+      "company_name": "recruitment",
+      "workday_domain_url": null,
+      "job_id": "19565",
+      "role": "Jobdetail",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://careers.bcg.com/global/en/job/BCG1US55449EXTERNALENGLOBAL/Software-Engineer-X-Delivery?utm_source=linkedin&utm_medium=phenom-feeds&Source+=LinkedIn+Job+Board",
+      "company_name": "bcg",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "Software Engineer X Delivery",
+      "applied": true,
+      "closed": false
+    },
+    {
+      "job_link": "https://jobs.clanx.ai/o/senior-backend-engineer-python-bengaluru-1",
+      "company_name": "clanx",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "Senior Backend Engineer Python Bengaluru 1",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://career5.successfactors.eu/careers?company=capgemitecP3",
+      "company_name": "successfactors",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "Software Engineer",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://job-boards.greenhouse.io/postman/jobs/7636725003?gh_src=7ad26f843us",
+      "company_name": "postman",
+      "workday_domain_url": null,
+      "job_id": "7636725003",
+      "role": "7636725003",
+      "applied": false,
+      "closed": true
+    },
+    {
+      "job_link": "https://jobs.natwestgroup.com/jobs/17275746-python-software-engineer?bid=370",
+      "company_name": "natwestgroup",
+      "workday_domain_url": null,
+      "job_id": "17275746",
+      "role": "17275746 Python Software Engineer",
+      "applied": true,
+      "closed": false
+    },
+    {
+      "job_link": "https://boards.greenhouse.io/embed/job_app?token=7637795003&gh_src=961e65dc3us",
+      "company_name": "boards",
+      "workday_domain_url": null,
+      "job_id": "7637795003",
+      "role": "Job App",
+      "applied": true,
+      "closed": false
+    },
+    {
+      "job_link": "https://ibqbjb.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/Honeywell/job/139613?utm_medium=jobboard&utm_source=linkedin",
+      "company_name": "ibqbjb",
+      "workday_domain_url": null,
+      "job_id": "139613",
+      "role": "139613",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210711920?utm_medium=jobboard&utm_source=LinkedIn",
+      "company_name": "jpmc",
+      "workday_domain_url": null,
+      "job_id": "210711920",
+      "role": "210711920",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://careers.hpe.com/us/en/job/1197635/Software-Engineer?utm_source=linkedin",
+      "company_name": "hpe",
+      "workday_domain_url": null,
+      "job_id": "1197635",
+      "role": "Software Engineer",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://jobs.ea.com/en_US/careers/JobDetail/Software-Engineer-I/212869?source=LinkedIn",
+      "company_name": "com",
+      "workday_domain_url": null,
+      "job_id": "212869",
+      "role": "212869",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://careers.qualcomm.com/careers/job/446716305199?hl=en-US&utm_source=linkedin&domain=qualcomm.com&source=APPLICANT_SOURCE-6-2",
+      "company_name": "qualcomm",
+      "workday_domain_url": null,
+      "job_id": "446716305199",
+      "role": "446716305199",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://www.amazon.jobs/en/jobs/3151439/sde-1-ftc?no_int_redir=1",
+      "company_name": "amazon",
+      "workday_domain_url": null,
+      "job_id": "3151439",
+      "role": "Sde 1 Ftc",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://www.rubrik.com/company/careers/departments/job.6866686?gh_jid=6866686&gh_src=2e352a8a1us",
+      "company_name": "rubrik",
+      "workday_domain_url": null,
+      "job_id": "6866686",
+      "role": "Job.6866686",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://careers.ibm.com/en_US/careers/JobDetail?jobId=94401",
+      "company_name": "ibm",
+      "workday_domain_url": null,
+      "job_id": "94401",
+      "role": "Jobdetail",
+      "applied": true,
+      "closed": false
+    },
+    {
+      "job_link": "https://jobs.smartrecruiters.com/TheNielsenCompany/3743990011746246-member-of-technical-staff-2-?trid=2d92f286-613b-4daf-9dfa-6340ffbecf73",
+      "company_name": "thenielsencompany",
+      "workday_domain_url": null,
+      "job_id": "3743990011746246",
+      "role": "3743990011746246 Member Of Technical Staff 2",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://www.globallogic.com/careers/python-full-stack-irc285546/?utm_source=LinkedIn&utm_medium=jobboard&utm_campaign=career",
+      "company_name": "globallogic",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "Python Full Stack Irc285546",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://jobs.lever.co/gohighlevel/623f9d4b-7e38-4d04-aa61-1db23c5e63ad/apply?source=LinkedIn",
+      "company_name": "lever",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "623F9D4B 7E38 4D04 Aa61 1Db23C5E63Ad",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://issgovernance.wd1.myworkdayjobs.com/ISScareers/job/Gurgaon-India/Python-Developer_JR_9400?source=LinkedIn",
+      "company_name": "issgovernance",
+      "workday_domain_url": "https://issgovernance.wd1.myworkdayjobs.com",
+      "job_id": null,
+      "role": "Python Developer Jr 9400",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://aptiv.wd5.myworkdayjobs.com/APTIV_CAREERS/job/IND-Bangalore-India-2-SEZ---WR/Senior-Engineer---Python_9919/apply?AdCode=LINKEDIN13&source=Linkedin",
+      "company_name": "aptiv",
+      "workday_domain_url": "https://aptiv.wd5.myworkdayjobs.com",
+      "job_id": null,
+      "role": "Senior Engineer Python 9919",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://www.orioninc.com/careers/job/?gh_jid=4645573006",
+      "company_name": "orioninc",
+      "workday_domain_url": null,
+      "job_id": "4645573006",
+      "role": "Software Engineer",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://jobs.jobvite.com/legalzoom/job/o3JTyfwX?__jvst=Job%20Board&__jvsd=LinkedIn",
+      "company_name": "jobvite",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "O3Jtyfwx",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://jobs.ashbyhq.com/kong/358b8739-3d42-4e9b-9e00-1487671baff0/application?utm_source=o2YQ6W6j14",
+      "company_name": "ashbyhq",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "358B8739 3D42 4E9B 9E00 1487671Baff0",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://careers.equinix.com/jobs/staff-python-full-stack-engineer-bengaluru-karnataka-india?source=linkedin&utm_source=linkedin",
+      "company_name": "equinix",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "Staff Python Full Stack Engineer Bengaluru Karnataka India",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://careers.united.com/us/en/job/UAIUADUSGGN00002424EXTERNALENUSTALEO/Developer-I?utm_source=linkedin&utm_medium=phenom-feeds",
+      "company_name": "united",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "Developer I",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://job-boards.greenhouse.io/cloudflare/jobs/7603643?gh_jid=7603643&gh_src=5ylsd31&source=LinkedIn",
+      "company_name": "cloudflare",
+      "workday_domain_url": null,
+      "job_id": "7603643",
+      "role": "7603643",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://careers.bain.com/jobs/FolderDetail?folderId=100086&source=Linked-In",
+      "company_name": "bain",
+      "workday_domain_url": null,
+      "job_id": "100086",
+      "role": "Folderdetail",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://relx.wd3.myworkdayjobs.com/LexisNexisLegal/job/Gurgaon/Software-Engineer-II_R102440/apply?source=LinkedIn",
+      "company_name": "relx",
+      "workday_domain_url": "https://relx.wd3.myworkdayjobs.com",
+      "job_id": null,
+      "role": "Software Engineer Ii",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://careers.moodys.com/software-engineer/job/12682?utm_source=linkedin&jobPipeline=linkedin",
+      "company_name": "moodys",
+      "workday_domain_url": null,
+      "job_id": "12682",
+      "role": "12682",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://job-boards.eu.greenhouse.io/nice/jobs/4774027101?gh_jid=4774027101",
+      "company_name": "nice",
+      "workday_domain_url": null,
+      "job_id": "4774027101",
+      "role": "4774027101",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://jobs.lever.co/netomi/b0262b57-4744-4ae0-b1a5-b08f481b2aea/apply?source=LinkedIn",
+      "company_name": "lever",
+      "workday_domain_url": null,
+      "job_id": null,
+      "role": "B0262B57 4744 4Ae0 B1A5 B08F481B2Aea",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://search.jobs.barclays/job/-/-/13015/91658541680?src=JB-12860",
+      "company_name": "search",
+      "workday_domain_url": null,
+      "job_id": "13015",
+      "role": "91658541680",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://careers.expediagroup.com/job/software-development-engineer-2-full-stack-developer/gurgaon-hary-na/R-100996/?source=LinkedIn",
+      "company_name": "expediagroup",
+      "workday_domain_url": null,
+      "job_id": "R-100996",
+      "role": "R 100996",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://recruitment.macquarie.com/en_US/careers/JobDetail?jobId=20684&qtvc=89da56e7370f6d6fe978a82ca8984c761b8cc6683099fa07834b3ce6f5a7e76f",
+      "company_name": "recruitment",
+      "workday_domain_url": null,
+      "job_id": "20684",
+      "role": "Jobdetail",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://jobs.smartrecruiters.com/Visa/744000117635105-software-engineer-2024-25-genai-must-?source=LinkedIn",
+      "company_name": "visa",
+      "workday_domain_url": null,
+      "job_id": "744000117635105",
+      "role": "744000117635105 Software Engineer 2024 25 Genai Must",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://careers.cisco.com/global/en/job/CISCISGLOBAL2005236EXTERNALENGLOBAL/Software-Engineer?utm_source=linkedin&utm_medium=phenom-feeds",
+      "company_name": "cisco",
+      "workday_domain_url": null,
+      "job_id": "2005236",
+      "role": "Software Engineer",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://workday.wd5.myworkdayjobs.com/en-US/Workday/job/Software-Development-Engineer_JR-0105664",
+      "company_name": "workday",
+      "workday_domain_url": "https://workday.wd5.myworkdayjobs.com",
+      "job_id": "0105664",
+      "role": "Software Development Engineer Jr 0105664",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://blackrock.wd1.myworkdayjobs.com/en-US/BlackRock_Professional/job/Gurgaon-India/Full-Stack-Engineer--Portfolio-Management-Group--Associate_R258183",
+      "company_name": "blackrock",
+      "workday_domain_url": "https://blackrock.wd1.myworkdayjobs.com",
+      "job_id": "R258183",
+      "role": "Full Stack Engineer Portfolio Management Group Associate",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://mastercard.wd1.myworkdayjobs.com/CorporateCareers/job/Pune-India/Senior-Software-Engineer_R-273413",
+      "company_name": "mastercard",
+      "workday_domain_url": "https://mastercard.wd1.myworkdayjobs.com",
+      "job_id": "273413",
+      "role": "Senior Software Engineer R 273413",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://equifax.wd5.myworkdayjobs.com/en-US/External/job/Software-Engineer---Intermediate_J00173765-1",
+      "company_name": "equifax",
+      "workday_domain_url": "https://equifax.wd5.myworkdayjobs.com",
+      "job_id": "J00173765",
+      "role": "Software Engineer Intermediate 1",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://q2ebanking.wd5.myworkdayjobs.com/en-US/Q2/job/Bangalore-India/Intermediate-Software-Engineer_REQ-12380",
+      "company_name": "com",
+      "workday_domain_url": "https://q2ebanking.wd5.myworkdayjobs.com",
+      "job_id": "12380",
+      "role": "Intermediate Software Engineer Req 12380",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://quantiphi.wd1.myworkdayjobs.com/Careers_at_Quantiphi/job/IN-MH-Mumbai-Eureka/Software-Developer---Full-Stack_JR9371",
+      "company_name": "quantiphi",
+      "workday_domain_url": "https://quantiphi.wd1.myworkdayjobs.com",
+      "job_id": null,
+      "role": "Software Developer Full Stack Jr9371",
+      "applied": false,
+      "closed": false
+    },
+    {
+      "job_link": "https://reliaquest.wd5.myworkdayjobs.com/reliaquest_careers/job/Pune-India-Office/Associate-Software-Engineer_R15032",
+      "company_name": "reliaquest",
+      "workday_domain_url": "https://reliaquest.wd5.myworkdayjobs.com",
+      "job_id": "R15032",
+      "role": "Associate Software Engineer",
+      "applied": true,
+      "closed": false
+    }
+  ],
+  "count": 51
+}

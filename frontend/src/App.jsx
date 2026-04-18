@@ -1,125 +1,97 @@
-import { useEffect, useMemo, useState } from 'react'
-import DashboardPage from './pages/DashboardPage'
-import HomePage from './pages/HomePage'
-import LoginPage from './pages/LoginPage'
-import RegisterPage from './pages/RegisterPage'
-import ResumeBuilderPage from './pages/ResumeBuilderPage'
-import ResumePreviewPage from './pages/ResumePreviewPage'
+import { Suspense, lazy } from 'react'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+
 import ErrorBoundary from './components/ErrorBoundary'
 import NavBar from './components/NavBar'
+import { useAuth } from './contexts/useAuth'
 
-function App() {
-  const [path, setPath] = useState(window.location.pathname || '/')
-  const [isLoggedIn, setIsLoggedIn] = useState(Boolean(localStorage.getItem('access')))
-  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light')
+const HomePage = lazy(() => import('./pages/HomePage'))
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const ProfilePage = lazy(() => import('./pages/ProfilePage'))
+const RegisterPage = lazy(() => import('./pages/RegisterPage'))
+const CompanyPage = lazy(() => import('./pages/CompanyPage'))
+const TrackingPage = lazy(() => import('./pages/TrackingPage'))
+const TrackingDetailPage = lazy(() => import('./pages/TrackingDetailPage'))
+const TrackingMailTestPage = lazy(() => import('./pages/TrackingMailTestPage'))
+const TrackingSchedulePage = lazy(() => import('./pages/TrackingSchedulePage'))
+const JobsPage = lazy(() => import('./pages/JobsPage'))
+const ResumeBuilderPage = lazy(() => import('./pages/ResumeBuilderPage'))
+const ResumePreviewPage = lazy(() => import('./pages/ResumePreviewPage'))
+const BulkUploadPage = lazy(() => import('./pages/BulkUploadPage'))
 
-  useEffect(() => {
-    const onPopState = () => {
-      setPath(window.location.pathname || '/')
-      setIsLoggedIn(Boolean(localStorage.getItem('access')))
-    }
+function RequireAuth({ children }) {
+  const { isLoggedIn } = useAuth()
+  const location = useLocation()
 
-    const syncAuth = () => {
-      setIsLoggedIn(Boolean(localStorage.getItem('access')))
-    }
-
-    window.addEventListener('popstate', onPopState)
-    window.addEventListener('storage', syncAuth)
-    window.addEventListener('auth-changed', syncAuth)
-    return () => {
-      window.removeEventListener('popstate', onPopState)
-      window.removeEventListener('storage', syncAuth)
-      window.removeEventListener('auth-changed', syncAuth)
-    }
-  }, [])
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    localStorage.setItem('theme', theme)
-  }, [theme])
-
-  const navigate = (nextPath) => {
-    if (window.location.pathname !== nextPath) {
-      window.history.pushState({}, '', nextPath)
-    }
-    setPath(nextPath)
+  if (!isLoggedIn) {
+    sessionStorage.setItem('redirectAfterLogin', location.pathname || '/')
+    return <Navigate to="/login" replace />
   }
 
-  const auth = useMemo(
-    () => ({
-      login: (access, refresh) => {
-        localStorage.setItem('access', access)
-        localStorage.setItem('refresh', refresh)
-        setIsLoggedIn(true)
-      },
-      logout: () => {
-        localStorage.removeItem('access')
-        localStorage.removeItem('refresh')
-        setIsLoggedIn(false)
-      },
-    }),
-    [],
-  )
+  return children
+}
 
-  const renderPage = () => {
-    const publicPaths = ['/login', '/register']
+function PublicOnly({ children }) {
+  const { isLoggedIn } = useAuth()
 
-    // Hard auth gate: everything except login/register requires auth.
-    if (!isLoggedIn && !publicPaths.includes(path)) {
-      sessionStorage.setItem('redirectAfterLogin', path)
-      navigate('/login')
-      return null
-    }
+  if (!isLoggedIn) return children
 
-    // If already logged in, keep auth pages out of the way.
-    if (isLoggedIn && publicPaths.includes(path)) {
-      const redirect = sessionStorage.getItem('redirectAfterLogin') || '/dashboard'
-      sessionStorage.removeItem('redirectAfterLogin')
-      navigate(redirect)
-      return null
-    }
+  const redirect = sessionStorage.getItem('redirectAfterLogin') || '/'
+  sessionStorage.removeItem('redirectAfterLogin')
+  return <Navigate to={redirect} replace />
+}
 
-    if (path === '/login') {
-      return <LoginPage navigate={navigate} login={auth.login} />
-    }
-
-    if (path === '/register') {
-      return <RegisterPage navigate={navigate} />
-    }
-
-    // Authenticated routes
-    if (path === '/dashboard') {
-      return <DashboardPage navigate={navigate} logout={auth.logout} />
-    }
-
-    if (path === '/builder') {
-      return <ResumeBuilderPage navigate={navigate} />
-    }
-
-    if (path.startsWith('/preview/')) {
-      const resumeId = path.split('/')[2] || ''
-      return <ResumePreviewPage navigate={navigate} resumeId={resumeId} />
-    }
-
-    return <HomePage navigate={navigate} isLoggedIn={isLoggedIn} />
-  }
+function AppLayout() {
+  const { isLoggedIn } = useAuth()
+  const location = useLocation()
+  const showNav = isLoggedIn && location.pathname !== '/login' && location.pathname !== '/register'
 
   return (
-    <div className="app-shell">
+    <div className="app-shell min-h-screen">
       <ErrorBoundary>
-        {isLoggedIn && path !== '/login' && path !== '/register' && (
-          <NavBar
-            navigate={navigate}
-            onLogout={auth.logout}
-            currentPath={path}
-            theme={theme}
-            onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
-          />
-        )}
-        <div className="app-content">{renderPage()}</div>
+        {showNav && <NavBar />}
+        <div className="app-content mx-auto w-full">
+          <Suspense fallback={<div className="page page-wide mx-auto w-full"><p className="hint">Loading...</p></div>}>
+            <Routes>
+              <Route path="/login" element={<PublicOnly><LoginPage /></PublicOnly>} />
+              <Route path="/register" element={<PublicOnly><RegisterPage /></PublicOnly>} />
+              <Route path="/" element={<RequireAuth><HomePage /></RequireAuth>} />
+              <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+              <Route path="/companies" element={<RequireAuth><CompanyPage /></RequireAuth>} />
+              <Route path="/tracking" element={<RequireAuth><TrackingPage /></RequireAuth>} />
+              <Route path="/tracking-schedule" element={<RequireAuth><TrackingSchedulePage /></RequireAuth>} />
+              <Route path="/tracking/:trackingId" element={<RequireAuth><TrackingDetailPage /></RequireAuth>} />
+              <Route path="/tracking/:trackingId/test-mail" element={<RequireAuth><TrackingMailTestPage /></RequireAuth>} />
+              <Route path="/jobs" element={<RequireAuth><JobsPage /></RequireAuth>} />
+              <Route path="/bulk-upload" element={<RequireAuth><BulkUploadPage /></RequireAuth>} />
+              <Route
+                path="/builder"
+                element={(
+                  <RequireAuth>
+                    <ResumeBuilderPage
+                      showJdBox
+                      enableTailorFlow
+                      referenceBuilderSessionKey="tailoredBuilderReferenceBuilder"
+                      referenceResumeIdSessionKey="tailoredBuilderReferenceResumeId"
+                      aiModelSessionKey="tailoredBuilderAiModel"
+                      tailorModeSessionKey="tailoredBuilderTailorMode"
+                    />
+                  </RequireAuth>
+                )}
+              />
+              <Route path="/tailored-builder" element={<Navigate to="/builder" replace />} />
+              <Route path="/preview/:resumeId" element={<RequireAuth><ResumePreviewPage /></RequireAuth>} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </div>
       </ErrorBoundary>
     </div>
   )
+}
+
+function App() {
+  return <AppLayout />
 }
 
 export default App

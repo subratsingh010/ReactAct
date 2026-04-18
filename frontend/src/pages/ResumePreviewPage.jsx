@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 
 import { fetchResume } from '../api'
 import ResumeSheet from '../components/ResumeSheet'
+import { printAtsPdf } from '../utils/resumeExport'
 
-function ResumePreviewPage({ navigate, resumeId }) {
+function ResumePreviewPage() {
   const [resume, setResume] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const navigate = useNavigate()
+  const { resumeId = '' } = useParams()
 
   useEffect(() => {
     const load = async () => {
@@ -16,7 +20,7 @@ function ResumePreviewPage({ navigate, resumeId }) {
         return
       }
       if (!resumeId) {
-        navigate('/dashboard')
+        navigate('/')
         return
       }
       setError('')
@@ -44,6 +48,7 @@ function ResumePreviewPage({ navigate, resumeId }) {
       setLoading(true)
       const full = await fetchResume(access, resumeId)
       sessionStorage.setItem('builderImport', JSON.stringify(full.builder_data || {}))
+      sessionStorage.setItem('builderSaveMode', 'edit')
       sessionStorage.setItem('builderResumeId', String(resumeId))
       navigate('/builder')
     } catch (err) {
@@ -51,6 +56,11 @@ function ResumePreviewPage({ navigate, resumeId }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handlePdf = () => {
+    if (!resume?.builder_data) return
+    printAtsPdf(resume.builder_data)
   }
 
   return (
@@ -63,14 +73,14 @@ function ResumePreviewPage({ navigate, resumeId }) {
           </p>
         </div>
         <div className="actions">
-          <button type="button" className="secondary" onClick={() => navigate('/dashboard')}>
+          <button type="button" className="secondary" onClick={() => navigate('/')}>
             Back
           </button>
           <button type="button" onClick={handleEdit} disabled={loading || !resumeId}>
             Edit
           </button>
-          <button type="button" className="secondary" onClick={() => window.print()}>
-            Exact PDF (Print)
+          <button type="button" className="secondary" onClick={handlePdf}>
+            ATS PDF
           </button>
         </div>
       </div>
@@ -88,4 +98,3 @@ function ResumePreviewPage({ navigate, resumeId }) {
 }
 
 export default ResumePreviewPage
-

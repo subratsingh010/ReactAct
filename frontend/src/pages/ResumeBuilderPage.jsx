@@ -1,8 +1,54 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import RichTextarea from '../components/RichTextarea'
 import ResumeSheet from '../components/ResumeSheet'
-import { createResume } from '../api'
+import { SingleSelectDropdown } from '../components/SearchableDropdown'
+import {
+  createTailoredResume,
+  createResume,
+  exportAtsPdfLocal,
+  fetchAllJobs,
+  fetchResume,
+  fetchResumes,
+  optimizeResumeQuality,
+  parseResumePdf,
+  tailorResume,
+  updateResume,
+} from '../api'
+import { buildAtsPdfHtmlPreserveHighlights, printAtsPdf } from '../utils/resumeExport'
+import {
+  DEFAULT_PAGE_MARGIN_IN,
+  MIN_PAGE_MARGIN_IN,
+  normalizePageMarginIn,
+} from '../utils/resumeShared'
+
+const FONT_FAMILY_OPTIONS = [
+  { label: 'Default', value: 'Arial, Helvetica, sans-serif' },
+  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
+  { label: 'Calibri', value: 'Calibri, Arial, sans-serif' },
+  { label: 'Cambria', value: 'Cambria, Georgia, serif' },
+  { label: 'Georgia', value: 'Georgia, serif' },
+  { label: 'Garamond', value: 'Garamond, Georgia, serif' },
+  { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
+  { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
+  { label: 'Tahoma', value: 'Tahoma, Geneva, sans-serif' },
+]
+
+const AI_MODEL_OPTIONS = [
+  { label: 'GPT-4o (Default)', value: 'gpt-4o' },
+  { label: 'GPT-5.4', value: 'gpt-5.4' },
+  { label: 'GPT-5.4 Mini', value: 'gpt-5.4-mini' },
+  { label: 'GPT-5.2', value: 'gpt-5.2' },
+  { label: 'GPT-5 Nano', value: 'gpt-5-nano' },
+  { label: 'O1', value: 'o1' },
+]
+
+const TAILOR_MODE_OPTIONS = [
+  { label: 'Partial (Skills only)', value: 'partial' },
+  { label: 'Almost Complete (Summary + Experience)', value: 'summary_experience' },
+  { label: 'Complete (Summary + Experience + Projects)', value: 'complete' },
+]
 
 function renderSummaryByStyle(text, style) {
   // The editor stores sanitized HTML, so style is currently "auto".
@@ -65,6 +111,108 @@ function formToPlainText(form) {
   })
 
   return parts.join('\n')
+}
+
+function cloneBuilderData(value) {
+  try {
+    return JSON.parse(JSON.stringify(value || {}))
+  } catch {
+    return {}
+  }
+}
+
+function hasBuilderSubstance(builder) {
+  const data = builder && typeof builder === 'object' ? builder : {}
+  const hasTop = ['fullName', 'email', 'phone', 'location', 'summary', 'skills', 'role']
+    .some((k) => String(data[k] || '').trim())
+  const hasExp = Array.isArray(data.experiences) && data.experiences.some((exp) => {
+    const company = String(exp?.company || '').trim()
+    const title = String(exp?.title || '').trim()
+    const highlights = plainTextFromHtml(exp?.highlights || '')
+    return Boolean(company || title || highlights)
+  })
+  const hasProj = Array.isArray(data.projects) && data.projects.some((proj) => {
+    const name = String(proj?.name || '').trim()
+    const highlights = plainTextFromHtml(proj?.highlights || '')
+    return Boolean(name || highlights)
+  })
+  return hasTop || hasExp || hasProj
+}
+
+function collectAtsIssues(form) {
+  const safe = form && typeof form === 'object' ? form : {}
+  const issues = []
+
+  const fullName = String(safe.fullName || '').trim()
+  const email = String(safe.email || '').trim()
+  const phone = String(safe.phone || '').trim()
+  const skillsText = plainTextFromHtml(safe.skills || '')
+  const experiences = Array.isArray(safe.experiences) ? safe.experiences : []
+  const projects = Array.isArray(safe.projects) ? safe.projects : []
+  const summaryEnabled = Boolean(safe.summaryEnabled)
+  const summaryText = plainTextFromHtml(safe.summary || '')
+
+  if (!fullName) issues.push('Add full name.')
+
+  if (!email && !phone) {
+    issues.push('Add at least one contact detail: email or phone.')
+  }
+
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    issues.push('Use a valid email format.')
+  }
+
+  if (phone) {
+    const digits = phone.replace(/\D/g, '')
+    if (digits.length < 8) issues.push('Phone number looks too short.')
+  }
+
+  if (summaryEnabled && !summaryText) {
+    issues.push('Summary is enabled but empty.')
+  }
+
+  if (!skillsText) {
+    issues.push('Add key skills for ATS keyword matching.')
+  }
+
+  if (!experiences.length) {
+    issues.push('Add at least one experience entry.')
+  }
+
+  experiences.forEach((exp, index) => {
+    const idx = index + 1
+    const company = String(exp?.company || '').trim()
+    const title = String(exp?.title || '').trim()
+    const highlightsHtml = String(exp?.highlights || '')
+    const highlightsText = plainTextFromHtml(highlightsHtml)
+    const bulletCount = (highlightsHtml.match(/<li\b/gi) || []).length
+
+    if (!company) issues.push(`Experience ${idx}: add company.`)
+    if (!title) issues.push(`Experience ${idx}: add role/title.`)
+    if (!highlightsText) issues.push(`Experience ${idx}: add achievements.`)
+    if (highlightsText && bulletCount === 0) {
+      issues.push(`Experience ${idx}: use bullet points for better ATS parsing.`)
+    }
+  })
+
+  projects.forEach((proj, index) => {
+    const idx = index + 1
+    const name = String(proj?.name || '').trim()
+    const highlightsHtml = String(proj?.highlights || '')
+    const highlightsText = plainTextFromHtml(highlightsHtml)
+    if (!name && highlightsText) issues.push(`Project ${idx}: add project name.`)
+  })
+
+  ;(safe.links || []).forEach((item, index) => {
+    const idx = index + 1
+    const label = String(item?.label || '').trim()
+    const url = String(item?.url || '').trim()
+    if ((label && !url) || (!label && url)) {
+      issues.push(`Link ${idx}: keep both label and URL.`)
+    }
+  })
+
+  return issues
 }
 
 function parseToYearMonth(value, { isEnd }) {
@@ -306,6 +454,8 @@ function buildDocHtml(form) {
   const lineHeight = Number(form.bodyLineHeight || 1)
   const safeFontSize = Number.isFinite(fontSize) ? fontSize : 10
   const safeLineHeight = Number.isFinite(lineHeight) ? lineHeight : 1
+  const safeBodyFontFamily = String(form.bodyFontFamily || 'Arial, Helvetica, sans-serif')
+  const safeMarginIn = normalizePageMarginIn(form.pageMarginIn)
 
   const contact = [form.location, form.phone, form.email]
     .map((v) => String(v || '').trim())
@@ -322,7 +472,7 @@ function buildDocHtml(form) {
     .map((p) => {
       const name = escapeHtml(p.name || '')
       const url = normalizeHttpUrl(p.url)
-      const link = url ? ` <span style="color:#6b778f;font-style:italic;">(${escapeHtml(url)})</span>` : ''
+      const link = url ? ` <a href="${escapeHtml(url)}" style="color:#6b778f;text-decoration:none;">link</a>` : ''
       return `<div style="margin-top:10px;"><div><strong>${name}</strong>${link}</div>${richTextToHtml(
         p.highlights || '',
       )}</div>`
@@ -375,8 +525,10 @@ function buildDocHtml(form) {
 
   const summaryTitle = escapeHtml(form.summaryHeading || 'Summary')
   const summarySection = form.summaryEnabled
-    ? `<h3>${summaryTitle}</h3>${richTextToHtml(form.summary)}`
+    ? `<h3>${summaryTitle}</h3><div>${richTextToHtml(form.summary)}</div>`
     : ''
+  const compactClass = 'compact'
+  const headerClass = form.sectionUnderline ? 'resume-header' : 'resume-header has-underline'
 
   return `<!DOCTYPE html>
 <html>
@@ -384,20 +536,41 @@ function buildDocHtml(form) {
   <meta charset="utf-8" />
   <title>Resume</title>
   <style>
-    body { font-family: Calibri, Arial, sans-serif; }
+    body { font-family: ${escapeHtml(safeBodyFontFamily)}; }
+    @page { size: A4; margin: ${safeMarginIn}in; }
+    body { margin: 0; padding: ${safeMarginIn}in; }
+    body.compact { font-size: ${Math.max(9, safeFontSize - 0.5)}pt; }
     h1 { margin: 0; text-align: center; }
-    .center { text-align: center; color: #3a4861; margin-top: 4px; }
+    .resume-header {
+      margin-bottom: 6px;
+      padding-bottom: 4px;
+    }
+    .resume-header.has-underline {
+      border-bottom: 1px solid #d1d5db;
+    }
+    .center { text-align: center; color: #3a4861; margin-top: 2px; }
     h3 { margin: 14px 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
     p, li { font-size: ${safeFontSize}pt; line-height: ${safeLineHeight}; margin: 6px 0; }
+    .summary-block p, .summary-block li { font-size: ${safeFontSize}pt; line-height: ${safeLineHeight}; }
+    body.compact h3 { margin: 10px 0 4px; }
+    body.compact p,
+    body.compact li { margin: 4px 0; }
+    body.compact .center { margin-top: 1px; }
+    body.compact ul,
+    body.compact ol { margin-top: 4px; }
+    body.compact .summary-block p,
+    body.compact .summary-block li { margin: 4px 0; }
     ul, ol { margin: 6px 0 0; padding-left: 18px; }
-    a { color: #1b2230; text-decoration: underline; }
+    a { color: #1b2230; text-decoration: none; }
   </style>
 </head>
-<body>
-  <h1>${escapeHtml(form.fullName || '')}</h1>
-  <div class="center">${escapeHtml(contact)}</div>
-  ${links ? `<div class="center">${links}</div>` : ''}
-  ${summarySection}
+<body class="${compactClass}">
+  <header class="${headerClass}">
+    <h1>${escapeHtml(form.fullName || '')}</h1>
+    <div class="center">${escapeHtml(contact)}</div>
+    ${links ? `<div class="center">${links}</div>` : ''}
+  </header>
+  ${summarySection ? `<div class="summary-block">${summarySection}</div>` : ''}
   <h3>Skills</h3>
   ${richTextToHtml(form.skills)}
   <h3>Experience</h3>
@@ -410,7 +583,23 @@ function buildDocHtml(form) {
 </html>`
 }
 
-function ResumeBuilderPage({ navigate }) {
+function ResumeBuilderPage({
+  pageTitle = 'Resume Workspace',
+  subtitle = 'Edit on the left. Preview on the right.',
+  importSessionKey = 'builderImport',
+  resumeIdSessionKey = 'builderResumeId',
+  showJdBox = false,
+  jdSessionKey = 'builderJdText',
+  enableTailorFlow = false,
+  minimalTailorUi = false,
+  referenceBuilderSessionKey = 'builderReferenceBuilder',
+  referenceResumeIdSessionKey = 'builderReferenceResumeId',
+  aiModelSessionKey = 'builderAiModel',
+  tailorModeSessionKey = 'builderTailorMode',
+  showSaveButton = true,
+  disableAutoLoadDefaultResume = false,
+}) {
+  const navigate = useNavigate()
   const [form, setForm] = useState({
     resumeTitle: 'My Resume',
     fullName: '',
@@ -422,10 +611,14 @@ function ResumeBuilderPage({ navigate }) {
     summaryEnabled: false,
     summaryHeading: 'Summary',
     summaryStyle: 'auto',
+    bodyFontFamily: 'Arial, Helvetica, sans-serif',
     bodyFontSizePt: 10,
     bodyLineHeight: 1,
+    pageMarginIn: DEFAULT_PAGE_MARGIN_IN,
     sectionOrder: ['summary', 'skills', 'experience', 'projects', 'education'],
-    sectionUnderline: false,
+    sectionUnderline: true,
+    compactSpacing: true,
+    isDefaultResume: false,
     customSections: [],
     summary: '',
     skills: '',
@@ -460,29 +653,285 @@ function ResumeBuilderPage({ navigate }) {
       },
     ],
   })
-  const [resumeRecordId, setResumeRecordId] = useState(() => sessionStorage.getItem('builderResumeId'))
+  const [resumeRecordId, setResumeRecordId] = useState(() => sessionStorage.getItem(resumeIdSessionKey))
+  const [resumeJobId, setResumeJobId] = useState('')
+  const [saveMode, setSaveMode] = useState(() => (sessionStorage.getItem('builderSaveMode') === 'edit' ? 'edit' : 'create'))
+  const [saveTarget, setSaveTarget] = useState('base')
+  const [allowBaseResumeSave, setAllowBaseResumeSave] = useState(false)
+  const [tailoredSourceResumeId, setTailoredSourceResumeId] = useState('')
   const [saveState, setSaveState] = useState({ saving: false, message: '' })
+  const [pdfSaveState, setPdfSaveState] = useState({ saving: false, message: '' })
+  const [importState, setImportState] = useState({ importing: false, message: '' })
+  const [jobDescription, setJobDescription] = useState(() => sessionStorage.getItem(jdSessionKey) || '')
+  const [aiModel, setAiModel] = useState(() => sessionStorage.getItem(aiModelSessionKey) || 'gpt-4o')
+  const [tailorMode, setTailorMode] = useState(() => sessionStorage.getItem(tailorModeSessionKey) || 'partial')
+  const [tailorState, setTailorState] = useState({
+    loading: false,
+    mode: '',
+    message: '',
+    error: '',
+    keywords: [],
+    matchScore: null,
+  })
+  const [activeTailorAction, setActiveTailorAction] = useState('')
+  const [tailoredModal, setTailoredModal] = useState({
+    open: false,
+    name: '',
+    jobId: '',
+    loading: false,
+    jobs: [],
+  })
+  const [saveModal, setSaveModal] = useState({
+    open: false,
+    name: '',
+    jobId: '',
+    loading: false,
+    jobs: [],
+  })
+  const [tailorReferenceBuilder, setTailorReferenceBuilder] = useState(() => {
+    if (!enableTailorFlow) return null
+    try {
+      const raw = sessionStorage.getItem(referenceBuilderSessionKey)
+      if (!raw) return null
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' ? parsed : null
+    } catch {
+      return null
+    }
+  })
+  const [tailorReferenceResumeId, setTailorReferenceResumeId] = useState(() => {
+    if (!enableTailorFlow) return ''
+    return sessionStorage.getItem(referenceResumeIdSessionKey) || localStorage.getItem('jobApplicationReferenceResumeId') || ''
+  })
+  const pdfInputRef = useRef(null)
+  const tailorReferenceLoaded = enableTailorFlow
+    ? hasBuilderSubstance(tailorReferenceBuilder || form)
+    : hasBuilderSubstance(form)
 
   useEffect(() => {
-    const raw = sessionStorage.getItem('builderImport')
-    if (raw) {
+    if (!enableTailorFlow) return
+    if (tailorReferenceBuilder && typeof tailorReferenceBuilder === 'object') {
+      sessionStorage.setItem(referenceBuilderSessionKey, JSON.stringify(tailorReferenceBuilder))
+    } else {
+      sessionStorage.removeItem(referenceBuilderSessionKey)
+    }
+  }, [enableTailorFlow, referenceBuilderSessionKey, tailorReferenceBuilder])
+
+  useEffect(() => {
+    if (!enableTailorFlow) return
+    if (String(tailorReferenceResumeId || '').trim()) {
+      sessionStorage.setItem(referenceResumeIdSessionKey, String(tailorReferenceResumeId))
+    } else {
+      sessionStorage.removeItem(referenceResumeIdSessionKey)
+    }
+  }, [enableTailorFlow, referenceResumeIdSessionKey, tailorReferenceResumeId])
+
+  useEffect(() => {
+    if (!enableTailorFlow) return
+    const preferredId = localStorage.getItem('jobApplicationReferenceResumeId') || ''
+    if (!preferredId || tailorReferenceBuilder || String(tailorReferenceResumeId || '').trim()) return
+
+    let cancelled = false
+    const access = localStorage.getItem('access')
+    if (!access) return undefined
+
+    const loadPreferredReference = async () => {
       try {
-        const imported = JSON.parse(raw)
-        if (imported && typeof imported === 'object') {
-          setForm((prev) => ({ ...prev, ...imported }))
+        const full = await fetchResume(access, preferredId)
+        if (cancelled) return
+        if (hasBuilderSubstance(full?.builder_data || {})) {
+          setTailorReferenceBuilder(cloneBuilderData(full.builder_data || {}))
+          setTailorReferenceResumeId(String(full.id))
         }
       } catch {
         // ignore
       }
-      sessionStorage.removeItem('builderImport')
     }
 
-    const id = sessionStorage.getItem('builderResumeId')
+    loadPreferredReference()
+    return () => {
+      cancelled = true
+    }
+  }, [enableTailorFlow, tailorReferenceBuilder, tailorReferenceResumeId])
+
+  useEffect(() => {
+    if (!showJdBox) return
+    const text = String(jobDescription || '')
+    if (text.trim()) {
+      sessionStorage.setItem(jdSessionKey, text)
+      return
+    }
+    sessionStorage.removeItem(jdSessionKey)
+  }, [jobDescription, jdSessionKey, showJdBox])
+
+  useEffect(() => {
+    if (!showJdBox) return
+    const value = String(aiModel || '').trim() || 'gpt-4o'
+    sessionStorage.setItem(aiModelSessionKey, value)
+  }, [aiModel, aiModelSessionKey, showJdBox])
+
+  useEffect(() => {
+    if (!showJdBox) return
+    const value = String(tailorMode || '').trim() || 'partial'
+    sessionStorage.setItem(tailorModeSessionKey, value)
+  }, [showJdBox, tailorMode, tailorModeSessionKey])
+
+  useEffect(() => {
+    sessionStorage.setItem('builderSaveMode', saveMode)
+  }, [saveMode])
+
+  useEffect(() => {
+    const raw = sessionStorage.getItem(importSessionKey)
+    if (raw) {
+      try {
+        const imported = JSON.parse(raw)
+        if (imported && typeof imported === 'object') {
+          setForm((prev) => ({
+            ...prev,
+            ...imported,
+            pageMarginIn: normalizePageMarginIn(imported.pageMarginIn ?? prev.pageMarginIn),
+            sectionUnderline: true,
+          }))
+          setResumeJobId('')
+          if (enableTailorFlow && hasBuilderSubstance(imported) && !tailorReferenceBuilder) {
+            setTailorReferenceBuilder(cloneBuilderData(imported))
+            setTailorReferenceResumeId('')
+          }
+        }
+      } catch {
+        // ignore
+      }
+      sessionStorage.removeItem(importSessionKey)
+    }
+
+    const id = sessionStorage.getItem(resumeIdSessionKey)
     if (id) setResumeRecordId(id)
-  }, [])
+  }, [enableTailorFlow, importSessionKey, resumeIdSessionKey, tailorReferenceBuilder])
+
+  useEffect(() => {
+    if (disableAutoLoadDefaultResume) return
+    let cancelled = false
+
+    const loadDefaultFromList = async (access) => {
+      const resumes = await fetchResumes(access)
+      const defaultResume = Array.isArray(resumes) ? resumes.find((item) => item.is_default) : null
+      if (!defaultResume) return
+      const full = await fetchResume(access, defaultResume.id)
+      if (cancelled) return
+      setForm((prev) => ({
+        ...prev,
+        ...(full.builder_data || {}),
+        pageMarginIn: normalizePageMarginIn(full.builder_data?.pageMarginIn ?? prev.pageMarginIn),
+        sectionUnderline: true,
+        isDefaultResume: Boolean(full.is_default),
+      }))
+      setResumeRecordId(String(full.id))
+      setResumeJobId(full?.job ? String(full.job) : '')
+      setSaveTarget(Boolean(full?.is_tailored) ? 'tailored' : 'base')
+      sessionStorage.setItem(resumeIdSessionKey, String(full.id))
+      if (enableTailorFlow && !tailorReferenceBuilder && hasBuilderSubstance(full.builder_data || {})) {
+        setTailorReferenceBuilder(cloneBuilderData(full.builder_data || {}))
+        setTailorReferenceResumeId(String(full.id))
+      }
+    }
+
+    const hydrateDefaultResume = async () => {
+      const access = localStorage.getItem('access')
+      if (!access) return
+
+      const storedId = sessionStorage.getItem(resumeIdSessionKey)
+      if (storedId) {
+        try {
+          const full = await fetchResume(access, storedId)
+          if (cancelled) return
+          setForm((prev) => ({
+            ...prev,
+            ...(full.builder_data || {}),
+            pageMarginIn: normalizePageMarginIn(full.builder_data?.pageMarginIn ?? prev.pageMarginIn),
+            sectionUnderline: true,
+            isDefaultResume: Boolean(full.is_default),
+          }))
+          setResumeRecordId(String(full.id))
+          setResumeJobId(full?.job ? String(full.job) : '')
+          setSaveTarget(Boolean(full?.is_tailored) ? 'tailored' : 'base')
+          setSaveMode('edit')
+          // Stored resume was loaded successfully; do not override with default resume.
+          return
+        } catch {
+          // If stored resume is missing/invalid, fall back to default resume.
+        }
+        if (cancelled) return
+        try {
+          await loadDefaultFromList(access)
+        } catch {
+          // ignore
+        }
+        return
+      }
+
+      if (sessionStorage.getItem(importSessionKey)) return
+
+      try {
+        await loadDefaultFromList(access)
+      } catch {
+        // ignore
+      }
+    }
+
+    hydrateDefaultResume()
+    return () => {
+      cancelled = true
+    }
+  }, [disableAutoLoadDefaultResume, enableTailorFlow, importSessionKey, resumeIdSessionKey, tailorReferenceBuilder])
 
   const updateField = (key, value) => {
+    if (key === 'pageMarginIn') {
+      setForm((prev) => ({ ...prev, pageMarginIn: normalizePageMarginIn(value) }))
+      return
+    }
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const openPdfPicker = () => {
+    pdfInputRef.current?.click()
+  }
+
+  const handlePdfImport = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file) return
+
+    const isPdf =
+      file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    if (!isPdf) {
+      setImportState({ importing: false, message: 'Please choose a PDF file.' })
+      return
+    }
+
+    try {
+      setImportState({ importing: true, message: '' })
+      const parsed = await parseResumePdf(file)
+      setForm((prev) => ({
+        ...prev,
+        ...parsed,
+        pageMarginIn: normalizePageMarginIn(parsed.pageMarginIn ?? prev.pageMarginIn),
+        sectionUnderline: true,
+      }))
+      setResumeJobId('')
+      if (enableTailorFlow) {
+        setTailorReferenceBuilder(cloneBuilderData(parsed))
+        setTailorReferenceResumeId('')
+      }
+      setImportState({
+        importing: false,
+        message: enableTailorFlow
+          ? `Imported ${file.name} and set as reference resume.`
+          : `Imported ${file.name}`,
+      })
+    } catch (err) {
+      setImportState({ importing: false, message: err.message || 'Import failed' })
+    }
   }
 
   const autoTitle = useMemo(() => {
@@ -619,7 +1068,14 @@ function ResumeBuilderPage({ navigate }) {
     setForm((prev) => ({
       ...prev,
       experiences: [
-        { company: '', title: '', startDate: '', endDate: '', isCurrent: true, highlights: '- ' },
+        {
+          company: '',
+          title: '',
+          startDate: '',
+          endDate: '',
+          isCurrent: true,
+          highlights: '- ',
+        },
         ...(prev.experiences || []),
       ],
     }))
@@ -680,7 +1136,10 @@ function ResumeBuilderPage({ navigate }) {
   const addProject = () => {
     setForm((prev) => ({
       ...prev,
-      projects: [...(prev.projects || []), { name: '', url: '', highlights: '- ' }],
+      projects: [
+        ...(prev.projects || []),
+        { name: '', url: '', highlights: '- ' },
+      ],
     }))
   }
 
@@ -706,7 +1165,15 @@ function ResumeBuilderPage({ navigate }) {
     URL.revokeObjectURL(url)
   }
 
-  const saveResumeToAccount = async () => {
+  const downloadAtsPdf = () => {
+    printAtsPdf({
+      ...form,
+      pageMarginIn: normalizePageMarginIn(form.pageMarginIn),
+    })
+  }
+
+  const saveAtsPdfLocal = async () => {
+    if (pdfSaveState.saving) return
     const access = localStorage.getItem('access')
     if (!access) {
       navigate('/login')
@@ -714,20 +1181,462 @@ function ResumeBuilderPage({ navigate }) {
     }
 
     try {
+      setPdfSaveState({ saving: true, message: '' })
+      const html = buildAtsPdfHtmlPreserveHighlights({
+        ...form,
+        pageMarginIn: normalizePageMarginIn(form.pageMarginIn),
+      })
+      const result = await exportAtsPdfLocal(access, {
+        builder_data: form,
+        html,
+        resume_id: String(resumeRecordId || '').trim() || undefined,
+      })
+      const path = String(result?.saved_path || '').trim()
+      setPdfSaveState({
+        saving: false,
+        message: path ? `Saved PDF: ${path}` : 'Saved PDF to Documents',
+      })
+    } catch (err) {
+      setPdfSaveState({
+        saving: false,
+        message: err.message || 'Local PDF save failed',
+      })
+    }
+  }
+
+  const syncStoredAtsPdf = async (access, targetResumeId) => {
+    const resolvedResumeId = String(targetResumeId || '').trim()
+    if (!access || !resolvedResumeId) return { ok: false, message: '' }
+    const html = buildAtsPdfHtmlPreserveHighlights({
+      ...form,
+      pageMarginIn: normalizePageMarginIn(form.pageMarginIn),
+    })
+    try {
+      await exportAtsPdfLocal(access, {
+        builder_data: form,
+        html,
+        resume_id: resolvedResumeId,
+      })
+      return { ok: true, message: '' }
+    } catch (err) {
+      return { ok: false, message: err.message || 'Auto PDF sync failed' }
+    }
+  }
+
+  const openInMainBuilder = () => {
+    sessionStorage.setItem('builderImport', JSON.stringify(form))
+    sessionStorage.removeItem('builderResumeId')
+    navigate('/builder')
+  }
+
+  const runTailorAndSave = async () => {
+    if (!showJdBox || !enableTailorFlow) return
+    if (tailorState.loading) return
+    setActiveTailorAction('tailor')
+
+    const jd = String(jobDescription || '').trim()
+    if (jd.length < 40) {
+      setTailorState({
+        loading: false,
+        mode: '',
+        message: '',
+        error: 'Paste a full job description. Your base resume will be used as the reference. Best results: include role, required skills, responsibilities, tools/tech stack, and domain context. Recommended: 40+ words or about 200+ characters.',
+        keywords: [],
+        matchScore: null,
+      })
+      return
+    }
+
+    const access = localStorage.getItem('access')
+    if (!access) {
+      navigate('/login')
+      return
+    }
+
+    const baseReferenceBuilder = enableTailorFlow ? tailorReferenceBuilder : form
+    if (enableTailorFlow && !hasBuilderSubstance(baseReferenceBuilder || {})) {
+      setTailorState({
+        loading: false,
+        mode: '',
+        message: '',
+        error: 'Upload reference resume once, then paste JD and run Tailor.',
+        keywords: [],
+        matchScore: null,
+      })
+      return
+    }
+
+    try {
+      setTailorState({
+        loading: true,
+        mode: 'tailor',
+        message: '',
+        error: '',
+        keywords: [],
+        matchScore: null,
+      })
+
+      const formData = new FormData()
+      formData.append('job_description', jd)
+      formData.append('job_role', String(form.role || '').trim())
+      formData.append('builder_data', JSON.stringify(baseReferenceBuilder || form))
+      formData.append('min_match', '0.7')
+      formData.append('max_match', '0.8')
+      formData.append('preview_only', 'true')
+      formData.append('ai_model', String(aiModel || 'gpt-4o'))
+      formData.append('tailor_mode', String(tailorMode || 'partial'))
+      if (enableTailorFlow) {
+        formData.append('force_rewrite', 'true')
+        if (String(tailorReferenceResumeId || '').trim()) {
+          formData.append('reference_resume_id', String(tailorReferenceResumeId))
+        }
+      }
+
+      const result = await tailorResume(access, formData)
+
+      const resume = result?.resume || {}
+      const incomingBuilder = resume?.builder_data && typeof resume.builder_data === 'object'
+        ? resume.builder_data
+        : null
+
+      if (incomingBuilder) {
+        setForm((prev) => ({
+          ...prev,
+          ...incomingBuilder,
+          pageMarginIn: normalizePageMarginIn(incomingBuilder.pageMarginIn ?? prev.pageMarginIn),
+          sectionUnderline: true,
+          isDefaultResume: Boolean(resume?.is_default),
+        }))
+      }
+
+      // Tailor action is preview-first. Any subsequent Save must create/update a tailored copy, never overwrite the base.
+      setTailoredSourceResumeId(String(resumeRecordId || tailorReferenceResumeId || '').trim())
+      setSaveTarget('tailored')
+      setResumeJobId('')
+      setResumeRecordId(null)
+      setSaveMode('create')
+      sessionStorage.removeItem(resumeIdSessionKey)
+
+      const mode = String(result?.mode || '')
+      const score = Number(result?.match_score)
+      const scoreText = Number.isFinite(score) ? `${Math.round(score * 100)}%` : ''
+      const message = mode === 'matched_existing'
+        ? `Tailored preview ready from best match (${scoreText}). Review, then click Save.`
+        : 'Tailored preview ready. Review, then click Save.'
+
+      setTailorState({
+        loading: false,
+        mode: '',
+        message,
+        error: '',
+        keywords: Array.isArray(result?.keywords) ? result.keywords : [],
+        matchScore: Number.isFinite(score) ? score : null,
+      })
+    } catch (err) {
+      setTailorState({
+        loading: false,
+        mode: '',
+        message: '',
+        error: err.message || 'Tailoring failed',
+        keywords: [],
+        matchScore: null,
+      })
+    }
+  }
+
+  const runQualityOptimize = async () => {
+    if (!enableTailorFlow) return
+    if (tailorState.loading) return
+    setActiveTailorAction('optimize')
+
+    const access = localStorage.getItem('access')
+    if (!access) {
+      navigate('/login')
+      return
+    }
+
+    try {
+      setTailorState({
+        loading: true,
+        mode: 'optimize',
+        message: '',
+        error: '',
+        keywords: [],
+        matchScore: null,
+      })
+
+      const result = await optimizeResumeQuality(access, {
+        builder_data: form,
+        preview_only: true,
+        ai_model: String(aiModel || 'gpt-4o'),
+      })
+
+      const resume = result?.resume || {}
+      const incomingBuilder = resume?.builder_data && typeof resume.builder_data === 'object'
+        ? resume.builder_data
+        : null
+
+      if (incomingBuilder) {
+        setForm((prev) => ({
+          ...prev,
+          ...incomingBuilder,
+          pageMarginIn: normalizePageMarginIn(incomingBuilder.pageMarginIn ?? prev.pageMarginIn),
+          sectionUnderline: true,
+          isDefaultResume: Boolean(resume?.is_default),
+        }))
+      }
+
+      if (saveMode === 'create') {
+        setResumeJobId('')
+        setResumeRecordId(null)
+        sessionStorage.removeItem(resumeIdSessionKey)
+      }
+
+      setTailorState({
+        loading: false,
+        mode: '',
+        message: 'Quality optimization ready. Review, then click Save.',
+        error: '',
+        keywords: [],
+        matchScore: null,
+      })
+    } catch (err) {
+      setTailorState({
+        loading: false,
+        mode: '',
+        message: '',
+        error: err.message || 'Quality optimization failed',
+        keywords: [],
+        matchScore: null,
+      })
+    }
+  }
+
+  const saveResumeToAccount = async ({ titleOverride = '', forceCreate = false, jobIdOverride = '' } = {}) => {
+    const access = localStorage.getItem('access')
+    if (!access) {
+      navigate('/login')
+      return null
+    }
+
+    try {
       setSaveState({ saving: true, message: '' })
-      const derivedTitle = autoTitle
+      const derivedTitle = String(titleOverride || '').trim() || autoTitle
+      const resolvedJobId = String(jobIdOverride || resumeJobId || '').trim()
       const payload = {
         title: derivedTitle,
         builder_data: form,
         original_text: formToPlainText(form),
+        is_default: true,
+        job: resolvedJobId ? Number(resolvedJobId) : null,
       }
 
-      // Upsert by title: same title overwrites; different title creates new entry.
-      const data = await createResume(access, payload)
+      const data = (!forceCreate && resumeRecordId)
+        ? await updateResume(access, resumeRecordId, payload)
+        : (() => {
+            if (!forceCreate && saveMode === 'edit') {
+              throw new Error('Edit mode cannot create new resume. Use Add Resume (+) to create.')
+            }
+            return createResume(access, payload)
+          })()
 
       setResumeRecordId(String(data.id))
-      sessionStorage.setItem('builderResumeId', String(data.id))
-      setSaveState({ saving: false, message: `Saved: ${new Date().toLocaleTimeString()}` })
+      setResumeJobId(data?.job ? String(data.job) : '')
+      sessionStorage.setItem(resumeIdSessionKey, String(data.id))
+      setSaveMode('edit')
+      setSaveTarget('base')
+      setTailoredSourceResumeId('')
+      setForm((prev) => ({
+        ...prev,
+        isDefaultResume: Boolean(data.is_default),
+      }))
+      setAllowBaseResumeSave(false)
+      setSaveState({
+        saving: false,
+        message: `Saved: ${new Date().toLocaleTimeString()}`,
+      })
+      return data
+    } catch (err) {
+      setSaveState({ saving: false, message: err.message || 'Save failed' })
+      return null
+    }
+  }
+
+  const saveTailoredResumeToAccount = async ({ titleOverride = '', jobIdOverride = '' } = {}) => {
+    const access = localStorage.getItem('access')
+    if (!access) {
+      navigate('/login')
+      return null
+    }
+
+    try {
+      setSaveState({ saving: true, message: '' })
+      const derivedTitle = String(titleOverride || '').trim() || `Tailored - ${String(autoTitle || '').trim() || 'Resume'}`
+      const resolvedJobId = String(jobIdOverride || resumeJobId || '').trim()
+      const updatePayload = {
+        title: derivedTitle,
+        builder_data: form,
+        original_text: formToPlainText(form),
+        is_default: false,
+        is_tailored: true,
+        job: resolvedJobId ? Number(resolvedJobId) : null,
+      }
+      if (resumeRecordId && saveMode === 'edit') {
+        const data = await updateResume(access, resumeRecordId, updatePayload)
+        if (data?.id) {
+          setResumeRecordId(String(data.id))
+          setResumeJobId(data?.job ? String(data.job) : '')
+          sessionStorage.setItem(resumeIdSessionKey, String(data.id))
+        }
+        setSaveMode('edit')
+        setSaveTarget('tailored')
+        setForm((prev) => ({
+          ...prev,
+          isDefaultResume: false,
+        }))
+        setSaveState({
+          saving: false,
+          message: `Updated tailored copy: ${new Date().toLocaleTimeString()}`,
+        })
+        return data
+      }
+
+      const sourceResumeId = String(tailoredSourceResumeId || resumeRecordId || tailorReferenceResumeId || '').trim()
+      if (!sourceResumeId) {
+        throw new Error('Load or save a base resume first before saving a tailored copy.')
+      }
+
+      const payload = {
+        name: derivedTitle,
+        builder_data: form,
+        resume: Number(sourceResumeId),
+        job: resolvedJobId ? Number(resolvedJobId) : null,
+      }
+      const data = await createTailoredResume(access, payload)
+      if (data?.id) {
+        setResumeRecordId(String(data.id))
+        setResumeJobId(data?.job ? String(data.job) : '')
+        sessionStorage.setItem(resumeIdSessionKey, String(data.id))
+      }
+      setSaveMode('edit')
+      setSaveTarget('tailored')
+      setForm((prev) => ({
+        ...prev,
+        isDefaultResume: false,
+      }))
+      setSaveState({
+        saving: false,
+        message: `Saved tailored copy: ${new Date().toLocaleTimeString()}`,
+      })
+      return data
+    } catch (err) {
+      setSaveState({ saving: false, message: err.message || 'Save failed' })
+      return null
+    }
+  }
+
+  const openSaveModal = async () => {
+    if (saveTarget === 'base' && saveMode === 'edit' && !resumeRecordId) {
+      setSaveState({ saving: false, message: 'Edit mode cannot create new resume. Use Add Resume (+).' })
+      return
+    }
+    const access = localStorage.getItem('access')
+    const suggested = saveTarget === 'tailored'
+      ? `Tailored - ${String(autoTitle || '').trim() || 'Resume'}`
+      : (String(autoTitle || '').trim() || 'My Resume')
+    setSaveModal({
+      open: true,
+      name: suggested,
+      jobId: resumeJobId || '',
+      loading: true,
+      jobs: [],
+    })
+    if (!access) {
+      setSaveModal((prev) => ({ ...prev, loading: false }))
+      return
+    }
+    try {
+      const jobs = await fetchAllJobs(access, { ordering: '-created_at' })
+      setSaveModal((prev) => ({ ...prev, loading: false, jobs }))
+    } catch {
+      setSaveModal((prev) => ({ ...prev, loading: false, jobs: [] }))
+    }
+  }
+
+  const saveFromModal = async () => {
+    const suggested = saveTarget === 'tailored'
+      ? `Tailored - ${String(autoTitle || '').trim() || 'Resume'}`
+      : (String(autoTitle || '').trim() || 'My Resume')
+    const value = String(saveModal.name || '').trim() || suggested
+    const selectedJobId = String(saveModal.jobId || '').trim()
+    const saved = saveTarget === 'tailored'
+      ? await saveTailoredResumeToAccount({ titleOverride: value, jobIdOverride: selectedJobId })
+      : await saveResumeToAccount({ titleOverride: value, forceCreate: false, jobIdOverride: selectedJobId })
+    if (saved) {
+      setSaveModal((prev) => ({ ...prev, open: false }))
+    }
+  }
+
+  const openSaveToTailored = async () => {
+    const access = localStorage.getItem('access')
+    if (!access) {
+      navigate('/login')
+      return
+    }
+    const suggested = `Tailored - ${String(autoTitle || '').trim() || 'Resume'}`
+    setTailoredModal({
+      open: true,
+      name: suggested,
+      jobId: resumeJobId || '',
+      loading: true,
+      jobs: [],
+    })
+    try {
+      const jobs = await fetchAllJobs(access, { ordering: '-created_at' })
+      setTailoredModal((prev) => ({ ...prev, loading: false, jobs }))
+    } catch {
+      setTailoredModal((prev) => ({ ...prev, loading: false, jobs: [] }))
+    }
+  }
+
+  const saveToTailored = async () => {
+    const access = localStorage.getItem('access')
+    if (!access) {
+      navigate('/login')
+      return
+    }
+    try {
+      setSaveState({ saving: true, message: '' })
+      const sourceResumeId = String(tailoredSourceResumeId || resumeRecordId || tailorReferenceResumeId || '').trim()
+      if (!sourceResumeId) {
+        setSaveState({ saving: false, message: 'Save original resume first (or load reference resume) before Save To Tailored.' })
+        return
+      }
+      const name = String(tailoredModal.name || '').trim() || `Tailored - ${String(autoTitle || '').trim() || 'Resume'}`
+      const payload = {
+        name,
+        builder_data: form,
+        resume: Number(sourceResumeId),
+        job: tailoredModal.jobId ? Number(tailoredModal.jobId) : null,
+      }
+      const data = await createTailoredResume(access, payload)
+      if (data?.id) {
+        setResumeRecordId(String(data.id))
+        setResumeJobId(data?.job ? String(data.job) : '')
+        sessionStorage.setItem(resumeIdSessionKey, String(data.id))
+        setSaveMode('edit')
+      }
+      setSaveTarget('tailored')
+      setTailoredSourceResumeId(sourceResumeId)
+      setForm((prev) => ({
+        ...prev,
+        isDefaultResume: false,
+      }))
+      setTailoredModal((prev) => ({ ...prev, open: false }))
+      setSaveState({
+        saving: false,
+        message: `Saved to Tailored: ${new Date().toLocaleTimeString()}`,
+      })
     } catch (err) {
       setSaveState({ saving: false, message: err.message || 'Save failed' })
     }
@@ -735,82 +1644,258 @@ function ResumeBuilderPage({ navigate }) {
 
   const Actions = ({ className, includeHome }) => (
     <div className={className}>
-      <button type="button" onClick={saveResumeToAccount} disabled={saveState.saving}>
-        {saveState.saving ? 'Saving...' : 'Save'}
-      </button>
-      <button type="button" className="secondary" onClick={downloadDoc}>
-        Download DOC
-      </button>
-      <button type="button" className="secondary" onClick={() => window.print()}>
-        Exact PDF (Print)
-      </button>
-      {includeHome && (
-        <button type="button" className="secondary" onClick={() => navigate('/')}>
-          Back Home
+      <div className="builder-actions-row">
+        {includeHome && (!minimalTailorUi || enableTailorFlow) && (
+          <button type="button" className="secondary" onClick={openPdfPicker} disabled={importState.importing}>
+            {importState.importing ? 'Importing...' : 'Import PDF'}
+          </button>
+        )}
+        {showSaveButton && (!enableTailorFlow || allowBaseResumeSave) && (
+          <button type="button" onClick={openSaveModal} disabled={saveState.saving}>
+            {saveState.saving ? 'Saving...' : 'Save'}
+          </button>
+        )}
+        {showSaveButton && enableTailorFlow && (
+          <button type="button" className="secondary" onClick={openSaveToTailored} disabled={saveState.saving}>
+            {saveState.saving ? 'Saving...' : 'Save To Tailored'}
+          </button>
+        )}
+        {showJdBox && enableTailorFlow && (
+          <button
+            type="button"
+            className={`secondary${activeTailorAction === 'optimize' ? ' is-active' : ''}${tailorState.loading && tailorState.mode === 'optimize' ? ' is-busy' : ''}`}
+            onClick={runQualityOptimize}
+            disabled={tailorState.loading && tailorState.mode === 'optimize'}
+          >
+            {tailorState.loading && tailorState.mode === 'optimize' ? 'Optimizing...' : 'Optimize'}
+          </button>
+        )}
+        {showJdBox && enableTailorFlow && (
+          <button
+            type="button"
+            className={`secondary${activeTailorAction === 'tailor' ? ' is-active' : ''}${tailorState.loading && tailorState.mode === 'tailor' ? ' is-busy' : ''}`}
+            onClick={runTailorAndSave}
+            disabled={tailorState.loading && tailorState.mode === 'tailor'}
+          >
+            {tailorState.loading && tailorState.mode === 'tailor' ? 'Tailoring...' : 'Tailor First'}
+          </button>
+        )}
+        {minimalTailorUi && (
+          <button type="button" className="secondary" onClick={openInMainBuilder}>
+            Edit In Builder
+          </button>
+        )}
+        <button type="button" className="secondary" onClick={downloadAtsPdf}>
+          ATS PDF
         </button>
+        {!enableTailorFlow && (
+          <button type="button" className="secondary" onClick={saveAtsPdfLocal} disabled={pdfSaveState.saving}>
+            {pdfSaveState.saving ? 'Saving PDF...' : 'Save ATS PDF Local'}
+          </button>
+        )}
+      </div>
+      {showSaveButton && enableTailorFlow && (
+        <div className="builder-actions-meta">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={allowBaseResumeSave}
+              onChange={(e) => setAllowBaseResumeSave(e.target.checked)}
+            />
+            Allow saving/editing base resume
+          </label>
+        </div>
       )}
     </div>
   )
 
   return (
-    <main className="builder-layout">
+    <main className="builder-layout builder-page">
       <section className="builder-panel">
+        <input
+          ref={pdfInputRef}
+          type="file"
+          accept="application/pdf,.pdf"
+          onChange={handlePdfImport}
+          style={{ display: 'none' }}
+        />
         <div className="builder-header">
-          <h1>Resume Builder</h1>
-          <p className="subtitle">Fill inputs on left. Resume updates live on right.</p>
+          <div className="builder-header-top">
+            <div>
+              <h1>{pageTitle}</h1>
+              <p className="builder-kicker">Career Tools</p>
+            </div>
+            <button type="button" className="secondary" onClick={() => navigate('/profile')}>
+              Back to Profile
+            </button>
+          </div>
+          <p className="subtitle">{subtitle}</p>
         </div>
 
-        <div className="form">
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={showSectionOrder}
-              onChange={(e) => setShowSectionOrder(e.target.checked)}
-            />
-            Change section order
-          </label>
+        <Actions className="builder-actions builder-actions-top" includeHome />
 
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={Boolean(form.sectionUnderline)}
-              onChange={(e) => updateField('sectionUnderline', e.target.checked)}
-            />
-            Section underline
-          </label>
+        <div className="form">
+          {showJdBox && (
+            <div className="exp-card builder-jd-card">
+              <div className="builder-section-top">
+                <label htmlFor="job-description">Paste Job Description</label>
+                <span className="builder-section-tag">AI Assist</span>
+              </div>
+              <div className="builder-control-grid">
+                <label htmlFor="ai-model-select">AI Model
+                  <select
+                    id="ai-model-select"
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)}
+                  >
+                    {AI_MODEL_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label htmlFor="tailor-mode-select">Tailor Type
+                  <select
+                    id="tailor-mode-select"
+                    value={tailorMode}
+                    onChange={(e) => setTailorMode(e.target.value)}
+                  >
+                    {TAILOR_MODE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <textarea
+                id="job-description"
+                rows={10}
+                value={jobDescription}
+                onChange={(e) => setJobDescription(e.target.value)}
+                placeholder="Paste a full job description here. Your base resume will be used as the reference. Best results: include role, required skills, responsibilities, tools/tech stack, and domain context. Recommended: 40+ words or about 200+ characters."
+              />
+              {enableTailorFlow && !tailorReferenceLoaded && (
+                <p className="hint" style={{ margin: '8px 0 0' }}>
+                  Upload a reference resume PDF first.
+                </p>
+              )}
+              <p className="hint" style={{ margin: '8px 0 0' }}>
+                Your base resume will be used as the reference. Best results: include role, required skills, responsibilities, tools/tech stack, and domain context.
+              </p>
+              <p className="hint" style={{ margin: '8px 0 0' }}>
+                Optimize improves the current resume without using JD.
+              </p>
+              {tailorState.message && (
+                <p className="success" style={{ margin: '8px 0 0' }}>
+                  {tailorState.message}
+                </p>
+              )}
+              {tailorState.error && (
+                <p className="error" style={{ margin: '8px 0 0' }}>
+                  {tailorState.error}
+                </p>
+              )}
+              {tailorState.keywords.length > 0 && (
+                <p className="hint" style={{ margin: '8px 0 0' }}>
+                  JD keywords: {tailorState.keywords.slice(0, 30).join(', ')}
+                </p>
+              )}
+            </div>
+          )}
+
+          {!minimalTailorUi && (
+            <div className="builder-inline-settings">
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={showSectionOrder}
+                  onChange={(e) => setShowSectionOrder(e.target.checked)}
+                />
+                Change section order
+              </label>
+
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.sectionUnderline)}
+                  onChange={(e) => updateField('sectionUnderline', e.target.checked)}
+                />
+                Section underline
+              </label>
+
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={normalizePageMarginIn(form.pageMarginIn) <= MIN_PAGE_MARGIN_IN}
+                  onChange={(e) =>
+                    updateField('pageMarginIn', e.target.checked ? MIN_PAGE_MARGIN_IN : DEFAULT_PAGE_MARGIN_IN)
+                  }
+                />
+                Minimum margin
+              </label>
+            </div>
+          )}
 
           {saveState.message && <p className={saveState.message.startsWith('Saved') ? 'success' : 'error'}>{saveState.message}</p>}
+          {pdfSaveState.message && <p className={pdfSaveState.message.startsWith('Saved PDF') ? 'success' : 'error'}>{pdfSaveState.message}</p>}
+          {(!minimalTailorUi || enableTailorFlow) && importState.message && (
+            <p className={importState.message.startsWith('Imported') ? 'success' : 'error'}>
+              {importState.message}
+            </p>
+          )}
 
-          <div className="section-options">
-            <label>Typography</label>
-            <div className="exp-row">
+          {!minimalTailorUi && (
+            <div className="section-options builder-settings-card">
+            <div className="builder-section-top">
+              <label>Typography</label>
+              <span className="builder-section-tag">Layout</span>
+            </div>
+            <div className="builder-control-grid">
+              <select
+                value={form.bodyFontFamily || FONT_FAMILY_OPTIONS[0].value}
+                onChange={(e) => updateField('bodyFontFamily', e.target.value)}
+              >
+                {FONT_FAMILY_OPTIONS.map((option) => (
+                  <option key={option.label} value={option.value}>
+                    Font: {option.label}
+                  </option>
+                ))}
+              </select>
               <select
                 value={String(form.bodyFontSizePt || 10)}
                 onChange={(e) => updateField('bodyFontSizePt', Number(e.target.value))}
               >
-                <option value="9">Text size: 9</option>
-                <option value="10">Text size: 10</option>
-                <option value="11">Text size: 11</option>
-                <option value="12">Text size: 12</option>
+                <option value="9">Font size: 9</option>
+                <option value="10">Font size: 10</option>
+                <option value="11">Font size: 11</option>
+                <option value="12">Font size: 12</option>
               </select>
+            </div>
+            <div className="builder-control-grid">
               <select
                 value={String(form.bodyLineHeight || 1)}
                 onChange={(e) => updateField('bodyLineHeight', Number(e.target.value))}
               >
-                <option value="1">Line spacing: 1.0</option>
-                <option value="1.1">Line spacing: 1.1</option>
-                <option value="1.15">Line spacing: 1.15</option>
-                <option value="1.2">Line spacing: 1.2</option>
-                <option value="1.3">Line spacing: 1.3</option>
-                <option value="1.4">Line spacing: 1.4</option>
+                <option value="1">Spacing: 1.0</option>
+                <option value="1.05">Spacing: 1.05</option>
+                <option value="1.1">Spacing: 1.1</option>
+                <option value="1.15">Spacing: 1.15</option>
+                <option value="1.2">Spacing: 1.2</option>
+                <option value="1.25">Spacing: 1.25</option>
+                <option value="1.3">Spacing: 1.3</option>
+                <option value="1.35">Spacing: 1.35</option>
+                <option value="1.4">Spacing: 1.4</option>
               </select>
             </div>
             <p className="hint" style={{ margin: 0 }}>
-              Controls apply to the A4 preview and export.
+              Applies to preview and export.
             </p>
-          </div>
+            </div>
+          )}
 
-          {showSectionOrder && (
+          {!minimalTailorUi && showSectionOrder && (
             <div className="section-order">
               <label>Section order (drag to reorder)</label>
               <div className="section-order-list">
@@ -862,7 +1947,8 @@ function ResumeBuilderPage({ navigate }) {
             </div>
           )}
 
-          <div className="exp-editor">
+          {!minimalTailorUi && (
+            <div className="exp-editor builder-block">
             <div className="exp-editor-head">
               <label>Extra sections (optional)</label>
               <button type="button" className="secondary" onClick={addCustomSection}>
@@ -880,7 +1966,7 @@ function ResumeBuilderPage({ navigate }) {
                   />
                   <button
                     type="button"
-                    className="secondary"
+                    className="secondary inline-remove-btn"
                     onClick={() => removeCustomSection(section.id)}
                     title="Remove section"
                   >
@@ -896,15 +1982,17 @@ function ResumeBuilderPage({ navigate }) {
                 />
               </div>
             ))}
-          </div>
+            </div>
+          )}
 
-          <input value={form.fullName} onChange={(e) => updateField('fullName', e.target.value)} placeholder="Full name" />
-          <input value={form.role} onChange={(e) => updateField('role', e.target.value)} placeholder="Target role" />
-          <input value={form.email} onChange={(e) => updateField('email', e.target.value)} placeholder="Email" />
-          <input value={form.phone} onChange={(e) => updateField('phone', e.target.value)} placeholder="Phone" />
-          <input value={form.location} onChange={(e) => updateField('location', e.target.value)} placeholder="Location" />
+          {!minimalTailorUi && <input value={form.fullName} onChange={(e) => updateField('fullName', e.target.value)} placeholder="Full name" />}
+          {!minimalTailorUi && <input value={form.role} onChange={(e) => updateField('role', e.target.value)} placeholder="Target role" />}
+          {!minimalTailorUi && <input value={form.email} onChange={(e) => updateField('email', e.target.value)} placeholder="Email" />}
+          {!minimalTailorUi && <input value={form.phone} onChange={(e) => updateField('phone', e.target.value)} placeholder="Phone" />}
+          {!minimalTailorUi && <input value={form.location} onChange={(e) => updateField('location', e.target.value)} placeholder="Location" />}
 
-          <div className="exp-editor">
+          {!minimalTailorUi && (
+            <div className="exp-editor builder-block">
             <div className="exp-editor-head">
               <label>Profile Links (max 5)</label>
               <button
@@ -940,9 +2028,11 @@ function ResumeBuilderPage({ navigate }) {
                 </div>
               </div>
             ))}
-          </div>
+            </div>
+          )}
 
-          <div className="section-options">
+          {!minimalTailorUi && (
+            <div className="section-options builder-settings-card">
             <label className="checkbox">
               <input
                 type="checkbox"
@@ -968,9 +2058,10 @@ function ResumeBuilderPage({ navigate }) {
               <option value="bullets">Bullets</option>
               <option value="numbered">Numbered</option>
             </select>
-          </div>
+            </div>
+          )}
 
-          {form.summaryEnabled && (
+          {!minimalTailorUi && form.summaryEnabled && (
             <RichTextarea
               id="summary"
               label={form.summaryHeading || 'Summary'}
@@ -980,15 +2071,18 @@ function ResumeBuilderPage({ navigate }) {
             />
           )}
 
-          <RichTextarea
+          {!minimalTailorUi && (
+            <RichTextarea
             id="skills"
             label="Skills"
             value={form.skills}
             onChange={(value) => updateField('skills', value)}
             placeholder="Add skills"
-          />
+            />
+          )}
 
-          <div className="exp-editor">
+          {!minimalTailorUi && (
+            <div className="exp-editor builder-block">
             <div className="exp-editor-head">
               <label>Experience</label>
               <button type="button" className="secondary" onClick={addExperience}>
@@ -1040,7 +2134,7 @@ function ResumeBuilderPage({ navigate }) {
                   </label>
                   <button
                     type="button"
-                    className="secondary"
+                    className="secondary inline-remove-btn"
                     onClick={() => removeExperience(index)}
                     disabled={(form.experiences || []).length <= 1}
                     title="Remove experience"
@@ -1058,9 +2152,11 @@ function ResumeBuilderPage({ navigate }) {
                 />
               </div>
             ))}
-          </div>
+            </div>
+          )}
 
-          <div className="exp-editor">
+          {!minimalTailorUi && (
+            <div className="exp-editor builder-block">
             <div className="exp-editor-head">
               <label>Projects</label>
               <button type="button" className="secondary" onClick={addProject}>
@@ -1096,7 +2192,7 @@ function ResumeBuilderPage({ navigate }) {
                 <div className="actions">
                   <button
                     type="button"
-                    className="secondary"
+                    className="secondary inline-remove-btn"
                     onClick={() => removeProject(index)}
                     disabled={(form.projects || []).length <= 1}
                   >
@@ -1105,9 +2201,11 @@ function ResumeBuilderPage({ navigate }) {
                 </div>
               </div>
             ))}
-          </div>
+            </div>
+          )}
 
-          <div className="edu-editor">
+          {!minimalTailorUi && (
+            <div className="edu-editor builder-block">
             <div className="exp-editor-head">
               <label>Education</label>
               <button type="button" className="secondary" onClick={addEducation}>
@@ -1214,7 +2312,7 @@ function ResumeBuilderPage({ navigate }) {
                 <div className="actions">
                   <button
                     type="button"
-                    className="secondary"
+                    className="secondary inline-remove-btn"
                     onClick={() => removeEducation(index)}
                     disabled={(form.educations || []).length <= 1}
                   >
@@ -1223,19 +2321,97 @@ function ResumeBuilderPage({ navigate }) {
                 </div>
               </div>
             ))}
-          </div>
+            </div>
+          )}
         </div>
 
-        <Actions className="builder-actions" includeHome />
-        <p className="builder-actions-hint">
-          Use Exact PDF (Print) to export with the same design as the preview (A4).
-        </p>
       </section>
 
       <section className="preview-panel">
-        <Actions className="preview-actions" />
+        <div className="preview-panel-head">
+          <div>
+            <h2>Live Preview</h2>
+            <p className="subtitle">Preview of the final resume.</p>
+          </div>
+        </div>
         <ResumeSheet form={form} />
       </section>
+
+      {tailoredModal.open ? (
+        <div className="modal-overlay" onClick={() => setTailoredModal((prev) => ({ ...prev, open: false }))}>
+          <div className="modal-panel builder-save-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Save Tailored Resume</h2>
+            <label>
+              Name
+              <input
+                value={tailoredModal.name}
+                onChange={(e) => setTailoredModal((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder="Enter tailored resume name"
+              />
+            </label>
+            <label>
+              Job (Optional)
+              <SingleSelectDropdown
+                value={tailoredModal.jobId || ''}
+                placeholder="Search/select job"
+                clearLabel="No job association"
+                disabled={tailoredModal.loading}
+                options={(Array.isArray(tailoredModal.jobs) ? tailoredModal.jobs : []).map((job) => ({
+                  value: String(job.id),
+                  label: `${job.job_id || '-'} | ${job.role || '-'} | ${job.company_name || '-'}`,
+                }))}
+                onChange={(nextValue) => setTailoredModal((prev) => ({ ...prev, jobId: nextValue }))}
+              />
+            </label>
+            <div className="actions">
+              <button type="button" onClick={saveToTailored} disabled={saveState.saving || tailoredModal.loading}>
+                {saveState.saving ? 'Saving...' : 'Save'}
+              </button>
+              <button type="button" className="secondary" onClick={() => setTailoredModal((prev) => ({ ...prev, open: false }))}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {saveModal.open ? (
+        <div className="modal-overlay" onClick={() => setSaveModal((prev) => ({ ...prev, open: false }))}>
+          <div className="modal-panel builder-save-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Save Resume</h2>
+            <label>
+              Name
+              <input
+                value={saveModal.name}
+                onChange={(e) => setSaveModal((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder="Enter resume name"
+              />
+            </label>
+            <label>
+              Job (Optional)
+              <SingleSelectDropdown
+                value={saveModal.jobId || ''}
+                placeholder="Search/select job"
+                clearLabel="No job association"
+                disabled={saveModal.loading}
+                options={(Array.isArray(saveModal.jobs) ? saveModal.jobs : []).map((job) => ({
+                  value: String(job.id),
+                  label: `${job.job_id || '-'} | ${job.role || '-'} | ${job.company_name || '-'}`,
+                }))}
+                onChange={(nextValue) => setSaveModal((prev) => ({ ...prev, jobId: nextValue }))}
+              />
+            </label>
+            <div className="actions">
+              <button type="button" onClick={saveFromModal} disabled={saveState.saving || saveModal.loading}>
+                {saveState.saving ? 'Saving...' : 'Save'}
+              </button>
+              <button type="button" className="secondary" onClick={() => setSaveModal((prev) => ({ ...prev, open: false }))}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   )
 }
