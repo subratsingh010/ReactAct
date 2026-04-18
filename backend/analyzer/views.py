@@ -4283,23 +4283,38 @@ class CompanyListCreateView(APIView):
     parser_classes = [JSONParser]
 
     def get(self, request):
-        queryset = Company.objects.filter(profile_id__in=_accessible_profile_ids_for_user(request.user)).order_by('name')
+        scope = str(request.query_params.get('scope') or '').strip().lower()
+        queryset = Company.objects.all() if scope == 'all' else Company.objects.filter(profile_id__in=_accessible_profile_ids_for_user(request.user))
+        queryset = queryset.order_by('name')
         ready_for_tracking = str(request.query_params.get('ready_for_tracking') or '').strip().lower() in {'1', 'true', 'yes', 'y'}
         if ready_for_tracking:
             profile_ids = _accessible_profile_ids_for_user(request.user)
-            open_job_company_ids = set(
-                Job.objects.filter(
-                    company__profile_id__in=profile_ids,
-                    is_closed=False,
-                    is_removed=False,
-                ).values_list('company_id', flat=True)
-            )
-            employee_company_ids = set(
-                Employee.objects.filter(
-                    owner_profile_id__in=profile_ids,
-                    working_mail=True,
-                ).values_list('company_id', flat=True)
-            )
+            if scope == 'all':
+                open_job_company_ids = set(
+                    Job.objects.filter(
+                        is_closed=False,
+                        is_removed=False,
+                    ).values_list('company_id', flat=True)
+                )
+                employee_company_ids = set(
+                    Employee.objects.filter(
+                        working_mail=True,
+                    ).values_list('company_id', flat=True)
+                )
+            else:
+                open_job_company_ids = set(
+                    Job.objects.filter(
+                        company__profile_id__in=profile_ids,
+                        is_closed=False,
+                        is_removed=False,
+                    ).values_list('company_id', flat=True)
+                )
+                employee_company_ids = set(
+                    Employee.objects.filter(
+                        owner_profile_id__in=profile_ids,
+                        working_mail=True,
+                    ).values_list('company_id', flat=True)
+                )
             eligible_company_ids = open_job_company_ids & employee_company_ids
             queryset = queryset.exclude(mail_format='').filter(id__in=eligible_company_ids)
         rows, meta = _paginate_queryset(queryset, request, default_page_size=10, max_page_size=100)
@@ -4380,7 +4395,8 @@ class EmployeeListCreateView(APIView):
 
     def get(self, request):
         company_id = request.query_params.get('company_id')
-        rows = Employee.objects.filter(owner_profile_id__in=_accessible_profile_ids_for_user(request.user))
+        scope = str(request.query_params.get('scope') or '').strip().lower()
+        rows = Employee.objects.all() if scope == 'all' else Employee.objects.filter(owner_profile_id__in=_accessible_profile_ids_for_user(request.user))
         if company_id:
             rows = rows.filter(company_id=company_id)
         rows = rows.order_by('name')
@@ -4396,7 +4412,7 @@ class EmployeeListCreateView(APIView):
             return Response({'company': ['This field is required.']}, status=status.HTTP_400_BAD_REQUEST)
         workspace_profile = _workspace_profile_for_user(request.user)
         try:
-            company = Company.objects.get(id=company_id, profile=workspace_profile)
+            company = Company.objects.get(id=company_id)
         except Company.DoesNotExist:
             return Response({'company': ['Company not found.']}, status=status.HTTP_400_BAD_REQUEST)
         serializer = EmployeeSerializer(data=payload)
@@ -4411,7 +4427,7 @@ class EmployeeDetailView(APIView):
     parser_classes = [JSONParser]
 
     def _get_object(self, request, employee_id):
-        return Employee.objects.get(id=employee_id, owner_profile_id__in=_accessible_profile_ids_for_user(request.user))
+        return Employee.objects.get(id=employee_id)
 
     def put(self, request, employee_id):
         if not _can_manage_workspace_fully(request.user):
@@ -4427,7 +4443,7 @@ class EmployeeDetailView(APIView):
             payload.pop('company', None)
         if company_id:
             try:
-                company = Company.objects.get(id=company_id, profile=row.owner_profile)
+                company = Company.objects.get(id=company_id)
             except Company.DoesNotExist:
                 return Response({'company': ['Company not found.']}, status=status.HTTP_400_BAD_REQUEST)
             payload['company'] = company.id
@@ -4473,9 +4489,14 @@ class JobListCreateView(APIView):
 
     def get(self, request):
         include_removed = str(request.query_params.get('include_removed') or '').strip().lower() in {'1', 'true', 'yes', 'y'}
-        rows = _accessible_jobs_for_user(request.user).select_related('company').prefetch_related('resumes')
+        scope = str(request.query_params.get('scope') or '').strip().lower()
+        rows = Job.objects.all() if scope == 'all' else _accessible_jobs_for_user(request.user)
+        rows = rows.select_related('company').prefetch_related('resumes')
         if not include_removed:
             rows = rows.filter(is_removed=False)
+        include_closed = str(request.query_params.get('include_closed') or '').strip().lower() in {'1', 'true', 'yes', 'y'}
+        if not include_closed:
+            rows = rows.filter(is_closed=False)
 
         company_id = (request.query_params.get('company_id') or '').strip()
         if company_id.isdigit():

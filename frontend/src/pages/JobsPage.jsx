@@ -112,6 +112,8 @@ function JobsPage() {
     setLoading(true)
     try {
       const data = await fetchJobs(access, {
+        scope: 'all',
+        include_closed: false,
         page,
         page_size: pageSize,
         company_name: filters.companyName.trim() || undefined,

@@ -738,7 +738,7 @@ function TrackingPage() {
     ;(async () => {
       try {
         const [companyRows, resumesData, tailoredData, achievementsData, profileData] = await Promise.all([
-          fetchAllCompanies(access, { ready_for_tracking: true }),
+          fetchAllCompanies(access, { ready_for_tracking: true, scope: 'all' }),
           fetchResumes(access).catch(() => []),
           fetchTailoredResumes(access).catch(() => []),
           fetchTemplates(access).catch(() => []),
@@ -767,8 +767,8 @@ function TrackingPage() {
     }
     try {
       const [jobs, employeesData] = await Promise.all([
-        fetchAllJobs(access, { company_id: companyId }),
-        fetchEmployees(access, companyId),
+        fetchAllJobs(access, { company_id: companyId, scope: 'all', include_closed: false }),
+        fetchEmployees(access, companyId, { scope: 'all' }),
       ])
       const emps = Array.isArray(employeesData) ? employeesData : []
       setJobOptions(jobs)

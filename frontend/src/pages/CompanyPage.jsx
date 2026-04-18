@@ -94,6 +94,7 @@ function CompanyPage() {
   const filteredCompanies = useMemo(() => {
     const out = companies.filter((company) => {
       const hrs = employeesByCompany[String(company.id)] || []
+      if (!hrs.length) return false
       const companyName = String(company.name || '').toLowerCase()
       const companyFilter = String(filters.company || '').trim().toLowerCase()
       if (companyFilter && !companyName.includes(companyFilter)) return false
@@ -102,7 +103,6 @@ function CompanyPage() {
       const roleFilter = String(filters.role || '').trim().toLowerCase()
       const locationFilter = String(filters.location || '').trim().toLowerCase()
       if (!hrFilter && !roleFilter && !locationFilter) return true
-      if (!hrs.length) return false
 
       return hrs.some((hr) => {
         const hrName = String(hr.name || '').toLowerCase()
@@ -163,7 +163,7 @@ function CompanyPage() {
     try {
       const [firstCompanyPage, employeeRows] = await Promise.all([
         fetchCompanies(access, { page: 1, page_size: 200 }),
-        fetchEmployees(access),
+        fetchEmployees(access, '', { scope: 'all' }),
       ])
       const firstRows = Array.isArray(firstCompanyPage?.results) ? firstCompanyPage.results : []
       let allCompanies = [...firstRows]

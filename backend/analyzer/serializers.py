@@ -282,7 +282,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
     company_name = serializers.SerializerMethodField()
     location_name = serializers.SerializerMethodField()
     # Backward-compatible API keys for existing frontend payload/response shape.
-    role = serializers.CharField(source='JobRole', required=False, allow_blank=True)
+    role = serializers.CharField(source='JobRole', required=True, allow_blank=False)
     personalized_template_helpful = serializers.CharField(source='helpful', required=False, allow_blank=True)
     name = serializers.CharField(required=False, allow_blank=True)
     first_name = serializers.CharField(required=False, allow_blank=True)
@@ -308,6 +308,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
             return obj.location_ref.name
         return str(getattr(obj, 'location', '') or '')
 
+    def validate_email(self, value):
+        return _normalize_email(value)
+
     def validate(self, attrs):
         first_name = str(attrs.get('first_name') or '').strip()
         middle_name = str(attrs.get('middle_name') or '').strip()
@@ -320,16 +323,38 @@ class EmployeeSerializer(serializers.ModelSerializer):
             attrs['first_name'] = first_name
             attrs['middle_name'] = middle_name
             attrs['last_name'] = last_name
-            return attrs
-
-        if name:
+        elif name:
             attrs['name'] = name
-            return attrs
+        elif not (self.instance and str(getattr(self.instance, 'name', '') or '').strip()):
+            raise serializers.ValidationError({'name': ['Provide name or first/middle/last name.']})
 
-        if self.instance and str(getattr(self.instance, 'name', '') or '').strip():
-            return attrs
+        role_value = str(attrs.get('JobRole') or getattr(self.instance, 'JobRole', '') or '').strip()
+        if not role_value:
+            raise serializers.ValidationError({'role': ['This field is required.']})
+        attrs['JobRole'] = role_value
 
-        raise serializers.ValidationError({'name': ['Provide name or first/middle/last name.']})
+        department_value = str(attrs.get('department') or getattr(self.instance, 'department', '') or '').strip()
+        if not department_value:
+            raise serializers.ValidationError({'department': ['This field is required.']})
+        attrs['department'] = department_value
+
+        company = attrs.get('company') or getattr(self.instance, 'company', None)
+        normalized_name = str(attrs.get('name') or getattr(self.instance, 'name', '') or '').strip()
+        normalized_email = str(attrs.get('email') or getattr(self.instance, 'email', '') or '').strip().lower()
+        if company is not None and normalized_name and normalized_email:
+            duplicate_rows = Employee.objects.filter(
+                company=company,
+                name__iexact=normalized_name,
+                email__iexact=normalized_email,
+            )
+            if self.instance is not None:
+                duplicate_rows = duplicate_rows.exclude(id=self.instance.id)
+            if duplicate_rows.exists():
+                raise serializers.ValidationError({
+                    'email': ['An employee with this name and email already exists for this company.']
+                })
+
+        return attrs
 
     class Meta:
         model = Employee

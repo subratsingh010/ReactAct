@@ -45,7 +45,7 @@ function HomePage() {
         const [profile, companyData, jobData, trackingData, interviewData] = await Promise.all([
           fetchProfile(access),
           fetchAllCompanies(access),
-          fetchAllJobs(access),
+          fetchAllJobs(access, { scope: 'all', include_closed: false }),
           fetchAllTrackingRows(access),
           fetchInterviews(access),
         ])

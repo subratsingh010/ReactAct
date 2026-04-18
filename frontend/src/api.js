@@ -661,6 +661,7 @@ export async function fetchCompanies(accessToken, params = {}) {
   const search = new URLSearchParams()
   if (params.page) search.set('page', String(params.page))
   if (params.page_size) search.set('page_size', String(params.page_size))
+  if (params.scope) search.set('scope', String(params.scope))
   if (params.ready_for_tracking) search.set('ready_for_tracking', String(params.ready_for_tracking))
   const suffix = search.toString() ? `?${search.toString()}` : ''
   const response = await authFetch(`${API_BASE_URL}/companies/${suffix}`, {}, accessToken)
@@ -710,8 +711,11 @@ export async function deleteCompany(accessToken, companyId) {
   return parseResponse(response)
 }
 
-export async function fetchEmployees(accessToken, companyId = '') {
-  const suffix = companyId ? `?company_id=${encodeURIComponent(companyId)}` : ''
+export async function fetchEmployees(accessToken, companyId = '', options = {}) {
+  const search = new URLSearchParams()
+  if (companyId) search.set('company_id', String(companyId))
+  if (options.scope) search.set('scope', String(options.scope))
+  const suffix = search.toString() ? `?${search.toString()}` : ''
   const response = await authFetch(`${API_BASE_URL}/employees/${suffix}`, {}, accessToken)
   return parseResponse(response)
 }
@@ -757,6 +761,8 @@ export async function fetchJobs(accessToken, params = {}) {
   const keys = [
     'page',
     'page_size',
+    'scope',
+    'include_closed',
     'company_id',
     'company_name',
     'posting_date',
