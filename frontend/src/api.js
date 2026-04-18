@@ -349,34 +349,6 @@ export async function deleteProfilePanel(accessToken, panelId) {
   return parseResponse(response)
 }
 
-export async function fetchWorkspaceMembers(accessToken) {
-  const response = await authFetch(`${API_BASE_URL}/workspace-members/`, {}, accessToken)
-  return parseResponse(response)
-}
-
-export async function createWorkspaceMember(accessToken, payload) {
-  const response = await authFetch(
-    `${API_BASE_URL}/workspace-members/`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {}),
-    },
-    accessToken,
-  )
-  return parseResponse(response)
-}
-
-export async function deleteWorkspaceMember(accessToken, memberId) {
-  const response = await authFetch(
-    `${API_BASE_URL}/workspace-members/${memberId}/`,
-    { method: 'DELETE' },
-    accessToken,
-  )
-  if (response.status === 204) return { ok: true }
-  return parseResponse(response)
-}
-
 export async function fetchAchievements(accessToken) {
   const response = await authFetch(`${API_BASE_URL}/achievements/`, {}, accessToken)
   return parseResponse(response)
@@ -452,6 +424,47 @@ export async function deleteAchievement(accessToken, achievementId) {
 export async function deleteTemplate(accessToken, templateId) {
   const response = await authFetch(
     `${API_BASE_URL}/templates/${templateId}/`,
+    { method: 'DELETE' },
+    accessToken,
+  )
+  if (response.status === 204) return { ok: true }
+  return parseResponse(response)
+}
+
+export async function fetchSubjectTemplates(accessToken) {
+  const response = await authFetch(`${API_BASE_URL}/subject-templates/`, {}, accessToken)
+  return parseResponse(response)
+}
+
+export async function createSubjectTemplate(accessToken, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/subject-templates/`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function updateSubjectTemplate(accessToken, subjectTemplateId, payload) {
+  const response = await authFetch(
+    `${API_BASE_URL}/subject-templates/${subjectTemplateId}/`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    },
+    accessToken,
+  )
+  return parseResponse(response)
+}
+
+export async function deleteSubjectTemplate(accessToken, subjectTemplateId) {
+  const response = await authFetch(
+    `${API_BASE_URL}/subject-templates/${subjectTemplateId}/`,
     { method: 'DELETE' },
     accessToken,
   )

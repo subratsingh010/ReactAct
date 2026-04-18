@@ -8,6 +8,8 @@ import urllib.request
 from dataclasses import dataclass
 from html import escape
 
+from .profile_settings import resolve_openai_settings
+
 
 BUZZWORDS = {
     "passionate",
@@ -1548,22 +1550,26 @@ def extract_keywords_heuristic(jd_text: str):
     return keywords
 
 
-def _resolve_ai_model_name(model_override: str | None = None) -> str:
+def _resolve_ai_model_name(model_override: str | None = None, user=None) -> str:
     override = str(model_override or "").strip()
     if override in ALLOWED_AI_MODELS:
         return override
-    env_model = os.getenv("OPENAI_MODEL", "gpt-4o").strip() or "gpt-4o"
-    if env_model in ALLOWED_AI_MODELS:
-        return env_model
+    resolved_model = str(resolve_openai_settings(user).get("model", "gpt-4o") or "").strip() or "gpt-4o"
+    if resolved_model in ALLOWED_AI_MODELS:
+        return resolved_model
     return "gpt-4o"
 
 
-def _openai_chat_json(system_prompt: str, user_prompt: str, model_override: str | None = None):
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+def _openai_chat_json(system_prompt: str, user_prompt: str, model_override: str | None = None, user=None):
+    settings = resolve_openai_settings(user)
+    api_key = settings.get("api_key", "").strip()
     if not api_key:
         return None, "OPENAI_API_KEY is not set"
 
-    model = _resolve_ai_model_name(model_override)
+    model = _resolve_ai_model_name(model_override, user=user)
+    task_instructions = str(settings.get("task_instructions", "") or "").strip()
+    if task_instructions:
+        system_prompt = f"{system_prompt}\n\nAdditional user instructions:\n{task_instructions[:2000]}"
     body = {
         "model": model,
         "temperature": 0.2,
@@ -1611,18 +1617,18 @@ def _openai_chat_json(system_prompt: str, user_prompt: str, model_override: str 
         return None, "Could not parse JSON from OpenAI response"
 
 
-def extract_keywords_ai(jd_text: str, model_override: str | None = None):
+def extract_keywords_ai(jd_text: str, model_override: str | None = None, user=None):
     system = (
         "Extract ONLY skill/technology keywords from a job description. "
         "Return JSON with key 'keywords' as unique lowercase terms or short phrases."
     )
-    user = (
+    user_prompt = (
         "Job description:\n"
         f"{jd_text}\n\n"
         "Return JSON only like: {\"keywords\": [\"python\", \"django\", \"aws\"]}. "
         "Do not include soft skills, generic verbs, or company filler."
     )
-    result, error = _openai_chat_json(system, user, model_override=model_override)
+    result, error = _openai_chat_json(system, user_prompt, model_override=model_override, user=user)
     if error or not isinstance(result, dict):
         return extract_keywords_heuristic(jd_text), False, error or "AI keyword extraction failed"
     raw = result.get("keywords") or []
@@ -2303,11 +2309,12 @@ def _generate_validated_ai_payload(
     max_rounds: int = 4,
     require_summary: bool = False,
     model_override: str | None = None,
+    user=None,
 ):
     prompt = base_user_prompt
     last_error = ""
     for round_idx in range(max_rounds):
-        result, error = _openai_chat_json(system_prompt, prompt, model_override=model_override)
+        result, error = _openai_chat_json(system_prompt, prompt, model_override=model_override, user=user)
         if error or not isinstance(result, dict):
             last_error = error or "AI response was invalid"
             continue
@@ -2344,6 +2351,7 @@ def _repair_payload_with_ai(
     issues,
     require_summary: bool = False,
     model_override: str | None = None,
+    user=None,
 ):
     repair_prompt = (
         f"{base_user_prompt}\n\n"
@@ -2353,7 +2361,7 @@ def _repair_payload_with_ai(
         "Validation issues:\n- "
         + "\n- ".join((issues or [])[:30])
     )
-    repaired, error = _openai_chat_json(system_prompt, repair_prompt, model_override=model_override)
+    repaired, error = _openai_chat_json(system_prompt, repair_prompt, model_override=model_override, user=user)
     if error or not isinstance(repaired, dict):
         return {}, False, error or "AI repair pass failed"
     normalized_repaired = _normalize_ai_payload_before_validation(
@@ -2582,7 +2590,7 @@ def build_tailored_builder(
     return source
 
 
-def optimize_existing_resume_quality_ai(base_builder: dict, model_override: str | None = None):
+def optimize_existing_resume_quality_ai(base_builder: dict, model_override: str | None = None, user=None):
     source = sanitize_builder_data(base_builder or {})
     locked = {
         "experiences": [
@@ -2620,7 +2628,7 @@ def optimize_existing_resume_quality_ai(base_builder: dict, model_override: str 
         "Use ATS-friendly plain characters only (ASCII). "
         "Before finalizing, run a self-check to ensure: every bullet has a digit and no starting verb repeats anywhere."
     )
-    user = (
+    user_prompt = (
         "Optimize this resume structure:\n"
         f"{json.dumps(locked, ensure_ascii=False)}\n\n"
         "Return JSON object:\n"
@@ -2632,16 +2640,17 @@ def optimize_existing_resume_quality_ai(base_builder: dict, model_override: str 
     # Fast but more reliable: initial pass + up to 2 correction passes.
     result, ok, note = _generate_validated_ai_payload(
         system,
-        user,
+        user_prompt,
         max_rounds=3,
         require_summary=False,
         model_override=model_override,
+        user=user,
     )
     if ok:
         return result, True, ""
 
     # Final targeted repair pass for stubborn violations.
-    fallback_result, error = _openai_chat_json(system, user, model_override=model_override)
+    fallback_result, error = _openai_chat_json(system, user_prompt, model_override=model_override, user=user)
     if not error and isinstance(fallback_result, dict):
         normalized_fallback = _normalize_ai_payload_before_validation(
             fallback_result,
@@ -2657,11 +2666,12 @@ def optimize_existing_resume_quality_ai(base_builder: dict, model_override: str 
             return normalized_fallback, True, ""
         repaired, repaired_ok, repaired_note = _repair_payload_with_ai(
             system,
-            user,
+            user_prompt,
             normalized_fallback,
             issues,
             require_summary=False,
             model_override=model_override,
+            user=user,
         )
         if repaired_ok:
             return repaired, True, ""
@@ -2817,6 +2827,7 @@ def tailor_resume_with_ai(
     jd_keywords,
     job_role: str = "",
     model_override: str | None = None,
+    user=None,
 ):
     base_builder = sanitize_builder_data(base_builder or {})
     inferred_role = _infer_role_from_jd(jd_text)
@@ -2878,7 +2889,7 @@ def tailor_resume_with_ai(
         "Use ATS-friendly plain characters only (ASCII)."
     )
 
-    user = (
+    user_prompt = (
         f"Target job role: {job_role or 'Not provided'}\n\n"
         "Job description:\n"
         f"{jd_text}\n\n"
@@ -2913,15 +2924,16 @@ def tailor_resume_with_ai(
     )
     result, ok, note = _generate_validated_ai_payload(
         system,
-        user,
+        user_prompt,
         max_rounds=4,
         require_summary=True,
         model_override=model_override,
+        user=user,
     )
     if ok:
         return result, True, ""
 
-    fallback_result, error = _openai_chat_json(system, user, model_override=model_override)
+    fallback_result, error = _openai_chat_json(system, user_prompt, model_override=model_override, user=user)
     if not error and isinstance(fallback_result, dict):
         normalized_fallback = _normalize_ai_payload_before_validation(
             fallback_result,
@@ -2937,11 +2949,12 @@ def tailor_resume_with_ai(
             return normalized_fallback, True, ""
         repaired, repaired_ok, repaired_note = _repair_payload_with_ai(
             system,
-            user,
+            user_prompt,
             normalized_fallback,
             issues,
             require_summary=True,
             model_override=model_override,
+            user=user,
         )
         if repaired_ok:
             return repaired, True, ""

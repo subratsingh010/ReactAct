@@ -8,12 +8,6 @@ import { capitalizeFirstDisplay } from '../utils/displayText'
 
 const ALL_EMPLOYEES_VALUE = '__all_employees__'
 
-function formatTemplateType(value) {
-  const raw = String(value || '').trim()
-  if (!raw) return '-'
-  return raw.replaceAll('_', ' ')
-}
-
 function toFriendlyDateTime(value) {
   if (!value) return '-'
   const date = new Date(value)
@@ -33,36 +27,6 @@ function formatSendMode(value) {
   if (raw === 'sent') return 'On Time'
   if (raw === 'scheduled') return 'Scheduled'
   return raw ? raw.replaceAll('_', ' ') : '-'
-}
-
-function resolveTrackingSendMode(row, mailEvents, milestones) {
-  if (row?.schedule_time) return 'scheduled'
-
-  const eventModes = (Array.isArray(mailEvents) ? mailEvents : [])
-    .map((item) => String(item?.send_mode || '').trim().toLowerCase())
-    .filter(Boolean)
-  if (eventModes.includes('scheduled')) return 'scheduled'
-
-  const milestoneModes = (Array.isArray(milestones) ? milestones : [])
-    .map((item) => String(item?.mode || '').trim().toLowerCase())
-    .filter(Boolean)
-  if (milestoneModes.includes('scheduled')) return 'scheduled'
-
-  const latestEvent = [...(Array.isArray(mailEvents) ? mailEvents : [])].sort((left, right) => {
-    const leftTime = new Date(left?.action_at || 0).getTime()
-    const rightTime = new Date(right?.action_at || 0).getTime()
-    return rightTime - leftTime
-  })[0]
-  if (latestEvent?.send_mode) return String(latestEvent.send_mode || '').trim().toLowerCase()
-
-  const latestMilestone = [...(Array.isArray(milestones) ? milestones : [])].sort((left, right) => {
-    const leftTime = new Date(left?.at || 0).getTime()
-    const rightTime = new Date(right?.at || 0).getTime()
-    return rightTime - leftTime
-  })[0]
-  if (latestMilestone?.mode) return String(latestMilestone.mode || '').trim().toLowerCase()
-
-  return 'sent'
 }
 
 function formatEmployeeDeliveryLabel(item) {
@@ -87,16 +51,6 @@ function formatDeliveryStatus(value) {
   if (text === 'sent') return 'Sent'
   if (text === 'failed') return 'Failed'
   if (text === 'bounced') return 'Bounced'
-  return 'Pending'
-}
-
-function formatTrackingStatus(value) {
-  const text = String(value || '').trim().toLowerCase()
-  if (text === 'sent_via_cron') return 'Bounce Verifying'
-  if (text === 'successful_sent') return 'Successful Sent'
-  if (text === 'mail_bounced') return 'Mail Bounced'
-  if (text === 'partial_sent') return 'Partially Sent'
-  if (text === 'failed') return 'Failed'
   return 'Pending'
 }
 
@@ -142,15 +96,6 @@ function cleanMailBody(text, { incoming = false } = {}) {
 
   const cleaned = visibleLines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
   return cleaned || normalized
-}
-
-function formatChatDirection(item) {
-  return String(item?.direction || '').trim().toLowerCase() === 'incoming' ? 'Reply' : 'Sent'
-}
-
-function threadIdsText(item) {
-  const values = Array.isArray(item?.thread_message_ids) ? item.thread_message_ids : []
-  return values.filter(Boolean).join(', ')
 }
 
 function parseMilestoneEmployeeIds(value) {
@@ -291,17 +236,6 @@ function TrackingDetailPage() {
     })
     : []
   const actionRows = actionRowsForDetail({ ...(row || {}), __selectedEmployeeId: selectedEmployeeId })
-  const scopedEvents = filteredMailEvents
-  const mailedAt = scopedEvents.length
-    ? scopedEvents[0]?.action_at || ''
-    : (row?.mailed_at || row?.maild_at || '')
-  const repliedEvents = scopedEvents.filter((item) => Boolean(item.got_replied))
-  const repliedAt = repliedEvents.length ? repliedEvents[0]?.action_at || '' : (row?.replied_at || '')
-  const repliedBy = Array.from(new Set(
-    repliedEvents
-      .map((item) => String(item.employee_name || '').trim())
-      .filter(Boolean),
-  ))
   const passedEmployees = Array.isArray(row?.delivery_summary?.passed) ? row.delivery_summary.passed : []
   const failedEmployees = Array.isArray(row?.delivery_summary?.failed) ? row.delivery_summary.failed : []
   const employeeDeliveryOverview = Array.isArray(row?.employee_delivery_overview) ? row.employee_delivery_overview : []
@@ -309,7 +243,6 @@ function TrackingDetailPage() {
     if (selectedEmployeeId === ALL_EMPLOYEES_VALUE) return true
     return String(item.employee_id || '') === String(selectedEmployeeId)
   })
-  const trackingSendMode = resolveTrackingSendMode(row, filteredMailEvents, row?.milestones)
   const sentMailEvents = filteredMailEvents.filter((item) => String(item?.direction || '').trim().toLowerCase() !== 'incoming')
   const receivedMailEvents = filteredMailEvents.filter((item) => String(item?.direction || '').trim().toLowerCase() === 'incoming')
   const chatThreadGroups = buildThreadGroups(sentMailEvents, receivedMailEvents)

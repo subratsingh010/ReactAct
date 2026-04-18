@@ -5,21 +5,22 @@ import { MultiSelectDropdown, SingleSelectDropdown } from '../components/Searcha
 
 import {
   createTemplate,
+  createSubjectTemplate,
   createInterview,
-  createWorkspaceMember,
   deleteTemplate,
+  deleteSubjectTemplate,
   deleteInterview,
   deleteResume,
-  deleteWorkspaceMember,
   fetchAllJobs,
   fetchTemplates,
+  fetchSubjectTemplates,
   fetchInterviews,
   fetchLocations,
   fetchProfile,
   fetchProfileInfo,
   fetchResumes,
-  fetchWorkspaceMembers,
   updateTemplate,
+  updateSubjectTemplate,
   updateInterview,
   updateProfileInfo,
 } from '../api'
@@ -43,6 +44,20 @@ const EMPTY_PROFILE = {
   location_ref: '',
   preferred_location_refs: [],
   summary: '',
+  smtp_host: '',
+  smtp_port: '',
+  smtp_user: '',
+  smtp_password: '',
+  smtp_use_tls: true,
+  smtp_from_email: '',
+  imap_host: '',
+  imap_port: '',
+  imap_user: '',
+  imap_password: '',
+  imap_folder: '',
+  openai_api_key: '',
+  openai_model: '',
+  ai_task_instructions: '',
 }
 
 const EMPTY_ACH = {
@@ -51,14 +66,43 @@ const EMPTY_ACH = {
   paragraph: '',
 }
 
+const EMPTY_SUBJECT_TEMPLATE = {
+  name: '',
+  category: 'fresh',
+  subject: '',
+}
+
 const TEMPLATE_CATEGORY_OPTIONS = [
-  { value: '', label: 'All Categories' },
   { value: 'personalized', label: 'Personalized' },
   { value: 'follow_up', label: 'Follow Up' },
   { value: 'opening', label: 'Opening' },
   { value: 'experience', label: 'Experience' },
   { value: 'closing', label: 'Closing' },
   { value: 'general', label: 'General' },
+]
+
+const SUBJECT_TEMPLATE_CATEGORY_OPTIONS = [
+  { value: 'fresh', label: 'Fresh' },
+  { value: 'follow_up', label: 'Follow Up' },
+]
+
+const TEMPLATE_PLACEHOLDER_KEYS = [
+  'name',
+  'employee_name',
+  'first_name',
+  'employee_role',
+  'department',
+  'employee_department',
+  'company_name',
+  'current_employer',
+  'role',
+  'job_id',
+  'job_link',
+  'resume_link',
+  'years_of_experience',
+  'yoe',
+  'interaction_time',
+  'interview_round',
 ]
 
 const PROGRESSION_STAGES = [
@@ -154,14 +198,6 @@ function profileRows(profile) {
   return rows.filter(([, value]) => String(value || '').trim())
 }
 
-function profilePanelTitle(panel, index) {
-  const explicitTitle = String(panel?.title || '').trim()
-  if (explicitTitle) return explicitTitle
-  const fullName = String(panel?.full_name || '').trim()
-  if (fullName) return fullName
-  return `Profile Panel ${index + 1}`
-}
-
 function looksLikeUrl(value) {
   const text = String(value || '').trim()
   return /^https?:\/\//i.test(text)
@@ -186,6 +222,9 @@ function normalizeProfileLike(data, fallbackFullName = '') {
   nextValue.preferred_location_refs = Array.isArray(nextValue.preferred_location_refs)
     ? nextValue.preferred_location_refs.map((value) => String(value))
     : []
+  nextValue.smtp_port = nextValue.smtp_port ? String(nextValue.smtp_port) : ''
+  nextValue.imap_port = nextValue.imap_port ? String(nextValue.imap_port) : ''
+  nextValue.smtp_use_tls = typeof nextValue.smtp_use_tls === 'boolean' ? nextValue.smtp_use_tls : true
   if (!String(nextValue.full_name || '').trim() && fallbackFullName) {
     nextValue.full_name = String(fallbackFullName)
   }
@@ -303,8 +342,6 @@ function ProfilePage() {
   const [editingProfile, setEditingProfile] = useState(false)
   const [profileForm, setProfileForm] = useState(EMPTY_PROFILE)
   const [profileUsername, setProfileUsername] = useState('')
-  const [workspaceMembers, setWorkspaceMembers] = useState([])
-  const [workspaceMemberUsername, setWorkspaceMemberUsername] = useState('')
 
   const [resumes, setResumes] = useState([])
   const [previewResume, setPreviewResume] = useState(null)
@@ -314,6 +351,13 @@ function ProfilePage() {
   const [showAchForm, setShowAchForm] = useState(false)
   const [editingAchId, setEditingAchId] = useState(null)
   const [achForm, setAchForm] = useState(EMPTY_ACH)
+  const [showTemplateHints, setShowTemplateHints] = useState(false)
+  const [subjectTemplates, setSubjectTemplates] = useState([])
+  const [subjectTemplateCategoryFilter, setSubjectTemplateCategoryFilter] = useState('')
+  const [showSubjectTemplateForm, setShowSubjectTemplateForm] = useState(false)
+  const [editingSubjectTemplateId, setEditingSubjectTemplateId] = useState(null)
+  const [subjectTemplateForm, setSubjectTemplateForm] = useState(EMPTY_SUBJECT_TEMPLATE)
+  const [showSubjectTemplateHints, setShowSubjectTemplateHints] = useState(false)
 
   const [interviews, setInterviews] = useState([])
   const [jobOptions, setJobOptions] = useState([])
@@ -370,58 +414,85 @@ function ProfilePage() {
     [profileForm.country, profileForm.state],
   )
 
+  const ownedAchievements = useMemo(
+    () => (Array.isArray(achievements) ? achievements : []).filter((row) => String(row?.template_scope || 'user_based').trim().toLowerCase() === 'user_based'),
+    [achievements],
+  )
+
   const filteredAchievements = useMemo(() => {
     const selectedCategory = String(templateCategoryFilter || '').trim().toLowerCase()
-    if (!selectedCategory) return Array.isArray(achievements) ? achievements : []
-    return (Array.isArray(achievements) ? achievements : []).filter(
+    if (!selectedCategory) return ownedAchievements
+    return ownedAchievements.filter(
       (row) => String(row?.category || '').trim().toLowerCase() === selectedCategory,
     )
-  }, [achievements, templateCategoryFilter])
+  }, [ownedAchievements, templateCategoryFilter])
 
-  const loadAll = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const [profileBase, info, memberRows, resumeRows, achRows, interviewRows, jobsData, locationRows] = await Promise.all([
-        fetchProfile(access),
-        fetchProfileInfo(access),
-        fetchWorkspaceMembers(access).catch(() => []),
-        fetchResumes(access),
-        fetchTemplates(access),
-        fetchInterviews(access),
-        fetchAllJobs(access),
-        fetchLocations(access),
-      ])
-      const nextProfile = normalizeProfileLike(info, String(profileBase?.username || ''))
-      setProfile(nextProfile)
-      setProfileForm(nextProfile)
-      setProfileUsername(String(profileBase?.username || ''))
-      setWorkspaceMembers(Array.isArray(memberRows) ? memberRows : [])
-      setResumes(Array.isArray(resumeRows) ? resumeRows : [])
-      setAchievements(Array.isArray(achRows) ? achRows : [])
-      setInterviews(Array.isArray(interviewRows) ? interviewRows : [])
-      setJobOptions(Array.isArray(jobsData) ? jobsData : [])
-      setLocationOptions(Array.isArray(locationRows) ? locationRows : [])
-    } catch (err) {
-      setError(err.message || 'Could not load profile data.')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const filteredSubjectTemplates = useMemo(() => {
+    const selectedCategory = String(subjectTemplateCategoryFilter || '').trim().toLowerCase()
+    const rows = Array.isArray(subjectTemplates) ? subjectTemplates : []
+    if (!selectedCategory) return rows
+    return rows.filter((row) => String(row?.category || '').trim().toLowerCase() === selectedCategory)
+  }, [subjectTemplates, subjectTemplateCategoryFilter])
 
   useEffect(() => {
     if (!access) return
+    let cancelled = false
+
+    const loadAll = async () => {
+      setLoading(true)
+      setError('')
+      try {
+        const [profileBase, info, resumeRows, achRows, subjectRows, interviewRows, jobsData, locationRows] = await Promise.all([
+          fetchProfile(access),
+          fetchProfileInfo(access),
+          fetchResumes(access),
+          fetchTemplates(access),
+          fetchSubjectTemplates(access),
+          fetchInterviews(access),
+          fetchAllJobs(access),
+          fetchLocations(access),
+        ])
+        if (cancelled) return
+        const nextProfile = normalizeProfileLike(info, String(profileBase?.username || ''))
+        setProfile(nextProfile)
+        setProfileForm(nextProfile)
+        setProfileUsername(String(profileBase?.username || ''))
+        setResumes(Array.isArray(resumeRows) ? resumeRows : [])
+        setAchievements(Array.isArray(achRows) ? achRows : [])
+        setSubjectTemplates(Array.isArray(subjectRows) ? subjectRows : [])
+        setInterviews(Array.isArray(interviewRows) ? interviewRows : [])
+        setJobOptions(Array.isArray(jobsData) ? jobsData : [])
+        setLocationOptions(Array.isArray(locationRows) ? locationRows : [])
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || 'Could not load profile data.')
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+
     loadAll()
+    return () => {
+      cancelled = true
+    }
   }, [access])
 
   const saveProfile = async () => {
     try {
       setError('')
       setOk('')
-      const payload = { ...profileForm }
+      const payload = {
+        ...profileForm,
+        smtp_port: profileForm.smtp_port ? Number(profileForm.smtp_port) : null,
+        imap_port: profileForm.imap_port ? Number(profileForm.imap_port) : null,
+      }
       const updated = await updateProfileInfo(access, payload)
-      setProfile({ ...EMPTY_PROFILE, ...(updated || {}) })
-      setProfileForm({ ...EMPTY_PROFILE, ...(updated || {}) })
+      const nextProfile = normalizeProfileLike(updated, profileUsername)
+      setProfile(nextProfile)
+      setProfileForm(nextProfile)
       setEditingProfile(false)
       setOk('Personal info updated.')
     } catch (err) {
@@ -439,36 +510,6 @@ function ProfilePage() {
   const closeProfileEditor = () => {
     setProfileForm(profile)
     setEditingProfile(false)
-  }
-
-  const saveWorkspaceMember = async () => {
-    try {
-      setError('')
-      setOk('')
-      const username = String(workspaceMemberUsername || '').trim()
-      if (!username) {
-        setError('Enter second account username.')
-        return
-      }
-      const created = await createWorkspaceMember(access, { username })
-      setWorkspaceMembers((prev) => [created])
-      setWorkspaceMemberUsername('')
-      setOk('Second account linked.')
-    } catch (err) {
-      setError(err.message || 'Could not link second account.')
-    }
-  }
-
-  const removeWorkspaceMember = async (memberId) => {
-    try {
-      setError('')
-      setOk('')
-      await deleteWorkspaceMember(access, memberId)
-      setWorkspaceMembers([])
-      setOk('Second account removed.')
-    } catch (err) {
-      setError(err.message || 'Could not remove second account.')
-    }
   }
 
   const removeResume = async (resumeId) => {
@@ -528,6 +569,7 @@ function ProfilePage() {
     setOk('')
     setEditingAchId(null)
     setAchForm(EMPTY_ACH)
+    setShowTemplateHints(false)
     setShowAchForm(true)
   }
 
@@ -535,6 +577,7 @@ function ProfilePage() {
     setShowAchForm(false)
     setEditingAchId(null)
     setAchForm(EMPTY_ACH)
+    setShowTemplateHints(false)
   }
 
   const editAchievement = (row) => {
@@ -546,6 +589,7 @@ function ProfilePage() {
       category: row.category || 'general',
       paragraph: row.paragraph || '',
     })
+    setShowTemplateHints(false)
     setShowAchForm(true)
   }
 
@@ -555,6 +599,72 @@ function ProfilePage() {
       setAchievements((prev) => prev.filter((row) => row.id !== id))
     } catch (err) {
       setError(err.message || 'Could not delete template.')
+    }
+  }
+
+  const openCreateSubjectTemplate = () => {
+    setError('')
+    setOk('')
+    setEditingSubjectTemplateId(null)
+    setSubjectTemplateForm(EMPTY_SUBJECT_TEMPLATE)
+    setShowSubjectTemplateHints(false)
+    setShowSubjectTemplateForm(true)
+  }
+
+  const closeSubjectTemplateForm = () => {
+    setShowSubjectTemplateForm(false)
+    setEditingSubjectTemplateId(null)
+    setSubjectTemplateForm(EMPTY_SUBJECT_TEMPLATE)
+    setShowSubjectTemplateHints(false)
+  }
+
+  const editSubjectTemplate = (row) => {
+    setError('')
+    setOk('')
+    setEditingSubjectTemplateId(row.id)
+    setSubjectTemplateForm({
+      name: row.name || '',
+      category: row.category || 'general',
+      subject: row.subject || '',
+    })
+    setShowSubjectTemplateHints(false)
+    setShowSubjectTemplateForm(true)
+  }
+
+  const saveSubjectTemplate = async () => {
+    try {
+      setError('')
+      setOk('')
+      const payload = {
+        name: String(subjectTemplateForm.name || '').trim(),
+        category: String(subjectTemplateForm.category || 'fresh').trim() || 'fresh',
+        subject: String(subjectTemplateForm.subject || '').trim(),
+      }
+      if (!payload.name || !payload.subject) {
+        setError('Subject template needs name and subject text.')
+        return
+      }
+      if (editingSubjectTemplateId) {
+        const updated = await updateSubjectTemplate(access, editingSubjectTemplateId, payload)
+        setSubjectTemplates((prev) => prev.map((row) => (row.id === editingSubjectTemplateId ? updated : row)))
+        setOk('Subject template updated.')
+      } else {
+        const created = await createSubjectTemplate(access, payload)
+        setSubjectTemplates((prev) => [created, ...prev])
+        setOk('Subject template added.')
+      }
+      closeSubjectTemplateForm()
+    } catch (err) {
+      setError(err.message || 'Could not save subject template.')
+    }
+  }
+
+  const removeSubjectTemplate = async (id) => {
+    try {
+      await deleteSubjectTemplate(access, id)
+      setSubjectTemplates((prev) => prev.filter((row) => row.id !== id))
+    } catch (err) {
+      setError(err.message || 'Could not delete subject template.')
     }
   }
 
@@ -711,53 +821,6 @@ function ProfilePage() {
 
       <section className="dash-card">
         <div className="tracking-head profile-section-head">
-          <h2>Workspace Access</h2>
-        </div>
-        <p className="hint">Owner keeps full access. Second account can create companies, jobs, and employees with its own login.</p>
-        <div className="profile-form-grid">
-          <label>
-            Second Account Username
-            <input
-              value={workspaceMemberUsername}
-              onChange={(e) => setWorkspaceMemberUsername(e.target.value)}
-              placeholder="Enter username"
-              disabled={workspaceMembers.length >= 1}
-            />
-          </label>
-        </div>
-        <div className="actions">
-          <button type="button" onClick={saveWorkspaceMember} disabled={workspaceMembers.length >= 1}>Link Account</button>
-        </div>
-        <div className="profile-panel-grid">
-          {workspaceMembers.map((row) => (
-            <article key={row.id} className="profile-card-shell profile-panel-card">
-              <div className="profile-panel-head">
-                <div>
-                  <p className="profile-panel-title">{row.member_username || '-'}</p>
-                  <p className="profile-panel-meta">{row.member_email || 'No email'}</p>
-                </div>
-                <div className="actions">
-                  <button type="button" className="secondary" onClick={() => removeWorkspaceMember(row.id)}>Remove</button>
-                </div>
-              </div>
-              <div className="profile-info-grid">
-                <div className="profile-info-item">
-                  <span className="profile-info-label">Access</span>
-                  <span className="profile-info-value">Create companies, jobs, and employees, and view owner companies/jobs/employees</span>
-                </div>
-                <div className="profile-info-item">
-                  <span className="profile-info-label">Login</span>
-                  <span className="profile-info-value">Independent login works on different tabs and devices.</span>
-                </div>
-              </div>
-            </article>
-          ))}
-          {!workspaceMembers.length ? <p className="hint">No second account linked yet.</p> : null}
-        </div>
-      </section>
-
-      <section className="dash-card">
-        <div className="tracking-head profile-section-head">
           <h2>Templates</h2>
           <div className="actions profile-template-head-actions">
             <div className="profile-template-filter">
@@ -770,9 +833,11 @@ function ProfilePage() {
                 onChange={(nextValue) => setTemplateCategoryFilter(nextValue || '')}
               />
             </div>
+            <button type="button" className="secondary" onClick={() => navigate('/templates')}>View Library</button>
             <button type="button" className="secondary" onClick={openCreateAchievement}>Add Template</button>
           </div>
         </div>
+        <p className="hint">Manage only your own templates here. Shared system templates are available from the Templates page and in tracking dropdowns.</p>
         <div className="profile-ach-grid">
           {filteredAchievements.map((row) => (
             <article key={row.id} className="profile-template-row">
@@ -787,8 +852,45 @@ function ProfilePage() {
               </div>
             </article>
           ))}
-          {!achievements.length ? <p className="hint">No templates yet.</p> : null}
-          {achievements.length && !filteredAchievements.length ? <p className="hint">No templates in this category.</p> : null}
+          {!ownedAchievements.length ? <p className="hint">No personal templates yet.</p> : null}
+          {ownedAchievements.length && !filteredAchievements.length ? <p className="hint">No personal templates in this category.</p> : null}
+        </div>
+      </section>
+
+      <section className="dash-card">
+        <div className="tracking-head profile-section-head">
+          <h2>Subject Templates</h2>
+          <div className="actions profile-template-head-actions">
+            <div className="profile-template-filter">
+              <SingleSelectDropdown
+                value={subjectTemplateCategoryFilter}
+                placeholder="Category"
+                searchPlaceholder="Search category"
+                clearLabel="All Categories"
+                options={SUBJECT_TEMPLATE_CATEGORY_OPTIONS}
+                onChange={(nextValue) => setSubjectTemplateCategoryFilter(nextValue || '')}
+              />
+            </div>
+            <button type="button" className="secondary" onClick={openCreateSubjectTemplate}>Add Subject Template</button>
+          </div>
+        </div>
+        <p className="hint">Manage your own reusable subject templates here. These will appear in the tracking subject dropdown.</p>
+        <div className="profile-ach-grid">
+          {filteredSubjectTemplates.map((row) => (
+            <article key={row.id} className="profile-template-row">
+              <div className="profile-template-main">
+                <p className="profile-template-title"><strong>{row.name || '-'}</strong></p>
+                <p className="hint">{String(row.category || 'general').replaceAll('_', ' ')}</p>
+                <p className="profile-template-snippet">{row.subject || '-'}</p>
+              </div>
+              <div className="profile-template-actions">
+                <button type="button" className="secondary" onClick={() => editSubjectTemplate(row)}>Edit</button>
+                <button type="button" className="secondary" onClick={() => removeSubjectTemplate(row.id)}>Delete</button>
+              </div>
+            </article>
+          ))}
+          {!subjectTemplates.length ? <p className="hint">No subject templates yet.</p> : null}
+          {subjectTemplates.length && !filteredSubjectTemplates.length ? <p className="hint">No subject templates in this category.</p> : null}
         </div>
       </section>
 
@@ -1029,6 +1131,22 @@ function ProfilePage() {
               <label>Portfolio URL<input value={profileForm.portfolio_url} onChange={(e) => setProfileForm((p) => ({ ...p, portfolio_url: e.target.value }))} /></label>
               <label>Resume Link<input value={profileForm.resume_link} onChange={(e) => setProfileForm((p) => ({ ...p, resume_link: e.target.value }))} /></label>
               <label>Summary<textarea rows={3} value={profileForm.summary} onChange={(e) => setProfileForm((p) => ({ ...p, summary: e.target.value }))} /></label>
+              <label>SMTP Host<input value={profileForm.smtp_host} onChange={(e) => setProfileForm((p) => ({ ...p, smtp_host: e.target.value }))} /></label>
+              <label>SMTP Port<input value={profileForm.smtp_port} onChange={(e) => setProfileForm((p) => ({ ...p, smtp_port: e.target.value.replace(/[^\d]/g, '') }))} placeholder="587" /></label>
+              <label>SMTP User<input value={profileForm.smtp_user} onChange={(e) => setProfileForm((p) => ({ ...p, smtp_user: e.target.value }))} /></label>
+              <label>SMTP Password<input type="password" value={profileForm.smtp_password} onChange={(e) => setProfileForm((p) => ({ ...p, smtp_password: e.target.value }))} autoComplete="new-password" /></label>
+              <label>SMTP From Email<input value={profileForm.smtp_from_email} onChange={(e) => setProfileForm((p) => ({ ...p, smtp_from_email: e.target.value }))} /></label>
+              <label className="profile-checkbox-label">
+                <span>SMTP Use TLS</span>
+                <input type="checkbox" checked={!!profileForm.smtp_use_tls} onChange={(e) => setProfileForm((p) => ({ ...p, smtp_use_tls: e.target.checked }))} />
+              </label>
+              <label>IMAP Host<input value={profileForm.imap_host} onChange={(e) => setProfileForm((p) => ({ ...p, imap_host: e.target.value }))} /></label>
+              <label>IMAP Port<input value={profileForm.imap_port} onChange={(e) => setProfileForm((p) => ({ ...p, imap_port: e.target.value.replace(/[^\d]/g, '') }))} placeholder="993" /></label>
+              <label>IMAP User<input value={profileForm.imap_user} onChange={(e) => setProfileForm((p) => ({ ...p, imap_user: e.target.value }))} /></label>
+              <label>IMAP Password<input type="password" value={profileForm.imap_password} onChange={(e) => setProfileForm((p) => ({ ...p, imap_password: e.target.value }))} autoComplete="new-password" /></label>
+              <label>IMAP Folder<input value={profileForm.imap_folder} onChange={(e) => setProfileForm((p) => ({ ...p, imap_folder: e.target.value }))} placeholder="INBOX" /></label>
+              <label>OpenAI API Key<input type="password" value={profileForm.openai_api_key} onChange={(e) => setProfileForm((p) => ({ ...p, openai_api_key: e.target.value }))} autoComplete="new-password" /></label>
+              <label>OpenAI Model<input value={profileForm.openai_model} onChange={(e) => setProfileForm((p) => ({ ...p, openai_model: e.target.value }))} placeholder="gpt-4o" /></label>
             </div>
             <div className="actions">
               <button type="button" onClick={saveProfile}>Save</button>
@@ -1045,7 +1163,29 @@ function ProfilePage() {
             <div className="profile-form-grid">
               <label>Name<input value={achForm.name} onChange={(e) => setAchForm((p) => ({ ...p, name: e.target.value }))} /></label>
               <label>Category<select value={achForm.category || 'general'} onChange={(e) => setAchForm((p) => ({ ...p, category: e.target.value }))}><option value="personalized">Personalized</option><option value="follow_up">Follow Up</option><option value="opening">Opening</option><option value="experience">Experience</option><option value="closing">Closing</option><option value="general">General</option></select></label>
-              <label>Paragraph<textarea rows={4} value={achForm.paragraph} onChange={(e) => setAchForm((p) => ({ ...p, paragraph: e.target.value }))} /></label>
+              <label>
+                Paragraph
+                <textarea rows={4} value={achForm.paragraph} onChange={(e) => setAchForm((p) => ({ ...p, paragraph: e.target.value }))} placeholder="Example: Hi {name}, I’m reaching out about the {role} role at {company_name}. My experience at {current_employer} and {years_of_experience} years in the field feel closely aligned." />
+              </label>
+              <div className="profile-template-hint-panel">
+                <button
+                  type="button"
+                  className="secondary profile-template-hint-toggle"
+                  onClick={() => setShowTemplateHints((current) => !current)}
+                >
+                  {showTemplateHints ? 'Hide Hints' : 'Show Hints'}
+                </button>
+                {showTemplateHints ? (
+                  <div className="profile-template-hint-box">
+                    <p className="hint profile-form-note">Use placeholders in the paragraph like <code>{'{name}'}</code>, <code>{'{role}'}</code>, or <code>{'{company_name}'}</code>.</p>
+                    <div className="profile-template-hint-chips">
+                      {TEMPLATE_PLACEHOLDER_KEYS.map((key) => (
+                        <code key={key} className="profile-template-hint-chip">{`{${key}}`}</code>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
             <div className="actions">
               <button type="button" onClick={saveAchievement}>{editingAchId ? 'Update' : 'Create'}</button>
@@ -1102,6 +1242,49 @@ function ProfilePage() {
             <div className="actions">
               <button type="button" onClick={saveInterview}>{editingInterviewId ? 'Update' : 'Create'}</button>
               <button type="button" className="secondary" onClick={closeInterviewForm}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showSubjectTemplateForm ? (
+        <div className="modal-overlay" onClick={closeSubjectTemplateForm}>
+          <div className="modal-panel profile-modal-panel" onClick={(event) => event.stopPropagation()}>
+            <h2>{editingSubjectTemplateId ? 'Edit Subject Template' : 'Add Subject Template'}</h2>
+            <div className="profile-form-grid">
+              <label>Name<input value={subjectTemplateForm.name} onChange={(e) => setSubjectTemplateForm((p) => ({ ...p, name: e.target.value }))} /></label>
+              <label>Category<select value={subjectTemplateForm.category || 'fresh'} onChange={(e) => setSubjectTemplateForm((p) => ({ ...p, category: e.target.value }))}><option value="fresh">Fresh</option><option value="follow_up">Follow Up</option></select></label>
+              <label>
+                Subject
+                <input
+                  value={subjectTemplateForm.subject}
+                  onChange={(e) => setSubjectTemplateForm((p) => ({ ...p, subject: e.target.value }))}
+                  placeholder="Example: Application for {role} at {company_name} | {job_id}"
+                />
+              </label>
+              <div className="profile-template-hint-panel">
+                <button
+                  type="button"
+                  className="secondary profile-template-hint-toggle"
+                  onClick={() => setShowSubjectTemplateHints((current) => !current)}
+                >
+                  {showSubjectTemplateHints ? 'Hide Hints' : 'Show Hints'}
+                </button>
+                {showSubjectTemplateHints ? (
+                  <div className="profile-template-hint-box">
+                    <p className="hint profile-form-note">Use placeholders in the subject like <code>{'{role}'}</code>, <code>{'{company_name}'}</code>, or <code>{'{job_id}'}</code>.</p>
+                    <div className="profile-template-hint-chips">
+                      {TEMPLATE_PLACEHOLDER_KEYS.map((key) => (
+                        <code key={`subject-template-key-${key}`} className="profile-template-hint-chip">{`{${key}}`}</code>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="actions">
+              <button type="button" onClick={saveSubjectTemplate}>{editingSubjectTemplateId ? 'Update' : 'Create'}</button>
+              <button type="button" className="secondary" onClick={closeSubjectTemplateForm}>Cancel</button>
             </div>
           </div>
         </div>

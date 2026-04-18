@@ -1,4 +1,4 @@
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator, validate_email
@@ -13,8 +13,8 @@ from .models import (
     Location,
     UserProfile,
     ProfilePanel,
-    WorkspaceMember,
     Template,
+    SubjectTemplate,
     Interview,
 )
 
@@ -66,11 +66,15 @@ class SignupSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        return User.objects.create_user(
+        user = User.objects.create_user(
             username=validated_data['username'],
             email=validated_data.get('email', ''),
             password=validated_data['password'],
         )
+        admin_group = Group.objects.filter(name__iexact='admin').first()
+        if admin_group is not None:
+            user.groups.add(admin_group)
+        return user
 
 
 class ResumeSerializer(serializers.ModelSerializer):
@@ -530,6 +534,20 @@ class UserProfileSerializer(serializers.ModelSerializer):
     github_url = serializers.CharField(required=False, allow_blank=True)
     portfolio_url = serializers.CharField(required=False, allow_blank=True)
     resume_link = serializers.CharField(required=False, allow_blank=True)
+    smtp_host = serializers.CharField(required=False, allow_blank=True)
+    smtp_port = serializers.IntegerField(required=False, allow_null=True, min_value=1, max_value=65535)
+    smtp_user = serializers.CharField(required=False, allow_blank=True)
+    smtp_password = serializers.CharField(required=False, allow_blank=True)
+    smtp_use_tls = serializers.BooleanField(required=False)
+    smtp_from_email = serializers.CharField(required=False, allow_blank=True)
+    imap_host = serializers.CharField(required=False, allow_blank=True)
+    imap_port = serializers.IntegerField(required=False, allow_null=True, min_value=1, max_value=65535)
+    imap_user = serializers.CharField(required=False, allow_blank=True)
+    imap_password = serializers.CharField(required=False, allow_blank=True)
+    imap_folder = serializers.CharField(required=False, allow_blank=True)
+    openai_api_key = serializers.CharField(required=False, allow_blank=True)
+    openai_model = serializers.CharField(required=False, allow_blank=True)
+    ai_task_instructions = serializers.CharField(required=False, allow_blank=True)
     location_name = serializers.SerializerMethodField()
     preferred_location_refs = serializers.PrimaryKeyRelatedField(
         source='preferred_locations',
@@ -580,6 +598,39 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def validate_summary(self, value):
         return _normalize_text(value)
 
+    def validate_smtp_host(self, value):
+        return _normalize_text(value)
+
+    def validate_smtp_user(self, value):
+        return _normalize_text(value)
+
+    def validate_smtp_password(self, value):
+        return str(value or '').strip()
+
+    def validate_smtp_from_email(self, value):
+        return _normalize_email(value)
+
+    def validate_imap_host(self, value):
+        return _normalize_text(value)
+
+    def validate_imap_user(self, value):
+        return _normalize_text(value)
+
+    def validate_imap_password(self, value):
+        return str(value or '').strip()
+
+    def validate_imap_folder(self, value):
+        return _normalize_text(value)
+
+    def validate_openai_api_key(self, value):
+        return str(value or '').strip()
+
+    def validate_openai_model(self, value):
+        return _normalize_text(value)
+
+    def validate_ai_task_instructions(self, value):
+        return str(value or '').strip()
+
     def validate_role(self, value):
         text = _normalize_text(value).lower()
         allowed = {choice[0] for choice in UserProfile.ROLE_CHOICES}
@@ -612,6 +663,20 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'preferred_location_refs',
             'preferred_location_names',
             'summary',
+            'smtp_host',
+            'smtp_port',
+            'smtp_user',
+            'smtp_password',
+            'smtp_use_tls',
+            'smtp_from_email',
+            'imap_host',
+            'imap_port',
+            'imap_user',
+            'imap_password',
+            'imap_folder',
+            'openai_api_key',
+            'openai_model',
+            'ai_task_instructions',
             'created_at',
             'updated_at',
         ]
@@ -708,38 +773,13 @@ class ProfilePanelSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
-class WorkspaceMemberSerializer(serializers.ModelSerializer):
-    owner_username = serializers.SerializerMethodField()
-    member_username = serializers.SerializerMethodField()
-    member_email = serializers.SerializerMethodField()
-
-    def get_owner_username(self, obj):
-        return str(getattr(obj.owner, 'username', '') or '')
-
-    def get_member_username(self, obj):
-        return str(getattr(obj.member, 'username', '') or '')
-
-    def get_member_email(self, obj):
-        return str(getattr(obj.member, 'email', '') or '')
-
-    class Meta:
-        model = WorkspaceMember
-        fields = [
-            'id',
-            'owner',
-            'owner_username',
-            'member',
-            'member_username',
-            'member_email',
-            'is_active',
-            'created_at',
-            'updated_at',
-        ]
-        read_only_fields = ['id', 'owner', 'owner_username', 'member_username', 'member_email', 'created_at', 'updated_at']
-
-
 class TemplateSerializer(serializers.ModelSerializer):
     paragraph = serializers.CharField(source='achievement')
+    template_scope = serializers.CharField(required=False)
+    owner_name = serializers.SerializerMethodField()
+    owner_label = serializers.SerializerMethodField()
+    is_system = serializers.SerializerMethodField()
+    is_editable = serializers.SerializerMethodField()
 
     def validate_name(self, value):
         text = str(value or '').strip()
@@ -761,8 +801,8 @@ class TemplateSerializer(serializers.ModelSerializer):
 
     def validate_category(self, value):
         text = str(value or '').strip().lower()
-        if text not in {'personalized', 'follow_up', 'opening', 'experience', 'closing', 'general'}:
-            raise serializers.ValidationError('Category must be Personalized, Follow Up, Opening, Experience, Closing, or General.')
+        if text not in {'fresh', 'follow_up'}:
+            raise serializers.ValidationError('Category must be Fresh or Follow Up.')
         return text
 
     def validate_paragraph(self, value):
@@ -771,14 +811,36 @@ class TemplateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Paragraph is required.')
         return text
 
+    def get_owner_name(self, obj):
+        return str(getattr(getattr(obj.profile, 'user', None), 'username', '') or '').strip()
+
+    def get_owner_label(self, obj):
+        owner_name = self.get_owner_name(obj)
+        return owner_name or 'system'
+
+    def get_is_system(self, obj):
+        return bool(getattr(obj, 'is_system_template', False))
+
+    def get_is_editable(self, obj):
+        request = self.context.get('request') if isinstance(self.context, dict) else None
+        user = getattr(request, 'user', None)
+        if not getattr(user, 'is_authenticated', False):
+            return False
+        return getattr(obj, 'user_id', None) == user.id
+
     class Meta:
         model = Template
         fields = [
             'id',
             'profile',
             'name',
+            'template_scope',
             'category',
             'paragraph',
+            'owner_name',
+            'owner_label',
+            'is_system',
+            'is_editable',
             'created_at',
             'updated_at',
         ]
@@ -786,6 +848,51 @@ class TemplateSerializer(serializers.ModelSerializer):
 
 
 AchievementSerializer = TemplateSerializer
+
+
+class SubjectTemplateSerializer(serializers.ModelSerializer):
+    def validate_name(self, value):
+        text = str(value or '').strip()
+        if not text:
+            raise serializers.ValidationError('Subject template name is required.')
+        request = self.context.get('request') if isinstance(self.context, dict) else None
+        user = getattr(request, 'user', None)
+        if getattr(user, 'is_authenticated', False):
+            profile = getattr(user, 'profile_info', None)
+            if profile is not None:
+                rows = SubjectTemplate.objects.filter(profile=profile, name__iexact=text)
+            else:
+                rows = SubjectTemplate.objects.none()
+            if self.instance is not None:
+                rows = rows.exclude(id=self.instance.id)
+            if rows.exists():
+                raise serializers.ValidationError('Subject template name already exists.')
+        return text
+
+    def validate_category(self, value):
+        text = str(value or '').strip().lower()
+        if text not in {'personalized', 'follow_up', 'opening', 'experience', 'closing', 'general'}:
+            raise serializers.ValidationError('Category must be Personalized, Follow Up, Opening, Experience, Closing, or General.')
+        return text
+
+    def validate_subject(self, value):
+        text = str(value or '').strip()
+        if not text:
+            raise serializers.ValidationError('Subject is required.')
+        return text
+
+    class Meta:
+        model = SubjectTemplate
+        fields = [
+            'id',
+            'profile',
+            'name',
+            'category',
+            'subject',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'profile', 'created_at', 'updated_at']
 
 
 class InterviewSerializer(serializers.ModelSerializer):

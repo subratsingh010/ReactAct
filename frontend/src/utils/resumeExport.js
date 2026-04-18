@@ -66,7 +66,7 @@ function sanitizeRichHtml(value) {
   return root.innerHTML
 }
 
-function htmlToBulletList(htmlValue, options = {}) {
+function htmlToBulletList(htmlValue) {
   const raw = String(htmlValue || '')
   if (!raw.trim()) return ''
   const rich = sanitizeRichHtml(raw)

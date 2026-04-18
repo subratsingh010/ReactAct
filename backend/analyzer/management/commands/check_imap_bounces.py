@@ -8,11 +8,13 @@ from email.utils import parseaddr, parsedate_to_datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
+from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand
 from django.db.models import Q
 from django.utils import timezone
 
 from analyzer.models import Employee, MailTracking, MailTrackingEvent, Tracking
+from analyzer.profile_settings import resolve_imap_settings
 from analyzer.tracking_mail_utils import log_mail_event, recompute_tracking_delivery_status
 
 
@@ -64,8 +66,6 @@ class Command(BaseCommand):
         parser.add_argument("--unseen-only", action="store_true", help="Only scan unread IMAP messages instead of all recent messages")
 
     def handle(self, *args, **options):
-        import os
-
         user_id = options.get("user_id")
         limit = int(options.get("limit") or 100)
         since_days = int(options.get("since_days") or 14)
@@ -73,11 +73,13 @@ class Command(BaseCommand):
         dry_run = bool(options.get("dry_run"))
         unseen_only = bool(options.get("unseen_only"))
 
-        host = str(os.getenv("IMAP_HOST", "")).strip()
-        port = int(str(os.getenv("IMAP_PORT", "993")).strip() or 993)
-        username = str(os.getenv("IMAP_USER", "")).strip()
-        password = str(os.getenv("IMAP_PASSWORD", "")).strip()
-        folder = str(os.getenv("IMAP_FOLDER", "INBOX")).strip() or "INBOX"
+        imap_user = User.objects.filter(id=user_id).first() if user_id else None
+        imap_settings = resolve_imap_settings(imap_user)
+        host = str(imap_settings.get("host", "") or "").strip()
+        port = int(imap_settings.get("port", 993) or 993)
+        username = str(imap_settings.get("username", "") or "").strip()
+        password = str(imap_settings.get("password", "") or "").strip()
+        folder = str(imap_settings.get("folder", "INBOX") or "").strip() or "INBOX"
 
         if not host or not username or not password:
             self._emit("Missing IMAP config. Set IMAP_HOST, IMAP_USER, IMAP_PASSWORD.", level="error", style=self.style.ERROR)

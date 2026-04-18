@@ -14,29 +14,32 @@ function MenuIcon() {
 }
 
 function NavBar() {
-  const [open, setOpen] = useState(false)
+  const [openForPath, setOpenForPath] = useState('')
   const [username, setUsername] = useState('')
   const { accessToken, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const { theme, toggleTheme } = useTheme()
   const currentPath = location.pathname
+  const currentLocationKey = `${location.pathname}${location.search}${location.hash}`
+  const open = openForPath === currentLocationKey
 
   const items = useMemo(
     () => [
       { label: 'Home', path: '/' },
       { label: 'Profile', path: '/profile' },
+      { label: 'Templates', path: '/templates' },
       { label: 'Companies', path: '/companies' },
       { label: 'Tracking', path: '/tracking' },
       { label: 'Schedule', path: '/tracking-schedule' },
       { label: 'Jobs', path: '/jobs' },
-      { label: 'Bulk Upload', path: '/bulk-upload' },
+      { label: 'Bulk', path: '/bulk-upload' },
     ],
     [],
   )
 
   const go = (path) => {
-    setOpen(false)
+    setOpenForPath('')
     navigate(path)
   }
 
@@ -54,6 +57,7 @@ function NavBar() {
       cancelled = true
     }
   }, [accessToken])
+
   const displayUsername = accessToken ? username : ''
 
   return (
@@ -70,7 +74,7 @@ function NavBar() {
         <button
           type="button"
           className="nav-toggle secondary"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => setOpenForPath((value) => (value === currentLocationKey ? '' : currentLocationKey))}
           aria-expanded={open ? 'true' : 'false'}
           aria-controls="nav-links"
         >
@@ -103,7 +107,7 @@ function NavBar() {
               type="button"
               className="nav-icon-btn"
               onClick={() => {
-                setOpen(false)
+                setOpenForPath('')
                 toggleTheme()
               }}
               aria-label="Toggle dark mode"
@@ -130,7 +134,7 @@ function NavBar() {
               type="button"
               className="nav-link nav-link-logout danger"
               onClick={() => {
-                setOpen(false)
+                setOpenForPath('')
                 logout()
                 navigate('/login')
               }}

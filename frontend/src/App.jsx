@@ -8,6 +8,7 @@ import { useAuth } from './contexts/useAuth'
 const HomePage = lazy(() => import('./pages/HomePage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
+const TemplatesPage = lazy(() => import('./pages/TemplatesPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
 const CompanyPage = lazy(() => import('./pages/CompanyPage'))
 const TrackingPage = lazy(() => import('./pages/TrackingPage'))
@@ -24,7 +25,8 @@ function RequireAuth({ children }) {
   const location = useLocation()
 
   if (!isLoggedIn) {
-    sessionStorage.setItem('redirectAfterLogin', location.pathname || '/')
+    const redirectPath = `${location.pathname || '/'}${location.search || ''}${location.hash || ''}`
+    sessionStorage.setItem('redirectAfterLogin', redirectPath)
     return <Navigate to="/login" replace />
   }
 
@@ -37,8 +39,9 @@ function PublicOnly({ children }) {
   if (!isLoggedIn) return children
 
   const redirect = sessionStorage.getItem('redirectAfterLogin') || '/'
+  const safeRedirect = redirect.startsWith('/') ? redirect : '/'
   sessionStorage.removeItem('redirectAfterLogin')
-  return <Navigate to={redirect} replace />
+  return <Navigate to={safeRedirect} replace />
 }
 
 function AppLayout() {
@@ -57,6 +60,7 @@ function AppLayout() {
               <Route path="/register" element={<PublicOnly><RegisterPage /></PublicOnly>} />
               <Route path="/" element={<RequireAuth><HomePage /></RequireAuth>} />
               <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+              <Route path="/templates" element={<RequireAuth><TemplatesPage /></RequireAuth>} />
               <Route path="/companies" element={<RequireAuth><CompanyPage /></RequireAuth>} />
               <Route path="/tracking" element={<RequireAuth><TrackingPage /></RequireAuth>} />
               <Route path="/tracking-schedule" element={<RequireAuth><TrackingSchedulePage /></RequireAuth>} />

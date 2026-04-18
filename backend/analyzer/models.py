@@ -205,6 +205,18 @@ class Job(BaseModel):
     job_id = models.CharField(max_length=120)
     role = models.CharField(max_length=180)
     job_link = models.URLField(blank=True, max_length=1000)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='created_jobs',
+    )
+    assigned_to = models.ManyToManyField(
+        User,
+        blank=True,
+        related_name='assigned_jobs',
+    )
     company = models.ForeignKey(
         Company,
         on_delete=models.CASCADE,
@@ -217,6 +229,25 @@ class Job(BaseModel):
     is_removed = models.BooleanField(default=False)
     class Meta:
         ordering = ['-date_of_posting', '-created_at']
+        permissions = [
+            ('view_all_job', 'Can view all job records'),
+        ]
+
+    @property
+    def user(self):
+        if getattr(self, 'created_by_id', None):
+            return self.created_by
+        company = getattr(self, 'company', None)
+        profile = getattr(company, 'profile', None) if company is not None else None
+        return getattr(profile, 'user', None)
+
+    @property
+    def user_id(self):
+        if getattr(self, 'created_by_id', None):
+            return self.created_by_id
+        company = getattr(self, 'company', None)
+        profile = getattr(company, 'profile', None) if company is not None else None
+        return getattr(profile, 'user_id', None)
 
     def __str__(self):
         return f'{self.role} ({self.company.name})'
@@ -499,6 +530,20 @@ class UserProfile(BaseModel):
         related_name='preferred_by_profiles',
     )
     summary = models.TextField(blank=True)
+    smtp_host = models.CharField(max_length=255, blank=True)
+    smtp_port = models.PositiveIntegerField(blank=True, null=True)
+    smtp_user = models.CharField(max_length=320, blank=True)
+    smtp_password = models.CharField(max_length=500, blank=True)
+    smtp_use_tls = models.BooleanField(default=True)
+    smtp_from_email = models.EmailField(blank=True, max_length=320)
+    imap_host = models.CharField(max_length=255, blank=True)
+    imap_port = models.PositiveIntegerField(blank=True, null=True)
+    imap_user = models.CharField(max_length=320, blank=True)
+    imap_password = models.CharField(max_length=500, blank=True)
+    imap_folder = models.CharField(max_length=255, blank=True)
+    openai_api_key = models.CharField(max_length=500, blank=True)
+    openai_model = models.CharField(max_length=120, blank=True)
+    ai_task_instructions = models.TextField(blank=True)
 
     class Meta:
         ordering = ['-updated_at', '-created_at']
@@ -559,23 +604,9 @@ class ProfilePanel(BaseModel):
         username = getattr(getattr(self.profile, 'user', None), 'username', '')
         return f'{label} ({username})'
 
-
-class WorkspaceMember(BaseModel):
-    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='workspace_members')
-    member = models.ForeignKey(User, on_delete=models.CASCADE, related_name='member_workspaces')
-    is_active = models.BooleanField(default=True)
-
-    class Meta:
-        ordering = ['-updated_at', '-created_at']
-        constraints = [
-            models.UniqueConstraint(fields=['owner', 'member'], name='unique_workspace_member'),
-        ]
-
-    def __str__(self):
-        return f'{self.owner.username} -> {self.member.username}'
-
-
 class Template(BaseModel):
+    TEMPLATE_SCOPE_SYSTEM = 'system'
+    TEMPLATE_SCOPE_USER_BASED = 'user_based'
     CATEGORY_CHOICES = [
         ('personalized', 'Personalized'),
         ('follow_up', 'Follow Up'),
@@ -584,13 +615,20 @@ class Template(BaseModel):
         ('closing', 'Closing'),
         ('general', 'General'),
     ]
+    TEMPLATE_SCOPE_CHOICES = [
+        (TEMPLATE_SCOPE_SYSTEM, 'System'),
+        (TEMPLATE_SCOPE_USER_BASED, 'User Based'),
+    ]
 
     profile = models.ForeignKey(
         UserProfile,
         on_delete=models.CASCADE,
         related_name='templates',
+        null=True,
+        blank=True,
     )
     name = models.CharField(max_length=220)
+    template_scope = models.CharField(max_length=20, choices=TEMPLATE_SCOPE_CHOICES, default=TEMPLATE_SCOPE_USER_BASED)
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='general')
     achievement = models.TextField(blank=True)
     skills = models.TextField(blank=True)
@@ -616,12 +654,57 @@ class Template(BaseModel):
     def user_id(self):
         return getattr(self.profile, 'user_id', None)
 
+    @property
+    def is_system_template(self):
+        return str(self.template_scope or '').strip().lower() == self.TEMPLATE_SCOPE_SYSTEM
+
     def __str__(self):
-        username = getattr(getattr(self.profile, 'user', None), 'username', '')
+        username = getattr(getattr(self.profile, 'user', None), 'username', '') or 'system'
         return f'{self.name} ({username})'
 
 
 Achievement = Template
+
+
+class SubjectTemplate(BaseModel):
+    CATEGORY_CHOICES = [
+        ('fresh', 'Fresh'),
+        ('follow_up', 'Follow Up'),
+    ]
+
+    profile = models.ForeignKey(
+        'UserProfile',
+        on_delete=models.CASCADE,
+        related_name='subject_templates',
+    )
+    name = models.CharField(max_length=220)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='fresh')
+    subject = models.CharField(max_length=255)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['profile', '-created_at']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                Lower('name'),
+                'profile',
+                name='uniq_subject_template_profile_name_ci',
+            ),
+        ]
+
+    @property
+    def user(self):
+        return getattr(self.profile, 'user', None)
+
+    @property
+    def user_id(self):
+        return getattr(self.profile, 'user_id', None)
+
+    def __str__(self):
+        username = getattr(getattr(self.profile, 'user', None), 'username', '')
+        return f'{self.name} ({username})'
 
 
 class Interview(BaseModel):

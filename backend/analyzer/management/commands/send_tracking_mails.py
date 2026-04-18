@@ -23,6 +23,8 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from analyzer.models import Template, Tracking, TrackingAction, UserProfile
+from analyzer.profile_settings import resolve_openai_settings, resolve_smtp_settings
+from analyzer.template_access import resolve_template_ids_for_user
 from analyzer.tracking_mail_utils import build_mail_tracking_status_map, ensure_mail_tracking, log_mail_event, recompute_tracking_delivery_status
 
 try:
@@ -1090,9 +1092,7 @@ class Command(BaseCommand):
         template_ids = getattr(row, "template_ids_ordered", None)
         if isinstance(template_ids, list) and template_ids:
             target_ids = [str(item or "").strip() for item in template_ids if str(item or "").strip()]
-            rows = list(Template.objects.filter(profile=row.profile, id__in=target_ids))
-            row_map = {str(item.id): item for item in rows}
-            return [row_map[item_id] for item_id in target_ids if item_id in row_map]
+            return resolve_template_ids_for_user(row.user, target_ids)
         template = getattr(row, "template", None)
         if getattr(row, "template_id", None) and template is not None:
             return [template]
@@ -1293,19 +1293,24 @@ class Command(BaseCommand):
             return self._display_first_name(username)
         return "User"
 
-    def _resolve_openai_model(self):
-        value = str(os.getenv("OPENAI_MODEL", "gpt-4o") or "").strip()
-        return value or "gpt-4o"
+    def _resolve_openai_model(self, user=None):
+        return resolve_openai_settings(user).get("model", "gpt-4o")
 
-    def _openai_generate_text(self, prompt, *, system):
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    def _openai_generate_text(self, prompt, *, system, user=None):
+        settings = resolve_openai_settings(user)
+        api_key = settings.get("api_key", "").strip()
         if not api_key:
             return None, "OPENAI_API_KEY is not set"
 
+        system_prompt = str(system or "").strip()
+        task_instructions = str(settings.get("task_instructions", "") or "").strip()
+        if task_instructions:
+            system_prompt = f"{system_prompt}\n\nAdditional user instructions:\n{task_instructions[:2000]}"
+
         payload = {
-            "model": self._resolve_openai_model(),
+            "model": self._resolve_openai_model(user),
             "messages": [
-                {"role": "system", "content": str(system or "").strip()},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": str(prompt or "").strip()[:8000]},
             ],
             "temperature": 0.4,
@@ -1504,7 +1509,7 @@ class Command(BaseCommand):
                 "You write concise personalized first paragraphs for job outreach emails. "
                 "Return plain text only, one paragraph, 30 to 35 words."
             )
-            generated, error = self._openai_generate_text(prompt, system=system)
+            generated, error = self._openai_generate_text(prompt, system=system, user=employee.user)
             if generated and not error:
                 cleaned = self._strip_leading_greeting(self._clean_single_paragraph(generated, max_words=35))
                 if cleaned:
@@ -1723,12 +1728,13 @@ class Command(BaseCommand):
         )
 
     def _send_email(self, user, to_email, subject, body, attachment_path=None, attachment_bytes=None, *, attachment_name=None, in_reply_to="", references=None):
-        host = str(__import__("os").environ.get("SMTP_HOST", "")).strip()
-        port = int(str(__import__("os").environ.get("SMTP_PORT", "587")).strip() or 587)
-        username = str(__import__("os").environ.get("SMTP_USER", "")).strip()
-        password = str(__import__("os").environ.get("SMTP_PASSWORD", "")).strip()
-        use_tls = str(__import__("os").environ.get("SMTP_USE_TLS", "true")).strip().lower() in {"1", "true", "yes", "on"}
-        from_email = str(__import__("os").environ.get("SMTP_FROM_EMAIL", "")).strip() or username or str(user.email or "").strip()
+        smtp_settings = resolve_smtp_settings(user)
+        host = smtp_settings.get("host", "")
+        port = int(smtp_settings.get("port", 587) or 587)
+        username = smtp_settings.get("username", "")
+        password = smtp_settings.get("password", "")
+        use_tls = bool(smtp_settings.get("use_tls", True))
+        from_email = str(smtp_settings.get("from_email", "") or "").strip() or username or str(user.email or "").strip()
         if not host or not from_email:
             raise RuntimeError("SMTP_HOST / SMTP_FROM_EMAIL (or SMTP_USER) is not configured.")
 

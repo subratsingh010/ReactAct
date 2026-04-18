@@ -50,12 +50,6 @@ const TAILOR_MODE_OPTIONS = [
   { label: 'Complete (Summary + Experience + Projects)', value: 'complete' },
 ]
 
-function renderSummaryByStyle(text, style) {
-  // The editor stores sanitized HTML, so style is currently "auto".
-  // Keep the option for future transformations.
-  return String(text || '')
-}
-
 function plainTextFromHtml(value) {
   return String(value || '')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
@@ -137,82 +131,6 @@ function hasBuilderSubstance(builder) {
     return Boolean(name || highlights)
   })
   return hasTop || hasExp || hasProj
-}
-
-function collectAtsIssues(form) {
-  const safe = form && typeof form === 'object' ? form : {}
-  const issues = []
-
-  const fullName = String(safe.fullName || '').trim()
-  const email = String(safe.email || '').trim()
-  const phone = String(safe.phone || '').trim()
-  const skillsText = plainTextFromHtml(safe.skills || '')
-  const experiences = Array.isArray(safe.experiences) ? safe.experiences : []
-  const projects = Array.isArray(safe.projects) ? safe.projects : []
-  const summaryEnabled = Boolean(safe.summaryEnabled)
-  const summaryText = plainTextFromHtml(safe.summary || '')
-
-  if (!fullName) issues.push('Add full name.')
-
-  if (!email && !phone) {
-    issues.push('Add at least one contact detail: email or phone.')
-  }
-
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    issues.push('Use a valid email format.')
-  }
-
-  if (phone) {
-    const digits = phone.replace(/\D/g, '')
-    if (digits.length < 8) issues.push('Phone number looks too short.')
-  }
-
-  if (summaryEnabled && !summaryText) {
-    issues.push('Summary is enabled but empty.')
-  }
-
-  if (!skillsText) {
-    issues.push('Add key skills for ATS keyword matching.')
-  }
-
-  if (!experiences.length) {
-    issues.push('Add at least one experience entry.')
-  }
-
-  experiences.forEach((exp, index) => {
-    const idx = index + 1
-    const company = String(exp?.company || '').trim()
-    const title = String(exp?.title || '').trim()
-    const highlightsHtml = String(exp?.highlights || '')
-    const highlightsText = plainTextFromHtml(highlightsHtml)
-    const bulletCount = (highlightsHtml.match(/<li\b/gi) || []).length
-
-    if (!company) issues.push(`Experience ${idx}: add company.`)
-    if (!title) issues.push(`Experience ${idx}: add role/title.`)
-    if (!highlightsText) issues.push(`Experience ${idx}: add achievements.`)
-    if (highlightsText && bulletCount === 0) {
-      issues.push(`Experience ${idx}: use bullet points for better ATS parsing.`)
-    }
-  })
-
-  projects.forEach((proj, index) => {
-    const idx = index + 1
-    const name = String(proj?.name || '').trim()
-    const highlightsHtml = String(proj?.highlights || '')
-    const highlightsText = plainTextFromHtml(highlightsHtml)
-    if (!name && highlightsText) issues.push(`Project ${idx}: add project name.`)
-  })
-
-  ;(safe.links || []).forEach((item, index) => {
-    const idx = index + 1
-    const label = String(item?.label || '').trim()
-    const url = String(item?.url || '').trim()
-    if ((label && !url) || (!label && url)) {
-      issues.push(`Link ${idx}: keep both label and URL.`)
-    }
-  })
-
-  return issues
 }
 
 function parseToYearMonth(value, { isEnd }) {
@@ -330,257 +248,6 @@ function parseMonth(value) {
     december: 12,
   }
   return map[v] || null
-}
-
-function dateKey(value, isCurrent) {
-  if (isCurrent) return 999912 // treat present as newest
-  const raw = String(value || '').trim()
-  if (!raw) return 0
-
-  // Accept: "Mar 2025", "2025", "2025-03"
-  const parts = raw.replace(/\s+/g, ' ').split(' ')
-  if (parts.length === 1) {
-    const only = parts[0]
-    if (/^\d{4}$/.test(only)) return Number(only) * 100 + 1
-    const m = only.split('-')
-    if (m.length === 2 && /^\d{4}$/.test(m[0]) && /^\d{1,2}$/.test(m[1])) {
-      return Number(m[0]) * 100 + Math.max(1, Math.min(12, Number(m[1])))
-    }
-  }
-
-  if (parts.length >= 2) {
-    const maybeMonth = parseMonth(parts[0])
-    const maybeYear = parts.find((p) => /^\d{4}$/.test(p))
-    if (maybeMonth && maybeYear) return Number(maybeYear) * 100 + maybeMonth
-  }
-
-  const yearMatch = raw.match(/\b(\d{4})\b/)
-  if (yearMatch) return Number(yearMatch[1]) * 100 + 1
-  return 0
-}
-
-function sortNewestFirst(items, getEndKey, getStartKey) {
-  return [...items].sort((a, b) => {
-    const ae = getEndKey(a)
-    const be = getEndKey(b)
-    if (be !== ae) return be - ae
-    const as = getStartKey(a)
-    const bs = getStartKey(b)
-    if (bs !== as) return bs - as
-    return 0
-  })
-}
-
-function normalizeHttpUrl(value) {
-  const raw = String(value || '').trim()
-  if (!raw) return ''
-  const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)
-  const candidate = hasScheme ? raw : `https://${raw}`
-  try {
-    const url = new URL(candidate)
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return ''
-    return url.toString()
-  } catch {
-    return ''
-  }
-}
-
-function renderLink(label, value) {
-  const url = normalizeHttpUrl(value)
-  if (!url) return null
-  return (
-    <a key={label} href={url} target="_blank" rel="noreferrer">
-      {label}
-    </a>
-  )
-}
-
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
-
-function inlineToHtml(text) {
-  const safe = escapeHtml(text)
-  // Basic tag support: [b][/b] [i][/i] [u][/u]
-  return safe
-    .replace(/\[b\]/gi, '<strong>')
-    .replace(/\[\/b\]/gi, '</strong>')
-    .replace(/\[i\]/gi, '<em>')
-    .replace(/\[\/i\]/gi, '</em>')
-    .replace(/\[u\]/gi, '<u>')
-    .replace(/\[\/u\]/gi, '</u>')
-}
-
-function richTextToHtml(text) {
-  const blocks = String(text || '')
-    .split('\n\n')
-    .map((b) => b.trim())
-    .filter(Boolean)
-
-  return blocks
-    .map((block) => {
-      const lines = block.split('\n').map((l) => l.trim())
-      const isBullets = lines.length > 0 && lines.every((l) => !l || l.startsWith('- '))
-      const isNumbered = lines.length > 0 && lines.every((l) => !l || /^\d+[\.\)]\s+/.test(l))
-
-      if (isBullets) {
-        const items = lines
-          .filter(Boolean)
-          .map((l) => `<li>${inlineToHtml(l.slice(2))}</li>`)
-          .join('')
-        return `<ul>${items}</ul>`
-      }
-
-      if (isNumbered) {
-        const items = lines
-          .filter(Boolean)
-          .map((l) => `<li>${inlineToHtml(l.replace(/^\d+[\.\)]\s+/, ''))}</li>`)
-          .join('')
-        return `<ol>${items}</ol>`
-      }
-
-      return `<p>${inlineToHtml(block)}</p>`
-    })
-    .join('\n')
-}
-
-function buildDocHtml(form) {
-  const fontSize = Number(form.bodyFontSizePt || 10)
-  const lineHeight = Number(form.bodyLineHeight || 1)
-  const safeFontSize = Number.isFinite(fontSize) ? fontSize : 10
-  const safeLineHeight = Number.isFinite(lineHeight) ? lineHeight : 1
-  const safeBodyFontFamily = String(form.bodyFontFamily || 'Arial, Helvetica, sans-serif')
-  const safeMarginIn = normalizePageMarginIn(form.pageMarginIn)
-
-  const contact = [form.location, form.phone, form.email]
-    .map((v) => String(v || '').trim())
-    .filter(Boolean)
-    .join(' | ')
-
-  const links = (form.links || [])
-    .map((l) => ({ label: String(l.label || '').trim(), url: normalizeHttpUrl(l.url) }))
-    .filter((l) => l.label && l.url)
-    .map((l) => `<a href="${escapeHtml(l.url)}">${escapeHtml(l.label)}</a>`)
-    .join(' | ')
-
-  const projects = (form.projects || [])
-    .map((p) => {
-      const name = escapeHtml(p.name || '')
-      const url = normalizeHttpUrl(p.url)
-      const link = url ? ` <a href="${escapeHtml(url)}" style="color:#6b778f;text-decoration:none;">link</a>` : ''
-      return `<div style="margin-top:10px;"><div><strong>${name}</strong>${link}</div>${richTextToHtml(
-        p.highlights || '',
-      )}</div>`
-    })
-    .join('')
-
-  const experiences = (form.experiences || [])
-    .map((e) => {
-      const left = [e.company, e.title].map((v) => String(v || '').trim()).filter(Boolean).join(' – ')
-      const right = [e.startDate, e.isCurrent ? 'Present' : e.endDate]
-        .map((v) => String(v || '').trim())
-        .filter(Boolean)
-        .join(' – ')
-      return `<div style="margin-top:10px;">
-        <div style="display:flex;justify-content:space-between;gap:12px;">
-          <div><strong>${inlineToHtml(left)}</strong></div>
-          <div style="color:#3a4861;white-space:nowrap;">${inlineToHtml(right)}</div>
-        </div>
-        ${richTextToHtml(e.highlights || '')}
-      </div>`
-    })
-    .join('')
-
-  const educations = (form.educations || [])
-    .map((edu) => {
-      const scoreType = String(edu.scoreType || 'cgpa')
-      const rawScore = String(edu.scoreValue || '').trim()
-      const scoreLabel = String(edu.scoreLabel || '').trim()
-      const scoreText = (() => {
-        if (!edu.scoreEnabled || !rawScore) return ''
-        if (scoreType === 'custom') return `${scoreLabel || 'Score'}: ${rawScore}`
-        if (scoreType === 'percentage') return `Percentage: ${rawScore.includes('%') ? rawScore : `${rawScore}%`}`
-        return `CGPA: ${rawScore}`
-      })()
-
-      const left = [edu.institution, edu.program, scoreText]
-        .map((v) => String(v || '').trim())
-        .filter(Boolean)
-        .join(' | ')
-      const right = [edu.startDate, edu.isCurrent ? 'Present' : edu.endDate]
-        .map((v) => String(v || '').trim())
-        .filter(Boolean)
-        .join(' – ')
-      return `<div style="margin-top:8px;display:flex;justify-content:space-between;gap:12px;">
-        <div><strong>${inlineToHtml(left)}</strong></div>
-        <div style="color:#3a4861;white-space:nowrap;">${inlineToHtml(right)}</div>
-      </div>`
-    })
-    .join('')
-
-  const summaryTitle = escapeHtml(form.summaryHeading || 'Summary')
-  const summarySection = form.summaryEnabled
-    ? `<h3>${summaryTitle}</h3><div>${richTextToHtml(form.summary)}</div>`
-    : ''
-  const compactClass = 'compact'
-  const headerClass = form.sectionUnderline ? 'resume-header' : 'resume-header has-underline'
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Resume</title>
-  <style>
-    body { font-family: ${escapeHtml(safeBodyFontFamily)}; }
-    @page { size: A4; margin: ${safeMarginIn}in; }
-    body { margin: 0; padding: ${safeMarginIn}in; }
-    body.compact { font-size: ${Math.max(9, safeFontSize - 0.5)}pt; }
-    h1 { margin: 0; text-align: center; }
-    .resume-header {
-      margin-bottom: 6px;
-      padding-bottom: 4px;
-    }
-    .resume-header.has-underline {
-      border-bottom: 1px solid #d1d5db;
-    }
-    .center { text-align: center; color: #3a4861; margin-top: 2px; }
-    h3 { margin: 14px 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
-    p, li { font-size: ${safeFontSize}pt; line-height: ${safeLineHeight}; margin: 6px 0; }
-    .summary-block p, .summary-block li { font-size: ${safeFontSize}pt; line-height: ${safeLineHeight}; }
-    body.compact h3 { margin: 10px 0 4px; }
-    body.compact p,
-    body.compact li { margin: 4px 0; }
-    body.compact .center { margin-top: 1px; }
-    body.compact ul,
-    body.compact ol { margin-top: 4px; }
-    body.compact .summary-block p,
-    body.compact .summary-block li { margin: 4px 0; }
-    ul, ol { margin: 6px 0 0; padding-left: 18px; }
-    a { color: #1b2230; text-decoration: none; }
-  </style>
-</head>
-<body class="${compactClass}">
-  <header class="${headerClass}">
-    <h1>${escapeHtml(form.fullName || '')}</h1>
-    <div class="center">${escapeHtml(contact)}</div>
-    ${links ? `<div class="center">${links}</div>` : ''}
-  </header>
-  ${summarySection ? `<div class="summary-block">${summarySection}</div>` : ''}
-  <h3>Skills</h3>
-  ${richTextToHtml(form.skills)}
-  <h3>Experience</h3>
-  ${experiences}
-  <h3>Projects</h3>
-  ${projects}
-  <h3>Education</h3>
-  ${educations}
-</body>
-</html>`
 }
 
 function ResumeBuilderPage({
@@ -827,7 +494,7 @@ function ResumeBuilderPage({
       }))
       setResumeRecordId(String(full.id))
       setResumeJobId(full?.job ? String(full.job) : '')
-      setSaveTarget(Boolean(full?.is_tailored) ? 'tailored' : 'base')
+      setSaveTarget(full?.is_tailored ? 'tailored' : 'base')
       sessionStorage.setItem(resumeIdSessionKey, String(full.id))
       if (enableTailorFlow && !tailorReferenceBuilder && hasBuilderSubstance(full.builder_data || {})) {
         setTailorReferenceBuilder(cloneBuilderData(full.builder_data || {}))
@@ -853,7 +520,7 @@ function ResumeBuilderPage({
           }))
           setResumeRecordId(String(full.id))
           setResumeJobId(full?.job ? String(full.job) : '')
-          setSaveTarget(Boolean(full?.is_tailored) ? 'tailored' : 'base')
+          setSaveTarget(full?.is_tailored ? 'tailored' : 'base')
           setSaveMode('edit')
           // Stored resume was loaded successfully; do not override with default resume.
           return
@@ -1151,20 +818,6 @@ function ResumeBuilderPage({
     })
   }
 
-  const downloadDoc = () => {
-    const html = buildDocHtml(form)
-    const blob = new Blob([html], { type: 'application/msword' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    const fileSafeName = String(form.fullName || 'resume').trim().replace(/\s+/g, '_')
-    link.href = url
-    link.download = `${fileSafeName}.doc`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-  }
-
   const downloadAtsPdf = () => {
     printAtsPdf({
       ...form,
@@ -1201,25 +854,6 @@ function ResumeBuilderPage({
         saving: false,
         message: err.message || 'Local PDF save failed',
       })
-    }
-  }
-
-  const syncStoredAtsPdf = async (access, targetResumeId) => {
-    const resolvedResumeId = String(targetResumeId || '').trim()
-    if (!access || !resolvedResumeId) return { ok: false, message: '' }
-    const html = buildAtsPdfHtmlPreserveHighlights({
-      ...form,
-      pageMarginIn: normalizePageMarginIn(form.pageMarginIn),
-    })
-    try {
-      await exportAtsPdfLocal(access, {
-        builder_data: form,
-        html,
-        resume_id: resolvedResumeId,
-      })
-      return { ok: true, message: '' }
-    } catch (err) {
-      return { ok: false, message: err.message || 'Auto PDF sync failed' }
     }
   }
 
