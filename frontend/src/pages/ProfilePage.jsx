@@ -11,9 +11,9 @@ import {
   deleteInterview,
   deleteResume,
   deleteWorkspaceMember,
+  fetchAllJobs,
   fetchTemplates,
   fetchInterviews,
-  fetchJobs,
   fetchLocations,
   fetchProfile,
   fetchProfileInfo,
@@ -389,7 +389,7 @@ function ProfilePage() {
         fetchResumes(access),
         fetchTemplates(access),
         fetchInterviews(access),
-        fetchJobs(access, { page: 1, page_size: 500 }),
+        fetchAllJobs(access),
         fetchLocations(access),
       ])
       const nextProfile = normalizeProfileLike(info, String(profileBase?.username || ''))
@@ -400,7 +400,7 @@ function ProfilePage() {
       setResumes(Array.isArray(resumeRows) ? resumeRows : [])
       setAchievements(Array.isArray(achRows) ? achRows : [])
       setInterviews(Array.isArray(interviewRows) ? interviewRows : [])
-      setJobOptions(Array.isArray(jobsData?.results) ? jobsData.results : [])
+      setJobOptions(Array.isArray(jobsData) ? jobsData : [])
       setLocationOptions(Array.isArray(locationRows) ? locationRows : [])
     } catch (err) {
       setError(err.message || 'Could not load profile data.')

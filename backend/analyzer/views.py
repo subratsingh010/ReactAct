@@ -10,6 +10,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.db.models import Q
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
@@ -2208,22 +2209,6 @@ class ResumeListCreateView(APIView):
             created.save(update_fields=['file'])
             self._apply_default_resume(profile, created)
 
-            # Enforce max 6 resumes by deleting older ones (by updated_at/created_at).
-            keep_ids = list(
-                Resume.objects.filter(profile=profile)
-                .order_by('-updated_at', '-created_at')
-                .values_list('id', flat=True)[:6]
-            )
-            default_id = (
-                Resume.objects.filter(profile=profile, is_default=True)
-                .order_by('-updated_at', '-created_at')
-                .values_list('id', flat=True)
-                .first()
-            )
-            if default_id and default_id not in keep_ids and keep_ids:
-                keep_ids = keep_ids[:-1] + [default_id]
-            Resume.objects.filter(profile=profile).exclude(id__in=keep_ids).delete()
-
             return Response(ResumeSerializer(created).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -3272,8 +3257,45 @@ class ApplicationTrackingListCreateView(APIView):
             Tracking.objects.filter(profile_id__in=visible_profile_ids)
             .select_related('job__company', 'resume', 'mail_tracking_record', 'template')
             .prefetch_related('selected_hrs', 'actions', 'job__resumes')
-            .order_by('-created_at')
         )
+        company_name = str(request.query_params.get('company_name') or '').strip()
+        if company_name:
+            queryset = queryset.filter(job__company__name__icontains=company_name)
+
+        job_id = str(request.query_params.get('job_id') or '').strip()
+        if job_id:
+            queryset = queryset.filter(job__job_id__icontains=job_id)
+
+        applied_date = str(request.query_params.get('applied_date') or '').strip()
+        if applied_date:
+            queryset = queryset.filter(job__applied_at=applied_date)
+
+        mailed = str(request.query_params.get('mailed') or '').strip().lower()
+        if mailed == 'yes':
+            queryset = queryset.filter(mailed=True)
+        elif mailed == 'no':
+            queryset = queryset.filter(mailed=False)
+
+        last_action = str(request.query_params.get('last_action') or '').strip().lower()
+        if last_action == 'fresh':
+            queryset = queryset.filter(mail_type='fresh')
+        elif last_action in {'followup', 'followed_up'}:
+            queryset = queryset.filter(mail_type='followed_up')
+
+        ordering = str(request.query_params.get('ordering') or '-created_at').strip()
+        ordering_map = {
+            'applied_at': ['job__applied_at', 'id'],
+            '-applied_at': ['-job__applied_at', '-id'],
+            'created_at': ['created_at', 'id'],
+            '-created_at': ['-created_at', '-id'],
+            'company_name': ['job__company__name', 'id'],
+            '-company_name': ['-job__company__name', '-id'],
+            'job_id': ['job__job_id', 'id'],
+            '-job_id': ['-job__job_id', '-id'],
+            'role': ['job__role', 'id'],
+            '-role': ['-job__role', '-id'],
+        }
+        queryset = queryset.order_by(*(ordering_map.get(ordering) or ordering_map['-created_at']))
         rows, meta = _paginate_queryset(queryset, request, default_page_size=10, max_page_size=100)
         company_ids = {
             row.job.company_id
@@ -3786,6 +3808,7 @@ class ApplicationTrackingDetailView(APIView):
             return Response({'detail': 'Tracking row not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(self._serialize_tracking_row(row), status=status.HTTP_200_OK)
 
+    @transaction.atomic
     def put(self, request, tracking_id):
         denied = _ensure_write_allowed(request)
         if denied:
@@ -3798,6 +3821,10 @@ class ApplicationTrackingDetailView(APIView):
         payload = request.data or {}
         send_now = self._to_bool(payload.get('send_now'), default=False)
         job = row.job
+
+        def rollback_detail(detail, status_code=status.HTTP_400_BAD_REQUEST):
+            transaction.set_rollback(True)
+            return Response({'detail': detail}, status=status_code)
 
         company_id = payload.get('company')
         company_name = str(payload.get('company_name') or '').strip()
@@ -3845,7 +3872,7 @@ class ApplicationTrackingDetailView(APIView):
                 try:
                     row.resume = Resume.objects.get(id=raw_resume_id, profile_id__in=_accessible_profile_ids_for_user(request.user))
                 except Resume.DoesNotExist:
-                    return Response({'detail': 'Resume not found.'}, status=status.HTTP_400_BAD_REQUEST)
+                    return rollback_detail('Resume not found.')
         if 'tailored_resume' in payload:
             raw_tailored_id = str(payload.get('tailored_resume') or '').strip()
             if not raw_tailored_id:
@@ -3863,7 +3890,7 @@ class ApplicationTrackingDetailView(APIView):
                         is_tailored=True,
                     ).order_by('created_at', 'id').first()
                 if not tailored:
-                    return Response({'detail': 'Tailored resume not found.'}, status=status.HTTP_400_BAD_REQUEST)
+                    return rollback_detail('Tailored resume not found.')
                 row.resume = tailored
         if 'template' in payload or 'template_id' in payload or 'template_ids_ordered' in payload or 'achievement' in payload or 'achievement_id' in payload or 'achievement_ids_ordered' in payload:
             template_ids_ordered = _normalize_tracking_template_ids(payload, request.data)
@@ -3873,13 +3900,13 @@ class ApplicationTrackingDetailView(APIView):
                     template_ids_ordered = [legacy_template_raw]
             templates = _resolve_tracking_templates(row.user, template_ids_ordered)
             if template_ids_ordered and len(templates) != len(template_ids_ordered):
-                return Response({'detail': 'One or more templates were not found.'}, status=status.HTTP_400_BAD_REQUEST)
+                return rollback_detail('One or more templates were not found.')
             template_error = _validate_tracking_templates(
                 templates,
                 str(payload.get('mail_type') or row.mail_type or 'fresh'),
             )
             if template_error:
-                return Response({'detail': template_error}, status=status.HTTP_400_BAD_REQUEST)
+                return rollback_detail(template_error)
             row.template_ids_ordered = [item.id for item in templates]
             row.template = templates[0] if templates else None
         if 'personalized_template' in payload:
@@ -3896,7 +3923,7 @@ class ApplicationTrackingDetailView(APIView):
                     category=intro_category,
                 ).first()
                 if not selected_personalized:
-                    return Response({'detail': f'{intro_category.replace("_", " ").title()} template not found.'}, status=status.HTTP_400_BAD_REQUEST)
+                    return rollback_detail(f'{intro_category.replace("_", " ").title()} template not found.')
                 row.personalized_template = selected_personalized
         if 'mail_type' in payload or 'action' in payload:
             action_text = str(payload.get('mail_type') or payload.get('action') or '').strip()
@@ -3920,7 +3947,7 @@ class ApplicationTrackingDetailView(APIView):
                 row.mail_type,
             )
             if template_error:
-                return Response({'detail': template_error}, status=status.HTTP_400_BAD_REQUEST)
+                return rollback_detail(template_error)
         if 'schedule_time' in payload:
             row.schedule_time = self._to_datetime(payload.get('schedule_time'))
             if row.schedule_time:
@@ -3974,20 +4001,14 @@ class ApplicationTrackingDetailView(APIView):
         if row.mail_type == 'followed_up':
             eligible_follow_up_ids = {emp.id for emp in _follow_up_eligible_employees(row) if emp and emp.id}
             if not eligible_follow_up_ids:
-                return Response(
-                    {'detail': 'No contacted employee is available for follow up yet. Send Fresh mail first.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+                return rollback_detail('No contacted employee is available for follow up yet. Send Fresh mail first.')
             invalid_follow_up = [
                 str(emp.name or '').strip() or f'Employee #{emp.id}'
                 for emp in row.selected_hrs.all()
                 if emp.id not in eligible_follow_up_ids
             ]
             if invalid_follow_up:
-                return Response(
-                    {'detail': f'Follow Up can only be sent to employees already contacted in this tracking row: {", ".join(invalid_follow_up)}.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+                return rollback_detail(f'Follow Up can only be sent to employees already contacted in this tracking row: {", ".join(invalid_follow_up)}.')
 
         if row.mail_type == 'fresh':
             selected_employees = list(row.selected_hrs.all())
@@ -4000,10 +4021,7 @@ class ApplicationTrackingDetailView(APIView):
             )
             overlap = [existing_fresh_today.get(emp.id) or str(emp.name or '').strip() or f'Employee #{emp.id}' for emp in selected_employees if emp.id in existing_fresh_today]
             if overlap:
-                return Response(
-                    {'detail': f'Fresh tracking already exists today for: {", ".join(overlap)}. Use Follow Up, choose different employees, or try tomorrow.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+                return rollback_detail(f'Fresh tracking already exists today for: {", ".join(overlap)}. Use Follow Up, choose different employees, or try tomorrow.')
             same_tracking_fresh_today = _fresh_action_employee_map_for_day(
                 row,
                 timezone.now(),
@@ -4011,19 +4029,13 @@ class ApplicationTrackingDetailView(APIView):
             )
             overlap = [same_tracking_fresh_today.get(emp.id) or str(emp.name or '').strip() or f'Employee #{emp.id}' for emp in selected_employees if emp.id in same_tracking_fresh_today]
             if overlap:
-                return Response(
-                    {'detail': f'Fresh mail already used these employees earlier today in this tracking: {", ".join(overlap)}. Choose fully different employees, use Follow Up, or send tomorrow.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+                return rollback_detail(f'Fresh mail already used these employees earlier today in this tracking: {", ".join(overlap)}. Choose fully different employees, use Follow Up, or send tomorrow.')
 
         row.save()
 
         company_ref = row.job.company if row.job_id and row.job and row.job.company_id else None
         if not self._has_company_mail_pattern(company_ref):
-            return Response(
-                {'detail': 'Company mail pattern is required for this tracking row.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return rollback_detail('Company mail pattern is required for this tracking row.')
 
         append_action = payload.get('append_action')
         if not send_now and not isinstance(append_action, dict):
@@ -4051,7 +4063,7 @@ class ApplicationTrackingDetailView(APIView):
         if isinstance(append_action, dict):
             action_type = str(append_action.get('type') or '').strip().lower()
             if action_type not in {'fresh', 'followup'}:
-                return Response({'detail': 'Invalid action type.'}, status=status.HTTP_400_BAD_REQUEST)
+                return rollback_detail('Invalid action type.')
             send_mode = str(append_action.get('send_mode') or 'now').strip().lower()
             mode = 'sent' if send_mode == 'now' else 'scheduled'
             action_at = self._to_datetime(append_action.get('action_at')) or timezone.now()
@@ -4062,7 +4074,7 @@ class ApplicationTrackingDetailView(APIView):
             if not has_any_action:
                 action_type = 'fresh'
             elif action_type == 'followup' and not has_fresh_action:
-                return Response({'detail': 'First milestone must be Fresh before any Follow Up.'}, status=status.HTTP_400_BAD_REQUEST)
+                return rollback_detail('First milestone must be Fresh before any Follow Up.')
 
             notes = _build_tracking_action_notes(employee_ids=selected_employee_ids)
             last_action = existing_actions.order_by('-created_at').first()
@@ -4097,10 +4109,7 @@ class ApplicationTrackingDetailView(APIView):
                 )
                 overlap = [action_history_today.get(emp.id) or str(emp.name or '').strip() or f'Employee #{emp.id}' for emp in selected_employees if emp.id in action_history_today]
                 if overlap:
-                    return Response(
-                        {'detail': f'Fresh mail already used these employees earlier today in this tracking: {", ".join(overlap)}. Choose fully different employees, use Follow Up, or send tomorrow.'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+                    return rollback_detail(f'Fresh mail already used these employees earlier today in this tracking: {", ".join(overlap)}. Choose fully different employees, use Follow Up, or send tomorrow.')
                 same_job_fresh_today = _job_fresh_tracking_employee_map_for_day(
                     row.user,
                     row.job,
@@ -4116,17 +4125,11 @@ class ApplicationTrackingDetailView(APIView):
                 )
                 overlap = [cross_sent_today.get(emp.id) or str(emp.name or '').strip() or f'Employee #{emp.id}' for emp in selected_employees if emp.id in cross_sent_today]
                 if overlap:
-                    return Response(
-                        {'detail': f'Already sent Fresh mail today to: {", ".join(overlap)}. Use follow up, choose different employees, or send tomorrow.'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+                    return rollback_detail(f'Already sent Fresh mail today to: {", ".join(overlap)}. Use follow up, choose different employees, or send tomorrow.')
                 sent_today = _tracking_sent_employee_map_for_day(row, 'fresh', action_at)
                 overlap = [sent_today.get(emp.id) or str(emp.name or '').strip() or f'Employee #{emp.id}' for emp in selected_employees if emp.id in sent_today]
                 if overlap:
-                    return Response(
-                        {'detail': f'Already sent Fresh mail today to: {", ".join(overlap)}. Use different employees today or send tomorrow.'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+                    return rollback_detail(f'Already sent Fresh mail today to: {", ".join(overlap)}. Use different employees today or send tomorrow.')
                 if sent_today and selected_employees:
                     notes = _build_tracking_action_notes(label='FD', employee_ids=selected_employee_ids)
                 elif last_action and str(last_action.action_type or '') == 'fresh':

@@ -8,10 +8,10 @@ import { capitalizeFirstDisplay } from '../utils/displayText'
 import {
   createTrackingRow,
   deleteTrackingRow,
+  fetchAllCompanies,
+  fetchAllJobs,
   fetchTemplates,
-  fetchCompanies,
   fetchEmployees,
-  fetchJobs,
   fetchProfile,
   fetchResumes,
   fetchTailoredResumes,
@@ -701,7 +701,16 @@ function TrackingPage() {
     }
     setLoading(true)
     try {
-      const data = await fetchTrackingRows(access, { page, page_size: pageSize })
+      const data = await fetchTrackingRows(access, {
+        page,
+        page_size: pageSize,
+        company_name: filters.companyName.trim() || undefined,
+        job_id: filters.jobId.trim() || undefined,
+        applied_date: filters.appliedDate || undefined,
+        mailed: filters.mailed !== 'all' ? filters.mailed : undefined,
+        last_action: filters.lastAction !== 'all' ? filters.lastAction : undefined,
+        ordering,
+      })
       const list = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : [])
       setRows(list)
       setTotalCount(Number(data?.count || list.length || 0))
@@ -718,20 +727,23 @@ function TrackingPage() {
 
   useEffect(() => {
     load()
-  }, [access, page, pageSize])
+  }, [access, page, pageSize, filters, ordering])
+
+  useEffect(() => {
+    setPage(1)
+  }, [filters, ordering])
 
   useEffect(() => {
     if (!access) return
     ;(async () => {
       try {
-        const [companiesData, resumesData, tailoredData, achievementsData, profileData] = await Promise.all([
-          fetchCompanies(access, { page: 1, page_size: 300, ready_for_tracking: true }),
+        const [companyRows, resumesData, tailoredData, achievementsData, profileData] = await Promise.all([
+          fetchAllCompanies(access, { ready_for_tracking: true }),
           fetchResumes(access).catch(() => []),
           fetchTailoredResumes(access).catch(() => []),
           fetchTemplates(access).catch(() => []),
           fetchProfile(access).catch(() => ({})),
         ])
-        const companyRows = Array.isArray(companiesData?.results) ? companiesData.results : []
         setCompanyOptions(companyRows)
         setResumeOptions(Array.isArray(resumesData) ? resumesData : [])
         setTailoredResumeOptions(Array.isArray(tailoredData) ? tailoredData : [])
@@ -754,11 +766,10 @@ function TrackingPage() {
       return { jobs: [], employees: [] }
     }
     try {
-      const [jobsData, employeesData] = await Promise.all([
-        fetchJobs(access, { page: 1, page_size: 300, company_id: companyId }),
+      const [jobs, employeesData] = await Promise.all([
+        fetchAllJobs(access, { company_id: companyId }),
         fetchEmployees(access, companyId),
       ])
-      const jobs = Array.isArray(jobsData?.results) ? jobsData.results : []
       const emps = Array.isArray(employeesData) ? employeesData : []
       setJobOptions(jobs)
       setEmployeeOptions(emps)
@@ -1193,55 +1204,7 @@ function TrackingPage() {
     }
   }
 
-  const filteredRows = useMemo(() => {
-    const out = rows.filter((row) => {
-      if (filters.companyName && !String(row.company_name || '').toLowerCase().includes(filters.companyName.toLowerCase())) return false
-      if (filters.jobId && !String(row.job_id || '').toLowerCase().includes(filters.jobId.toLowerCase())) return false
-      if (filters.appliedDate && toDateInput(row.applied_date) !== filters.appliedDate) return false
-      if (filters.mailed === 'yes' && !row.mailed) return false
-      if (filters.mailed === 'no' && row.mailed) return false
-      const actionType = rowLastActionType(row)
-      if (filters.lastAction !== 'all' && actionType !== filters.lastAction) return false
-      return true
-    })
-    out.sort((a, b) => {
-      const aApplied = new Date(a.applied_date || 0).getTime()
-      const bApplied = new Date(b.applied_date || 0).getTime()
-      const aCreated = new Date(a.created_at || 0).getTime()
-      const bCreated = new Date(b.created_at || 0).getTime()
-      const aCompany = String(a.company_name || '').toLowerCase()
-      const bCompany = String(b.company_name || '').toLowerCase()
-      const aJob = String(a.job_id || '').toLowerCase()
-      const bJob = String(b.job_id || '').toLowerCase()
-      const aRole = String(a.role || '').toLowerCase()
-      const bRole = String(b.role || '').toLowerCase()
-
-      switch (ordering) {
-      case 'applied_at':
-        return aApplied - bApplied
-      case '-created_at':
-        return bCreated - aCreated
-      case 'created_at':
-        return aCreated - bCreated
-      case 'company_name':
-        return aCompany.localeCompare(bCompany)
-      case '-company_name':
-        return bCompany.localeCompare(aCompany)
-      case 'job_id':
-        return aJob.localeCompare(bJob)
-      case '-job_id':
-        return bJob.localeCompare(aJob)
-      case 'role':
-        return aRole.localeCompare(bRole)
-      case '-role':
-        return bRole.localeCompare(aRole)
-      case '-applied_at':
-      default:
-        return bApplied - aApplied
-      }
-    })
-    return out
-  }, [rows, filters, ordering])
+  const filteredRows = useMemo(() => rows, [rows])
   const trackingStats = useMemo(() => {
     const visibleRows = filteredRows.length
     const mailedCount = filteredRows.filter((row) => row?.mailed).length

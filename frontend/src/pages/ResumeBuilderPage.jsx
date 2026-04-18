@@ -8,7 +8,7 @@ import {
   createTailoredResume,
   createResume,
   exportAtsPdfLocal,
-  fetchJobs,
+  fetchAllJobs,
   fetchResume,
   fetchResumes,
   optimizeResumeQuality,
@@ -1556,8 +1556,7 @@ function ResumeBuilderPage({
       return
     }
     try {
-      const data = await fetchJobs(access, { page: 1, page_size: 300, ordering: '-created_at' })
-      const jobs = Array.isArray(data?.results) ? data.results : []
+      const jobs = await fetchAllJobs(access, { ordering: '-created_at' })
       setSaveModal((prev) => ({ ...prev, loading: false, jobs }))
     } catch {
       setSaveModal((prev) => ({ ...prev, loading: false, jobs: [] }))
@@ -1593,8 +1592,7 @@ function ResumeBuilderPage({
       jobs: [],
     })
     try {
-      const data = await fetchJobs(access, { page: 1, page_size: 300, ordering: '-created_at' })
-      const jobs = Array.isArray(data?.results) ? data.results : []
+      const jobs = await fetchAllJobs(access, { ordering: '-created_at' })
       setTailoredModal((prev) => ({ ...prev, loading: false, jobs }))
     } catch {
       setTailoredModal((prev) => ({ ...prev, loading: false, jobs: [] }))

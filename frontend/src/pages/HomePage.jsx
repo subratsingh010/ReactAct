@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { fetchCompanies, fetchInterviews, fetchJobs, fetchProfile, fetchTrackingRows } from '../api'
+import { fetchAllCompanies, fetchAllJobs, fetchAllTrackingRows, fetchInterviews, fetchProfile } from '../api'
 import { useAuth } from '../contexts/useAuth'
 
 function formatDateTime(value) {
@@ -40,15 +40,15 @@ function HomePage() {
       try {
         const [profile, companyData, jobData, trackingData, interviewData] = await Promise.all([
           fetchProfile(access),
-          fetchCompanies(access, { page: 1, page_size: 200 }),
-          fetchJobs(access, { page: 1, page_size: 300 }),
-          fetchTrackingRows(access, { page: 1, page_size: 300 }),
+          fetchAllCompanies(access),
+          fetchAllJobs(access),
+          fetchAllTrackingRows(access),
           fetchInterviews(access),
         ])
         setUsername(String(profile?.username || ''))
-        setCompanies(Array.isArray(companyData?.results) ? companyData.results : [])
-        setJobs(Array.isArray(jobData?.results) ? jobData.results : [])
-        setTrackingRows(Array.isArray(trackingData?.results) ? trackingData.results : [])
+        setCompanies(Array.isArray(companyData) ? companyData : [])
+        setJobs(Array.isArray(jobData) ? jobData : [])
+        setTrackingRows(Array.isArray(trackingData) ? trackingData : [])
         setInterviews(Array.isArray(interviewData) ? interviewData : [])
       } catch (err) {
         setError(err?.message || 'Failed to load dashboard data.')
