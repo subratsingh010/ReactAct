@@ -11,6 +11,11 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _csv_env(name, default=''):
+    raw = os.getenv(name, default)
+    return [item.strip() for item in str(raw).split(',') if item.strip()]
+
+
 # SECURITY SETTINGS
 SECRET_KEY = os.getenv(
     "DJANGO_SECRET_KEY",
@@ -19,11 +24,10 @@ SECRET_KEY = os.getenv(
 
 DEBUG = False
 
-ALLOWED_HOSTS = [
-    "13.203.67.147",
-    "localhost",
-    "127.0.0.1",
-]
+ALLOWED_HOSTS = _csv_env(
+    'ALLOWED_HOSTS',
+    '43.205.239.101,localhost,127.0.0.1',
+)
 
 
 # APPLICATIONS
@@ -131,14 +135,19 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # CORS SETTINGS
 CORS_ALLOWED_ORIGINS = [
-    "http://13.203.67.147",
-    "http://localhost:5173",
+    *_csv_env(
+        'CORS_ALLOWED_ORIGINS',
+        'http://43.205.239.101,http://localhost:5173',
+    ),
 ]
 
 
 # CSRF SETTINGS
 CSRF_TRUSTED_ORIGINS = [
-    "http://13.203.67.147",
+    *_csv_env(
+        'CSRF_TRUSTED_ORIGINS',
+        'http://43.205.239.101,http://localhost:5173',
+    ),
 ]
 
 
