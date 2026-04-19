@@ -87,3 +87,11 @@ The backend must expose:
 
 - enter the new API base
 - allow the new origin when Chrome asks
+
+## Screenshot
+
+Add extension screenshots in `docs/screenshots/`.
+
+Recommended image:
+
+- Chrome extension side panel after login

@@ -325,3 +325,17 @@ Notes:
 
 - login is separate from web app or admin login
 - use your app API base, not the admin URL
+
+## Screenshots
+
+Add product screenshots in `docs/screenshots/` and reference them here.
+
+Recommended screenshots:
+
+- Login page
+- Home page
+- Profile page
+- Tracking page
+- Tracking Test Mail panel
+- Resume Builder page
+- Chrome Extension side panel
