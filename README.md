@@ -345,7 +345,7 @@ Recommended screenshots:
 ![App Screenshot](assets/screenshots/img2.png)
 
 - Company And Employee Page
-![App Screenshot](aassets/screenshots/img6.png)
+![App Screenshot](assets/screenshots/img6.png)
 
 
 - Tracking Test Mail panel
