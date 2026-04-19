@@ -178,7 +178,7 @@ function HomePage() {
           <div className="home-summary-head">
             <div>
               <h2>What This Project Helps With</h2>
-              <p className="hint">A compact job outreach CRM that keeps the full pipeline organized in one place.</p>
+              <p className="hint">A compact job outreach workspace that keeps the full pipeline organized in one place.</p>
             </div>
           </div>
           <p className="home-summary-text">
