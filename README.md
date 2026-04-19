@@ -195,6 +195,115 @@ Protected pages:
 - preview a saved resume
 - open PDF/export action for the selected resume
 
+## Profile And Mail Setup Guide
+
+Before using manual send or schedule, complete the Profile page carefully. This is the most critical setup for mail flow and personalized content.
+
+### Critical Profile Setup
+
+- Full Name: used in signature and profile-based content
+- Email: main identity for mail flow
+- Current Employer: used in template personalization
+- Years of Experience: used in template and subject personalization
+- Resume Link: used when template or subject needs resume reference
+- SMTP Host, Port, User, Password, From Email, TLS: required for actual mail sending
+- IMAP Host, Port, User, Password, Folder: required for reply or bounce checking flow
+- OpenAI API Key and Model: required for tailored resume generation and AI-based personalized mail content
+
+Important:
+
+- add SMTP and IMAP details if you want mail trigger, scheduling, and inbox verification to work properly
+- add your OpenAI key if you want tailored resume generation and stronger personalized mail paragraphs based on employee/about data
+
+### Supported Keywords
+
+Use these keywords in templates and subject templates:
+
+| Keyword | What it fills |
+|---|---|
+| `{name}` | employee name |
+| `{employee_name}` | employee name |
+| `{first_name}` | employee first name |
+| `{employee_role}` | employee role |
+| `{department}` | employee department |
+| `{employee_department}` | employee department |
+| `{company_name}` | target company name |
+| `{current_employer}` | your current employer from profile |
+| `{role}` | target job role |
+| `{job_id}` | job ID |
+| `{job_link}` | saved job link |
+| `{resume_link}` | your resume link from profile |
+| `{years_of_experience}` | your years of experience |
+| `{yoe}` | short form of years of experience |
+| `{interaction_time}` | tracking interaction date/time, mainly useful in follow-up style content |
+| `{interview_round}` | reserved for interview round wording; keep optional because it may be blank |
+
+### Template Writing Examples
+
+Example template paragraph 1:
+
+```text
+I am reaching out regarding the {role} opportunity at {company_name}. With {years_of_experience} years of experience and recent work at {current_employer}, I believe my background aligns well with the role.
+```
+
+Example template paragraph 2:
+
+```text
+I noticed your work as {employee_role} in the {department} team at {company_name}. I would love to be considered for the {role} position and have attached my profile for review.
+```
+
+Example subject template:
+
+```text
+Application for {role} at {company_name} | {job_id}
+```
+
+### Fresh And Follow Up Rules
+
+- Fresh mail requires at least 3 templates and must include at least one Opening template and one Closing template.
+- Follow Up requires 1 to 2 templates only, and every selected template must be from the Follow Up category.
+
+Use `interaction_time` only when the mail refers to a previous call, interview, or follow-up moment.
+Use `interview_round` only when you intentionally want round wording, and write the sentence so it still reads fine if that value is empty.
+
+### Writing Rules
+
+- never include `Hi []`
+- never hardcode personal sign-off lines like `Thanks,`, `Your Name`, `Regards`, or similar closing identity lines
+- never manually repeat personal identity details that already come from profile
+- greeting and signature should be left to the app flow and profile data, not duplicated in template text
+
+Wrong example:
+
+```text
+Hi [],
+
+I am interested in the {role} role at {company_name}.
+
+Thanks,
+Subrat Singh
+subrat@email.com
+```
+
+Why this is wrong:
+
+- `Hi []` is an empty greeting pattern and looks broken
+- the last lines repeat sender details manually
+- the app can fill greeting and ending from your profile flow
+
+Correct example:
+
+```text
+I am interested in the {role} role at {company_name}. With {years_of_experience} years of experience at {current_employer}, I believe my background is a strong match.
+```
+
+Let the app add the greeting and closing automatically from your profile details.
+
+### Always Test Before Sending
+
+- always open the Tracking Test Mail panel before Manual Send or Schedule
+- Test Mail is preview-only, so you can verify the final content before any real send happens
+
 ## Chrome Extension
 
 The extension helps capture job and employee details faster from hiring pages and LinkedIn.
