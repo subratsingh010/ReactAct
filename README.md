@@ -334,24 +334,24 @@ Add product screenshots in `docs/screenshots/` and reference them here.
 Recommended screenshots:
 
 - Job Page
-![App Screenshot](assest/Screenshot 2026-04-19 at 3.09.53 PM.png)
-![App Screenshot](assest/Screenshot 2026-04-19 at 3.14.46 PM.png)
+![App Screenshot](docs/screenshots/Screenshot 2026-04-19 at 3.09.53 PM.png)
+![App Screenshot](docs/screenshots/Screenshot 2026-04-19 at 3.14.46 PM.png)
 
 - Home page
-![App Screenshot](assest/Screenshot 2026-04-19 at 3.13.50 PM.png)
-![App Screenshot](assest/Screenshot 2026-04-19 at 3.11.26 PM.png)
+![App Screenshot](docs/screenshots/Screenshot 2026-04-19 at 3.13.50 PM.png)
+![App Screenshot](docs/screenshots/Screenshot 2026-04-19 at 3.11.26 PM.png)
 
 - Profile page
-![App Screenshot](assest/Screenshot 2026-04-19 at 3.10.08 PM.png)
+![App Screenshot](docs/screenshots/Screenshot 2026-04-19 at 3.10.08 PM.png)
 
 - Tracking Test Mail panel
-![App Screenshot](assest/Screenshot 2026-04-19 at 3.10.46 PM.png)
-![App Screenshot](assest/Screenshot 2026-04-19 at 3.14.30 PM.png)
-![App Screenshot](assest/Screenshot 2026-04-19 at 3.12.44 PM.png)
+![App Screenshot](docs/screenshots/Screenshot 2026-04-19 at 3.10.46 PM.png)
+![App Screenshot](docs/screenshots/Screenshot 2026-04-19 at 3.14.30 PM.png)
+![App Screenshot](docs/screenshots/Screenshot 2026-04-19 at 3.12.44 PM.png)
 
 - Mail Details page
-![App Screenshot](assest/Screenshot 2026-04-19 at 3.12.11 PM.png)
+![App Screenshot](docs/screenshots/Screenshot 2026-04-19 at 3.12.11 PM.png)
 
 - Chrome Extension side panel
-![App Screenshot](assest/Screenshot 2026-04-19 at 3.39.18 PM.png)
-![App Screenshot](assest/Screenshot 2026-04-19 at 3.39.33 PM.png)
+![App Screenshot](docs/screenshots/Screenshot 2026-04-19 at 3.39.18 PM.png)
+![App Screenshot](docs/screenshots/Screenshot 2026-04-19 at 3.39.33 PM.png)
