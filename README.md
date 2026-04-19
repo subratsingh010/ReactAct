@@ -1,6 +1,8 @@
 # ReactAct
 
-ReactAct is a job-application workflow platform. It helps a user organize job search work in one place instead of juggling resumes, companies, jobs, recruiter details, follow-ups, and notes across multiple tools.
+ReactAct is a job application tracker and resume tailoring workspace built for job search management, recruiter outreach, bulk mail, bulk outreach, follow-up mail management, and interview workflow organization.
+
+It helps job seekers manage resumes, track applications, organize companies and recruiter contacts, schedule follow-ups, preview test mails, handle bulk outreach, send bulk mail, and tailor resumes for target roles from one place.
 
 ## What Problem It Solves
 

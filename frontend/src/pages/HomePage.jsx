@@ -177,19 +177,21 @@ function HomePage() {
         <section className="dash-card home-summary-card">
           <div className="home-summary-head">
             <div>
-              <h2>What This Project Helps With</h2>
-              <p className="hint">A compact job outreach workspace that keeps the full pipeline organized in one place.</p>
+              <h2>What ReactAct Helps With</h2>
+              <p className="hint">A job application tracking, bulk mail, and bulk outreach workspace that keeps the full pipeline organized in one place.</p>
             </div>
           </div>
           <p className="home-summary-text">
-            Manage companies, jobs, fresh mails, follow-ups, schedules, resumes, and interview progress
+            Manage job applications, recruiter outreach, bulk mail, bulk outreach, follow-up mails, schedules, resume tailoring, and interview progress
             without juggling spreadsheets, notes, and separate trackers.
           </p>
           <div className="home-summary-chips">
-            <span className="home-summary-chip">Company & Job Tracking</span>
+            <span className="home-summary-chip">Job Application Tracking</span>
+            <span className="home-summary-chip">Bulk Mail</span>
+            <span className="home-summary-chip">Bulk Outreach</span>
             <span className="home-summary-chip">Fresh & Follow-up Mails</span>
             <span className="home-summary-chip">Schedule Management</span>
-            <span className="home-summary-chip">Resume & Achievement Support</span>
+            <span className="home-summary-chip">Resume Tailoring</span>
             <span className="home-summary-chip">Interview Progress</span>
           </div>
         </section>
