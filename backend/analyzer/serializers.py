@@ -4,7 +4,6 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator, validate_email
 from rest_framework import serializers
 
-from .dummy_data import grant_dummy_data_permission
 from .models import (
     Resume,
     MailTracking,
@@ -18,6 +17,7 @@ from .models import (
     SubjectTemplate,
     Interview,
 )
+from .permissions import user_can_manage_resource
 
 _url_validator = URLValidator()
 
@@ -75,7 +75,6 @@ class SignupSerializer(serializers.ModelSerializer):
         admin_group = Group.objects.filter(name__iexact='admin').first()
         if admin_group is not None:
             user.groups.add(admin_group)
-        grant_dummy_data_permission(user)
         return user
 
 
@@ -663,7 +662,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'preferred_location_refs',
             'preferred_location_names',
             'summary',
-            'hide_dummy_data',
             'smtp_host',
             'smtp_port',
             'smtp_user',
@@ -781,6 +779,8 @@ class TemplateSerializer(serializers.ModelSerializer):
     owner_label = serializers.SerializerMethodField()
     is_system = serializers.SerializerMethodField()
     is_editable = serializers.SerializerMethodField()
+    can_edit = serializers.SerializerMethodField()
+    can_delete = serializers.SerializerMethodField()
 
     def validate_name(self, value):
         text = str(value or '').strip()
@@ -802,8 +802,9 @@ class TemplateSerializer(serializers.ModelSerializer):
 
     def validate_category(self, value):
         text = str(value or '').strip().lower()
-        if text not in {'fresh', 'follow_up'}:
-            raise serializers.ValidationError('Category must be Fresh or Follow Up.')
+        allowed = {choice[0] for choice in Template.CATEGORY_CHOICES}
+        if text not in allowed:
+            raise serializers.ValidationError('Invalid template category.')
         return text
 
     def validate_paragraph(self, value):
@@ -817,7 +818,7 @@ class TemplateSerializer(serializers.ModelSerializer):
 
     def get_owner_label(self, obj):
         owner_name = self.get_owner_name(obj)
-        return owner_name or 'system'
+        return owner_name or 'template'
 
     def get_is_system(self, obj):
         return bool(getattr(obj, 'is_system_template', False))
@@ -827,7 +828,25 @@ class TemplateSerializer(serializers.ModelSerializer):
         user = getattr(request, 'user', None)
         if not getattr(user, 'is_authenticated', False):
             return False
-        return getattr(obj, 'user_id', None) == user.id
+        return self.get_can_edit(obj)
+
+    def get_can_edit(self, obj):
+        request = self.context.get('request') if isinstance(self.context, dict) else None
+        user = getattr(request, 'user', None)
+        if not getattr(user, 'is_authenticated', False):
+            return False
+        if getattr(obj, 'user_id', None) != user.id:
+            return False
+        return user_can_manage_resource(user, 'template', 'edit')[0]
+
+    def get_can_delete(self, obj):
+        request = self.context.get('request') if isinstance(self.context, dict) else None
+        user = getattr(request, 'user', None)
+        if not getattr(user, 'is_authenticated', False):
+            return False
+        if getattr(obj, 'user_id', None) != user.id:
+            return False
+        return user_can_manage_resource(user, 'template', 'delete')[0]
 
     class Meta:
         model = Template
@@ -842,6 +861,8 @@ class TemplateSerializer(serializers.ModelSerializer):
             'owner_label',
             'is_system',
             'is_editable',
+            'can_edit',
+            'can_delete',
             'created_at',
             'updated_at',
         ]

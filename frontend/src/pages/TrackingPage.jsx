@@ -175,7 +175,7 @@ function humanizeLabel(value, fallback = '-') {
 }
 
 function templateOwnerLabel(row) {
-  return String(row?.owner_label || row?.owner_name || '').trim() || 'system'
+  return String(row?.owner_label || row?.owner_name || '').trim() || 'template'
 }
 
 function templateDisplayName(row) {
@@ -410,7 +410,7 @@ function mergeAchievementOptions(baseOptions, selectedMeta) {
       paragraph: String(selectedMeta?.text || '').trim(),
       category: String(selectedMeta?.category || 'general').trim() || 'general',
       owner_name: String(selectedMeta?.owner_name || '').trim(),
-      owner_label: String(selectedMeta?.owner_label || '').trim() || 'system',
+      owner_label: String(selectedMeta?.owner_label || '').trim() || 'template',
       is_system: Boolean(selectedMeta?.is_system),
     },
     ...rows,

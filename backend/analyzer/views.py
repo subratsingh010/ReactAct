@@ -20,16 +20,18 @@ from django.utils import timezone
 
 from .pdf_parser import parse_resume_pdf
 from .company_utils import normalize_company_name, resolve_company_for_job
-from .dummy_data import ensure_profile_for_user, shared_dummy_owner_ids_for_user
 from .models import Resume, MailTracking, MailTrackingEvent, Company, Employee, Job, Tracking, TrackingAction, UserProfile, ProfilePanel, Template, SubjectTemplate, Interview, Location
 from .permissions import (
     CompanyAccessPermission,
     EmployeeAccessPermission,
     JobAccessPermission,
+    ensure_resource_management_allowed,
+    resource_permission_flags,
     filter_companies_for_user,
     filter_employees_for_user,
     filter_jobs_for_user,
 )
+from .profile_utils import ensure_profile_for_user
 from .serializers import (
     ResumeSerializer,
     TailoredResumeSerializer,
@@ -82,14 +84,14 @@ def _ensure_write_allowed(request):
     return None
 
 
+def _ensure_resource_action_allowed(request, *, resource, action):
+    return ensure_resource_management_allowed(request, resource=resource, action=action)
+
+
 def _visible_user_ids_for_user(user):
     if not getattr(user, 'is_authenticated', False):
         return []
-    visible_ids = [user.id]
-    for owner_id in shared_dummy_owner_ids_for_user(user):
-        if owner_id not in visible_ids:
-            visible_ids.append(owner_id)
-    return visible_ids
+    return [user.id]
 
 
 def _workspace_owner_for_user(user):
@@ -114,17 +116,7 @@ def _owned_profile_ids_for_user(user):
 
 
 def _accessible_profile_ids_for_user(user):
-    user_ids = _accessible_owner_ids_for_user(user)
-    if not user_ids:
-        return []
-    profile_ids = list(UserProfile.objects.filter(user_id__in=user_ids).values_list('id', flat=True))
-    missing_user_ids = [uid for uid in user_ids if uid not in set(UserProfile.objects.filter(user_id__in=user_ids).values_list('user_id', flat=True))]
-    for user_id in missing_user_ids:
-        auth_user = User.objects.filter(id=user_id).first()
-        if not auth_user:
-            continue
-        profile_ids.append(_workspace_profile_for_user(auth_user).id)
-    return profile_ids
+    return _owned_profile_ids_for_user(user)
 
 
 def _accessible_jobs_for_user(user):
@@ -1516,6 +1508,9 @@ class ProfileView(APIView):
                 'username': request.user.username,
                 'email': request.user.email,
                 'profile': UserProfileSerializer(profile).data,
+                'permissions': {
+                    'templates': resource_permission_flags(request.user, 'template'),
+                },
             }
         )
 
@@ -1672,7 +1667,7 @@ class TemplateListCreateView(APIView):
         return Response(TemplateSerializer(rows, many=True, context={'request': request}).data, status=status.HTTP_200_OK)
 
     def post(self, request):
-        denied = _ensure_write_allowed(request)
+        denied = _ensure_resource_action_allowed(request, resource='template', action='add')
         if denied:
             return denied
         serializer = TemplateSerializer(data=request.data, context={'request': request})
@@ -1694,7 +1689,7 @@ class TemplateDetailView(APIView):
         return owned_template_queryset_for_user(request.user).get(id=self._resolve_id(template_id, achievement_id))
 
     def put(self, request, template_id=None, achievement_id=None):
-        denied = _ensure_write_allowed(request)
+        denied = _ensure_resource_action_allowed(request, resource='template', action='edit')
         if denied:
             return denied
         try:
@@ -1708,7 +1703,7 @@ class TemplateDetailView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, template_id=None, achievement_id=None):
-        denied = _ensure_write_allowed(request)
+        denied = _ensure_resource_action_allowed(request, resource='template', action='delete')
         if denied:
             return denied
         try:
@@ -3267,10 +3262,23 @@ class ApplicationTrackingListCreateView(APIView):
         )
 
     def post(self, request):
-        denied = _ensure_write_allowed(request)
+        denied = _ensure_resource_action_allowed(request, resource='tracking', action='add')
         if denied:
             return denied
         payload = request.data or {}
+        if not payload.get('company'):
+            denied = _ensure_resource_action_allowed(request, resource='company', action='add')
+            if denied:
+                return denied
+        explicit_job_id = str(payload.get('job') or '').strip()
+        if not explicit_job_id:
+            denied = _ensure_resource_action_allowed(request, resource='job', action='add')
+            if denied:
+                return denied
+        elif any(field in payload for field in {'applied_date', 'posting_date', 'is_open', 'is_closed', 'is_removed'}):
+            denied = _ensure_resource_action_allowed(request, resource='job', action='edit')
+            if denied:
+                return denied
         schedule_time = self._to_datetime(payload.get('schedule_time'))
         mail_type = str(payload.get('mail_type') or payload.get('action') or 'fresh').strip().lower()
         if mail_type not in {'fresh', 'followed_up'}:
@@ -3756,7 +3764,7 @@ class ApplicationTrackingDetailView(APIView):
 
     @transaction.atomic
     def put(self, request, tracking_id):
-        denied = _ensure_write_allowed(request)
+        denied = _ensure_resource_action_allowed(request, resource='tracking', action='edit')
         if denied:
             return denied
         try:
@@ -3765,6 +3773,14 @@ class ApplicationTrackingDetailView(APIView):
             return Response({'detail': 'Tracking row not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         payload = request.data or {}
+        if 'company_name' in payload and not payload.get('company'):
+            denied = _ensure_resource_action_allowed(request, resource='company', action='add')
+            if denied:
+                return denied
+        if any(field in payload for field in {'company', 'company_name', 'job_id', 'role', 'job_url', 'applied_date', 'posting_date', 'is_open', 'is_closed', 'is_removed'}):
+            denied = _ensure_resource_action_allowed(request, resource='job', action='edit')
+            if denied:
+                return denied
         send_now = self._to_bool(payload.get('send_now'), default=False)
         job = row.job
 
@@ -4114,7 +4130,7 @@ class ApplicationTrackingDetailView(APIView):
         return Response(self._serialize_tracking_row(fresh), status=status.HTTP_200_OK)
 
     def delete(self, request, tracking_id):
-        denied = _ensure_write_allowed(request)
+        denied = _ensure_resource_action_allowed(request, resource='tracking', action='delete')
         if denied:
             return denied
         try:
@@ -4845,7 +4861,13 @@ class BulkUploadJobsEmployeesView(APIView):
         return summary
 
     def post(self, request):
-        denied = _ensure_write_allowed(request)
+        denied = _ensure_resource_action_allowed(request, resource='employee', action='add')
+        if denied:
+            return denied
+        denied = _ensure_resource_action_allowed(request, resource='company', action='add')
+        if denied:
+            return denied
+        denied = _ensure_resource_action_allowed(request, resource='job', action='add')
         if denied:
             return denied
         try:
@@ -4895,7 +4917,10 @@ class BulkUploadEmployeesView(BulkUploadJobsEmployeesView):
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def post(self, request):
-        denied = _ensure_write_allowed(request)
+        denied = _ensure_resource_action_allowed(request, resource='company', action='add')
+        if denied:
+            return denied
+        denied = _ensure_resource_action_allowed(request, resource='employee', action='add')
         if denied:
             return denied
         try:
@@ -4927,7 +4952,10 @@ class BulkUploadJobsView(BulkUploadJobsEmployeesView):
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def post(self, request):
-        denied = _ensure_write_allowed(request)
+        denied = _ensure_resource_action_allowed(request, resource='job', action='add')
+        if denied:
+            return denied
+        denied = _ensure_resource_action_allowed(request, resource='company', action='add')
         if denied:
             return denied
         try:
@@ -5132,6 +5160,13 @@ class ExtensionJobCreateView(APIView):
         actor = _resolve_extension_user(request)
         if not actor:
             return Response({'detail': 'Please login in web app'}, status=status.HTTP_401_UNAUTHORIZED)
+        denied = _ensure_resource_action_allowed(request, resource='job', action='add')
+        if denied:
+            return denied
+        if not (payload.get('company_id') or payload.get('company')):
+            denied = _ensure_resource_action_allowed(request, resource='company', action='add')
+            if denied:
+                return denied
         workspace_owner = _workspace_owner_for_user(actor)
 
         company, company_error = self._resolve_company(
@@ -5241,6 +5276,13 @@ class ExtensionEmployeeCreateView(APIView):
         actor = _resolve_extension_user(request)
         if not actor:
             return Response({'detail': 'Please login in web app'}, status=status.HTTP_401_UNAUTHORIZED)
+        denied = _ensure_resource_action_allowed(request, resource='employee', action='add')
+        if denied:
+            return denied
+        if not (payload.get('company_id') or payload.get('company')):
+            denied = _ensure_resource_action_allowed(request, resource='company', action='add')
+            if denied:
+                return denied
         workspace_owner = _workspace_owner_for_user(actor)
 
         company, company_error = self._resolve_company(

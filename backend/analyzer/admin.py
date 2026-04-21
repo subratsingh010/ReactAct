@@ -12,15 +12,14 @@ class ResumeAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "role", "is_dummy_profile", "hide_dummy_data", "hide_shared_dummy_data", "full_name", "email", "current_employer", "updated_at")
-    list_filter = ("role", "is_dummy_profile", "hide_dummy_data", "hide_shared_dummy_data")
+    list_display = ("id", "user", "role", "full_name", "email", "current_employer", "updated_at")
+    list_filter = ("role",)
     search_fields = ("user__username", "user__email", "full_name", "email", "current_employer", "smtp_host", "imap_host", "openai_model")
     autocomplete_fields = ("user",)
     fieldsets = (
         (None, {"fields": ("user", "role", "full_name", "email", "contact_number")}),
         ("Profile", {"fields": ("linkedin_url", "github_url", "portfolio_url", "resume_link", "current_employer", "years_of_experience", "summary")}),
         ("Location", {"fields": ("address_line_1", "address_line_2", "state", "country", "country_code", "location", "location_ref", "preferred_locations")}),
-        ("Dummy Data", {"fields": ("is_dummy_profile", "hide_dummy_data", "hide_shared_dummy_data")}),
         ("SMTP", {"fields": ("smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_use_tls", "smtp_from_email")}),
         ("IMAP", {"fields": ("imap_host", "imap_port", "imap_user", "imap_password", "imap_folder")}),
         ("OpenAI", {"fields": ("openai_api_key", "openai_model", "ai_task_instructions")}),
@@ -38,13 +37,13 @@ class JobAdmin(admin.ModelAdmin):
 
 @admin.register(Template)
 class TemplateAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "template_scope", "category", "profile", "template_owner", "updated_at")
-    list_filter = ("template_scope", "category")
+    list_display = ("id", "name", "category", "profile", "template_owner", "updated_at")
+    list_filter = ("category",)
     search_fields = ("name", "achievement", "profile__user__username", "profile__user__email")
     autocomplete_fields = ("profile",)
 
     def template_owner(self, obj):
-        return getattr(getattr(obj.profile, "user", None), "username", "") or "system"
+        return getattr(getattr(obj.profile, "user", None), "username", "") or "template"
 
     template_owner.short_description = "Owner"
 

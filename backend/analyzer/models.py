@@ -544,15 +544,9 @@ class UserProfile(BaseModel):
     openai_api_key = models.CharField(max_length=500, blank=True)
     openai_model = models.CharField(max_length=120, blank=True)
     ai_task_instructions = models.TextField(blank=True)
-    is_dummy_profile = models.BooleanField(default=False)
-    hide_dummy_data = models.BooleanField(default=False)
-    hide_shared_dummy_data = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['-updated_at', '-created_at']
-        permissions = [
-            ('view_dummy_data', 'Can view shared dummy data'),
-        ]
 
     def __str__(self):
         return f'Profile ({self.user.username})'

@@ -4,22 +4,18 @@ import ResumeSheet from '../components/ResumeSheet'
 import { MultiSelectDropdown, SingleSelectDropdown } from '../components/SearchableDropdown'
 
 import {
-  createTemplate,
   createSubjectTemplate,
   createInterview,
-  deleteTemplate,
   deleteSubjectTemplate,
   deleteInterview,
   deleteResume,
   fetchAllJobs,
-  fetchTemplates,
   fetchSubjectTemplates,
   fetchInterviews,
   fetchLocations,
   fetchProfile,
   fetchProfileInfo,
   fetchResumes,
-  updateTemplate,
   updateSubjectTemplate,
   updateInterview,
   updateProfileInfo,
@@ -44,7 +40,6 @@ const EMPTY_PROFILE = {
   location_ref: '',
   preferred_location_refs: [],
   summary: '',
-  hide_dummy_data: false,
   smtp_host: '',
   smtp_port: '',
   smtp_user: '',
@@ -61,26 +56,11 @@ const EMPTY_PROFILE = {
   ai_task_instructions: '',
 }
 
-const EMPTY_ACH = {
-  name: '',
-  category: 'general',
-  paragraph: '',
-}
-
 const EMPTY_SUBJECT_TEMPLATE = {
   name: '',
   category: 'fresh',
   subject: '',
 }
-
-const TEMPLATE_CATEGORY_OPTIONS = [
-  { value: 'personalized', label: 'Personalized' },
-  { value: 'follow_up', label: 'Follow Up' },
-  { value: 'opening', label: 'Opening' },
-  { value: 'experience', label: 'Experience' },
-  { value: 'closing', label: 'Closing' },
-  { value: 'general', label: 'General' },
-]
 
 const SUBJECT_TEMPLATE_CATEGORY_OPTIONS = [
   { value: 'fresh', label: 'Fresh' },
@@ -347,12 +327,6 @@ function ProfilePage() {
   const [resumes, setResumes] = useState([])
   const [previewResume, setPreviewResume] = useState(null)
 
-  const [achievements, setAchievements] = useState([])
-  const [templateCategoryFilter, setTemplateCategoryFilter] = useState('')
-  const [showAchForm, setShowAchForm] = useState(false)
-  const [editingAchId, setEditingAchId] = useState(null)
-  const [achForm, setAchForm] = useState(EMPTY_ACH)
-  const [showTemplateHints, setShowTemplateHints] = useState(false)
   const [subjectTemplates, setSubjectTemplates] = useState([])
   const [subjectTemplateCategoryFilter, setSubjectTemplateCategoryFilter] = useState('')
   const [showSubjectTemplateForm, setShowSubjectTemplateForm] = useState(false)
@@ -415,19 +389,6 @@ function ProfilePage() {
     [profileForm.country, profileForm.state],
   )
 
-  const ownedAchievements = useMemo(
-    () => (Array.isArray(achievements) ? achievements : []).filter((row) => String(row?.template_scope || 'user_based').trim().toLowerCase() === 'user_based'),
-    [achievements],
-  )
-
-  const filteredAchievements = useMemo(() => {
-    const selectedCategory = String(templateCategoryFilter || '').trim().toLowerCase()
-    if (!selectedCategory) return ownedAchievements
-    return ownedAchievements.filter(
-      (row) => String(row?.category || '').trim().toLowerCase() === selectedCategory,
-    )
-  }, [ownedAchievements, templateCategoryFilter])
-
   const filteredSubjectTemplates = useMemo(() => {
     const selectedCategory = String(subjectTemplateCategoryFilter || '').trim().toLowerCase()
     const rows = Array.isArray(subjectTemplates) ? subjectTemplates : []
@@ -443,11 +404,10 @@ function ProfilePage() {
       setLoading(true)
       setError('')
       try {
-        const [profileBase, info, resumeRows, achRows, subjectRows, interviewRows, jobsData, locationRows] = await Promise.all([
+        const [profileBase, info, resumeRows, subjectRows, interviewRows, jobsData, locationRows] = await Promise.all([
           fetchProfile(access),
           fetchProfileInfo(access),
           fetchResumes(access),
-          fetchTemplates(access),
           fetchSubjectTemplates(access),
           fetchInterviews(access),
           fetchAllJobs(access),
@@ -463,7 +423,6 @@ function ProfilePage() {
             ? resumeRows.filter((row) => !row?.is_tailored)
             : [],
         )
-        setAchievements(Array.isArray(achRows) ? achRows : [])
         setSubjectTemplates(Array.isArray(subjectRows) ? subjectRows : [])
         setInterviews(Array.isArray(interviewRows) ? interviewRows : [])
         setJobOptions(Array.isArray(jobsData) ? jobsData : [])
@@ -541,72 +500,6 @@ function ProfilePage() {
     sessionStorage.removeItem('builderImport')
     sessionStorage.removeItem('builderResumeId')
     navigate('/builder')
-  }
-
-  const saveAchievement = async () => {
-    try {
-      setError('')
-      setOk('')
-      const payload = {
-        name: String(achForm.name || '').trim(),
-        category: String(achForm.category || 'general').trim() || 'general',
-        paragraph: String(achForm.paragraph || '').trim(),
-      }
-      if (!payload.name || !payload.paragraph) {
-        setError('Template needs name and paragraph text.')
-        return
-      }
-      if (editingAchId) {
-        const updated = await updateTemplate(access, editingAchId, payload)
-        setAchievements((prev) => prev.map((row) => (row.id === editingAchId ? updated : row)))
-        setOk('Template updated.')
-      } else {
-        const created = await createTemplate(access, payload)
-        setAchievements((prev) => [created, ...prev])
-        setOk('Template added.')
-      }
-      closeAchievementForm()
-    } catch (err) {
-      setError(err.message || 'Could not save template.')
-    }
-  }
-
-  const openCreateAchievement = () => {
-    setError('')
-    setOk('')
-    setEditingAchId(null)
-    setAchForm(EMPTY_ACH)
-    setShowTemplateHints(false)
-    setShowAchForm(true)
-  }
-
-  const closeAchievementForm = () => {
-    setShowAchForm(false)
-    setEditingAchId(null)
-    setAchForm(EMPTY_ACH)
-    setShowTemplateHints(false)
-  }
-
-  const editAchievement = (row) => {
-    setError('')
-    setOk('')
-    setEditingAchId(row.id)
-    setAchForm({
-      name: row.name || '',
-      category: row.category || 'general',
-      paragraph: row.paragraph || '',
-    })
-    setShowTemplateHints(false)
-    setShowAchForm(true)
-  }
-
-  const removeAchievement = async (id) => {
-    try {
-      await deleteTemplate(access, id)
-      setAchievements((prev) => prev.filter((row) => row.id !== id))
-    } catch (err) {
-      setError(err.message || 'Could not delete template.')
-    }
   }
 
   const openCreateSubjectTemplate = () => {
@@ -768,7 +661,7 @@ function ProfilePage() {
       <div className="tracking-head">
         <div>
           <h1>Profile</h1>
-          <p className="subtitle">Personal info, templates, resumes, and interview milestones.</p>
+          <p className="subtitle">Personal info, resumes, subject templates, and interview milestones.</p>
         </div>
         <div className="actions">
           <button type="button" className="secondary" onClick={openCreateResumeInBuilder}>Open Resume Workspace</button>
@@ -823,44 +716,6 @@ function ProfilePage() {
               <span className="profile-info-value">{profileUsername || '-'}</span>
             </div>
           ) : null}
-        </div>
-      </section>
-
-      <section className="dash-card">
-        <div className="tracking-head profile-section-head">
-          <h2>Templates</h2>
-          <div className="actions profile-template-head-actions">
-            <div className="profile-template-filter">
-              <SingleSelectDropdown
-                value={templateCategoryFilter}
-                placeholder="Category"
-                searchPlaceholder="Search category"
-                clearLabel="All Categories"
-                options={TEMPLATE_CATEGORY_OPTIONS}
-                onChange={(nextValue) => setTemplateCategoryFilter(nextValue || '')}
-              />
-            </div>
-            <button type="button" className="secondary" onClick={() => navigate('/templates')}>View Library</button>
-            <button type="button" className="secondary" onClick={openCreateAchievement}>Add Template</button>
-          </div>
-        </div>
-        <p className="hint">Manage only your own templates here. Shared system templates are available from the Templates page and in tracking dropdowns.</p>
-        <div className="profile-ach-grid">
-          {filteredAchievements.map((row) => (
-            <article key={row.id} className="profile-template-row">
-              <div className="profile-template-main">
-                <p className="profile-template-title"><strong>{row.name || '-'}</strong></p>
-                <p className="hint">{String(row.category || 'general').replaceAll('_', ' ')}</p>
-                <p className="profile-template-snippet">{row.paragraph || '-'}</p>
-              </div>
-              <div className="profile-template-actions">
-                <button type="button" className="secondary" onClick={() => editAchievement(row)}>Edit</button>
-                <button type="button" className="secondary" onClick={() => removeAchievement(row.id)}>Delete</button>
-              </div>
-            </article>
-          ))}
-          {!ownedAchievements.length ? <p className="hint">No personal templates yet.</p> : null}
-          {ownedAchievements.length && !filteredAchievements.length ? <p className="hint">No personal templates in this category.</p> : null}
         </div>
       </section>
 
@@ -1138,10 +993,6 @@ function ProfilePage() {
               <label>Portfolio URL<input value={profileForm.portfolio_url} onChange={(e) => setProfileForm((p) => ({ ...p, portfolio_url: e.target.value }))} /></label>
               <label>Resume Link<input value={profileForm.resume_link} onChange={(e) => setProfileForm((p) => ({ ...p, resume_link: e.target.value }))} /></label>
               <label>Summary<textarea rows={3} value={profileForm.summary} onChange={(e) => setProfileForm((p) => ({ ...p, summary: e.target.value }))} /></label>
-              <label className="profile-checkbox-label">
-                <span>Hide Dummy Data</span>
-                <input type="checkbox" checked={!!profileForm.hide_dummy_data} onChange={(e) => setProfileForm((p) => ({ ...p, hide_dummy_data: e.target.checked }))} />
-              </label>
               <label>SMTP Host<input value={profileForm.smtp_host} onChange={(e) => setProfileForm((p) => ({ ...p, smtp_host: e.target.value }))} /></label>
               <label>SMTP Port<input value={profileForm.smtp_port} onChange={(e) => setProfileForm((p) => ({ ...p, smtp_port: e.target.value.replace(/[^\d]/g, '') }))} placeholder="587" /></label>
               <label>SMTP User<input value={profileForm.smtp_user} onChange={(e) => setProfileForm((p) => ({ ...p, smtp_user: e.target.value }))} /></label>
@@ -1162,45 +1013,6 @@ function ProfilePage() {
             <div className="actions">
               <button type="button" onClick={saveProfile}>Save</button>
               <button type="button" className="secondary" onClick={closeProfileEditor}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showAchForm ? (
-        <div className="modal-overlay" onClick={closeAchievementForm}>
-          <div className="modal-panel profile-modal-panel" onClick={(event) => event.stopPropagation()}>
-            <h2>{editingAchId ? 'Edit Template' : 'Add Template'}</h2>
-            <div className="profile-form-grid">
-              <label>Name<input value={achForm.name} onChange={(e) => setAchForm((p) => ({ ...p, name: e.target.value }))} /></label>
-              <label>Category<select value={achForm.category || 'general'} onChange={(e) => setAchForm((p) => ({ ...p, category: e.target.value }))}><option value="personalized">Personalized</option><option value="follow_up">Follow Up</option><option value="opening">Opening</option><option value="experience">Experience</option><option value="closing">Closing</option><option value="general">General</option></select></label>
-              <label>
-                Paragraph
-                <textarea rows={4} value={achForm.paragraph} onChange={(e) => setAchForm((p) => ({ ...p, paragraph: e.target.value }))} placeholder="Example: Hi {name}, I’m reaching out about the {role} role at {company_name}. My experience at {current_employer} and {years_of_experience} years in the field feel closely aligned." />
-              </label>
-              <div className="profile-template-hint-panel">
-                <button
-                  type="button"
-                  className="secondary profile-template-hint-toggle"
-                  onClick={() => setShowTemplateHints((current) => !current)}
-                >
-                  {showTemplateHints ? 'Hide Hints' : 'Show Hints'}
-                </button>
-                {showTemplateHints ? (
-                  <div className="profile-template-hint-box">
-                    <p className="hint profile-form-note">Use placeholders in the paragraph like <code>{'{name}'}</code>, <code>{'{role}'}</code>, or <code>{'{company_name}'}</code>.</p>
-                    <div className="profile-template-hint-chips">
-                      {TEMPLATE_PLACEHOLDER_KEYS.map((key) => (
-                        <code key={key} className="profile-template-hint-chip">{`{${key}}`}</code>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <div className="actions">
-              <button type="button" onClick={saveAchievement}>{editingAchId ? 'Update' : 'Create'}</button>
-              <button type="button" className="secondary" onClick={closeAchievementForm}>Cancel</button>
             </div>
           </div>
         </div>
