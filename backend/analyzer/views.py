@@ -4960,6 +4960,48 @@ class ExtensionFormMetaView(APIView):
 
     def get(self, request):
         actor = _resolve_extension_user(request)
+        accessible_profile_ids = _accessible_profile_ids_for_user(actor) if actor else []
+        location_names = list(
+            Location.objects
+            .exclude(name__isnull=True)
+            .exclude(name__exact='')
+            .values_list('name', flat=True)
+            .order_by('name')
+            .distinct()
+        )
+        job_roles = list(
+            Job.objects
+            .filter(company__profile_id__in=accessible_profile_ids)
+            .exclude(role__isnull=True)
+            .exclude(role__exact='')
+            .values_list('role', flat=True)
+            .order_by('role')
+            .distinct()
+        ) if accessible_profile_ids else []
+        employee_roles = list(
+            Employee.objects
+            .filter(owner_profile_id__in=accessible_profile_ids)
+            .exclude(JobRole__isnull=True)
+            .exclude(JobRole__exact='')
+            .values_list('JobRole', flat=True)
+            .order_by('JobRole')
+            .distinct()
+        ) if accessible_profile_ids else []
+        department_seed = ['HR', 'Engineering', 'Other']
+        existing_departments = list(
+            Employee.objects
+            .filter(owner_profile_id__in=accessible_profile_ids)
+            .exclude(department__isnull=True)
+            .exclude(department__exact='')
+            .values_list('department', flat=True)
+            .order_by('department')
+            .distinct()
+        ) if accessible_profile_ids else []
+        department_values = []
+        for value in [*department_seed, *existing_departments]:
+            normalized = str(value or '').strip()
+            if normalized and normalized not in department_values:
+                department_values.append(normalized)
         posted_date_options = [
             {'value': 'today', 'label': 'Today'},
             {'value': 'yesterday', 'label': 'Yesterday'},
@@ -4967,18 +5009,26 @@ class ExtensionFormMetaView(APIView):
             {'value': 'last_7_days', 'label': 'Last 7 Days'},
             {'value': 'custom', 'label': 'Posted Date'},
         ]
-        location_rows = Location.objects.all().order_by('name')[:10]
         return Response(
             {
                 'department_options': [
-                    {'value': 'HR', 'label': 'HR'},
-                    {'value': 'Engineering', 'label': 'Engineering'},
-                    {'value': 'Other', 'label': 'Other'},
+                    {'value': value, 'label': value}
+                    for value in department_values
+                ],
+                'job_role_options': [
+                    {'value': str(value or '').strip(), 'label': str(value or '').strip()}
+                    for value in job_roles
+                    if str(value or '').strip()
+                ],
+                'employee_role_options': [
+                    {'value': str(value or '').strip(), 'label': str(value or '').strip()}
+                    for value in employee_roles
+                    if str(value or '').strip()
                 ],
                 'location_options': [
-                    {'value': str(row.name or '').strip(), 'label': str(row.name or '').strip()}
-                    for row in location_rows
-                    if str(row.name or '').strip()
+                    {'value': str(name or '').strip(), 'label': str(name or '').strip()}
+                    for name in location_names
+                    if str(name or '').strip()
                 ],
                 'posted_date_options': posted_date_options,
                 'workspace_role': (
@@ -5005,16 +5055,22 @@ class ExtensionCompanySearchView(APIView):
         rows = Company.objects.filter(profile_id__in=_accessible_profile_ids_for_user(actor))
         if q:
             rows = rows.filter(name__icontains=q)
-        rows = rows.order_by('name')[:50]
+        names = list(
+            rows.exclude(name__isnull=True)
+            .exclude(name__exact='')
+            .values_list('name', flat=True)
+            .order_by('name')
+            .distinct()[:100]
+        )
         return Response(
             {
                 'results': [
                     {
-                        'id': row.id,
-                        'name': row.name,
-                        'mail_format': str(row.mail_format or '').strip(),
+                        'id': name,
+                        'name': name,
+                        'mail_format': '',
                     }
-                    for row in rows
+                    for name in names
                 ]
             },
             status=status.HTTP_200_OK,

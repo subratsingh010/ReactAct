@@ -14,6 +14,15 @@
   }
 
   function extractJobTitle() {
+    if (/greenhouse\.io$/i.test(String(window.location.hostname || ''))) {
+      return getTextFromSelectors([
+        '.app-title',
+        '.job__title',
+        'main h1',
+        'article h1',
+        'h1',
+      ])
+    }
     const el = document.querySelector('[data-automation-id="jobPostingHeader"]')
     if (!el) return ''
     const lines = el.innerText
@@ -114,7 +123,66 @@
     return decodeURIComponent(String(m[1] || '').trim())
   }
 
+  function isGreenhousePage() {
+    const host = String(window.location.hostname || '').toLowerCase()
+    return host === 'boards.greenhouse.io' || host === 'job-boards.greenhouse.io' || host.endsWith('.greenhouse.io')
+  }
+
+  function extractGreenhouseMeta() {
+    const bodyText = String(document.body?.innerText || '')
+    const lines = getBodyLines(bodyText)
+    const metaTitle = String(document.querySelector('meta[property="og:title"]')?.content || '').trim()
+    const metaSite = String(document.querySelector('meta[property="og:site_name"]')?.content || '').trim()
+    const jobTitle = firstNonEmpty([
+      getTextFromSelectors(['.app-title', '.job__title', 'main h1', 'article h1', 'h1']),
+      metaTitle.split(' at ')[0] || '',
+      String(document.title || '').split('|')[0] || '',
+    ])
+
+    const companyName = firstNonEmpty([
+      getTextFromSelectors([
+        '.company-name',
+        '.company',
+        '[data-company-name]',
+        '.app-header .company-name',
+      ]),
+      metaSite,
+      / at (.+)$/i.exec(metaTitle)?.[1] || '',
+      inferCompanyFromHost(),
+    ])
+
+    const location = firstNonEmpty([
+      getTextFromSelectors([
+        '.location',
+        '.job__location',
+        '.app-header .location',
+        '[data-location]',
+      ]),
+      valueFromLabeledLines(lines, 'location|office'),
+    ])
+
+    const jobId = firstNonEmpty([
+      /\/jobs\/(\d+)/i.exec(String(window.location.pathname || ''))?.[1] || '',
+      valueFromLabeledLines(lines, 'job id|requisition id|req id'),
+    ])
+
+    return {
+      jobTitle: String(jobTitle || '').trim(),
+      companyName: cleanCompanyName(companyName) || normalizeCompanyToken(companyName),
+      location: String(location || '').trim(),
+      postedDate: '',
+      postedDateIso: '',
+      remoteType: '',
+      timeType: '',
+      jobId: String(jobId || '').trim(),
+      jobUrl: window.location.href,
+    }
+  }
+
   function extractJobMeta() {
+    if (isGreenhousePage()) {
+      return extractGreenhouseMeta()
+    }
     const bodyText = String(document.body?.innerText || '')
     const lines = getBodyLines(bodyText)
     const jobTitle = extractJobTitle()
@@ -190,6 +258,10 @@
   }
 
   function extractJobDescription() {
+    if (isGreenhousePage()) {
+      const greenhouseEl = document.querySelector('#content, .content, .job__description, main article, article')
+      if (greenhouseEl) return greenhouseEl.innerText.trim()
+    }
     const el = document.querySelector('[data-automation-id="jobPostingDescription"]')
     if (el) return el.innerText.trim()
 

@@ -72,22 +72,24 @@
       <div class="row">
         <div>
           <label>Company</label>
-          <input id="jobCompanyName" placeholder="Type company" required />
+          <input id="jobCompanyName" list="jobCompanySuggestions" placeholder="Search or type company" required />
+          <datalist id="jobCompanySuggestions"></datalist>
+          <p id="jobCompanyHint" class="field-hint"></p>
         </div>
       </div>
       <div class="row three">
         <div><label>Job ID</label><input id="jobId" /></div>
         <div>
           <label>Role</label>
-          <select id="jobRole" required>
-            <option value="">Select role</option>
-            <option value="Software Engineer">Software Engineer</option>
-            <option value="Fullstack Engineer">Fullstack Engineer</option>
-            <option value="Backend Engineer">Backend Engineer</option>
-            <option value="Sr. Software Engineer">Sr. Software Engineer</option>
-          </select>
+          <input id="jobRole" list="jobRoleSuggestions" placeholder="Search or type role" required />
+          <datalist id="jobRoleSuggestions"></datalist>
+          <p id="jobRoleHint" class="field-hint"></p>
         </div>
-        <div><label>Location</label><select id="jobLocation" required></select></div>
+        <div>
+          <label>Location</label>
+          <input id="jobLocation" list="jobLocationSuggestions" placeholder="Search or type location" required />
+          <datalist id="jobLocationSuggestions"></datalist>
+        </div>
       </div>
       <div class="row two">
         <div>
@@ -123,47 +125,18 @@
         <div><label>Name</label><input id="empName" required /></div>
         <div>
           <label>Department</label>
-          <select id="empDepartment" required>
-            <option value="">Select department</option>
-            <option value="HR" selected>HR</option>
-            <option value="Engineering">Engineering</option>
-            <option value="Data">Data</option>
-            <option value="Product">Product</option>
-            <option value="Design">Design</option>
-            <option value="Operations">Operations</option>
-            <option value="Sales">Sales</option>
-            <option value="Marketing">Marketing</option>
-            <option value="Finance">Finance</option>
-            <option value="Support">Support</option>
-          </select>
+          <input id="empDepartment" list="empDepartmentSuggestions" placeholder="Search or type department" required />
+          <datalist id="empDepartmentSuggestions"></datalist>
+          <p id="empDepartmentHint" class="field-hint"></p>
         </div>
       </div>
       <div class="row two">
         <div><label>LinkedIn URL</label><input id="empLinkedin" required /></div>
         <div>
           <label>Role</label>
-          <select id="empRole" required>
-            <option value="">Select role</option>
-            <option value="Software Engineer">Software Engineer</option>
-            <option value="Fullstack Engineer">Fullstack Engineer</option>
-            <option value="Backend Engineer">Backend Engineer</option>
-            <option value="Frontend Engineer">Frontend Engineer</option>
-            <option value="Sr. Software Engineer">Sr. Software Engineer</option>
-            <option value="Sr. Fullstack Engineer">Sr. Fullstack Engineer</option>
-            <option value="Sr. Backend Engineer">Sr. Backend Engineer</option>
-            <option value="Sr. Frontend Engineer">Sr. Frontend Engineer</option>
-            <option value="Manager">Manager</option>
-            <option value="Team Lead">Team Lead</option>
-            <option value="HR Recruiter">HR Recruiter</option>
-            <option value="Sr. HR Recruiter">Sr. HR Recruiter</option>
-            <option value="Sr. Talent Acquisition Executive">Sr. Talent Acquisition Executive</option>
-            <option value="Sr. Talent Acquisition Specialist">Sr. Talent Acquisition Specialist</option>
-            <option value="General Talent Acquisition">General Talent Acquisition</option>
-            <option value="Talent Acquisition Executive">Talent Acquisition Executive</option>
-            <option value="Talent Acquisition Specialist">Talent Acquisition Specialist</option>
-            <option value="Talent Sourcer">Talent Sourcer</option>
-            <option value="Hiring Manager">Hiring Manager</option>
-          </select>
+          <input id="empRole" list="empRoleSuggestions" placeholder="Search or type role" required />
+          <datalist id="empRoleSuggestions"></datalist>
+          <p id="empRoleHint" class="field-hint"></p>
         </div>
       </div>
       <div class="row">
@@ -182,11 +155,14 @@
       <div class="row two">
         <div>
           <label>Company</label>
-          <input id="empCompanyName" placeholder="Type company" required />
+          <input id="empCompanyName" list="empCompanySuggestions" placeholder="Search or type company" required />
+          <datalist id="empCompanySuggestions"></datalist>
+          <p id="empCompanyHint" class="field-hint"></p>
         </div>
         <div>
           <label>Location</label>
-          <select id="empLocation" required></select>
+          <input id="empLocation" list="empLocationSuggestions" placeholder="Search or type location" required />
+          <datalist id="empLocationSuggestions"></datalist>
         </div>
       </div>
       <p id="employeeStatus" class="section-status"></p>

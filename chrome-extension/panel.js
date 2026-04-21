@@ -12,9 +12,14 @@ const els = {
   jobStatus: document.getElementById('jobStatus'),
   employeeStatus: document.getElementById('employeeStatus'),
   jobCompanyName: document.getElementById('jobCompanyName'),
+  jobCompanySuggestions: document.getElementById('jobCompanySuggestions'),
+  jobCompanyHint: document.getElementById('jobCompanyHint'),
   jobId: document.getElementById('jobId'),
   jobRole: document.getElementById('jobRole'),
+  jobRoleSuggestions: document.getElementById('jobRoleSuggestions'),
+  jobRoleHint: document.getElementById('jobRoleHint'),
   jobLocation: document.getElementById('jobLocation'),
+  jobLocationSuggestions: document.getElementById('jobLocationSuggestions'),
   postedDate: document.getElementById('postedDate'),
   jobApplied: document.getElementById('jobApplied'),
   jobLink: document.getElementById('jobLink'),
@@ -25,8 +30,12 @@ const els = {
   clearJobBtn: document.getElementById('clearJobBtn'),
   empName: document.getElementById('empName'),
   empDepartment: document.getElementById('empDepartment'),
+  empDepartmentSuggestions: document.getElementById('empDepartmentSuggestions'),
+  empDepartmentHint: document.getElementById('empDepartmentHint'),
   empLinkedin: document.getElementById('empLinkedin'),
   empRole: document.getElementById('empRole'),
+  empRoleSuggestions: document.getElementById('empRoleSuggestions'),
+  empRoleHint: document.getElementById('empRoleHint'),
   empAbout: document.getElementById('empAbout'),
   empFirst: document.getElementById('empFirst'),
   empMiddle: document.getElementById('empMiddle'),
@@ -34,15 +43,16 @@ const els = {
   empContact: document.getElementById('empContact'),
   empEmail: document.getElementById('empEmail'),
   empCompanyName: document.getElementById('empCompanyName'),
+  empCompanySuggestions: document.getElementById('empCompanySuggestions'),
+  empCompanyHint: document.getElementById('empCompanyHint'),
   empLocation: document.getElementById('empLocation'),
+  empLocationSuggestions: document.getElementById('empLocationSuggestions'),
   fetchEmployeeFromPageBtn: document.getElementById('fetchEmployeeFromPageBtn'),
   saveEmployeeBtn: document.getElementById('saveEmployeeBtn'),
   clearEmployeeBtn: document.getElementById('clearEmployeeBtn'),
 }
 
 const API_BASE_STORAGE_KEY = 'applypilot_api_base'
-const META_CACHE_KEY = 'applypilot_form_meta_cache'
-const META_CACHE_TTL_MS = 10 * 60 * 1000
 
 function esc(value) {
   return String(value || '')
@@ -75,6 +85,11 @@ function setEmployeeStatus(msg, isError = false) {
   els.employeeStatus.style.color = isError ? '#bf1d3d' : '#2b5fcc'
 }
 
+function setInputValue(inputEl, nextValue) {
+  if (!inputEl) return
+  inputEl.value = String(nextValue || '').trim()
+}
+
 function validateRequiredFields(fields) {
   for (const field of fields) {
     if (!field) continue
@@ -87,23 +102,26 @@ function validateRequiredFields(fields) {
 }
 
 function selectBestRoleOption(rawRole) {
-  const role = String(rawRole || '').trim().toLowerCase()
+  const raw = String(rawRole || '').trim()
+  const role = raw.toLowerCase()
   if (!role) return
   if (role.includes('fullstack') || role.includes('full stack')) {
-    els.jobRole.value = 'Fullstack Engineer'
+    setInputValue(els.jobRole, 'Fullstack Engineer')
     return
   }
   if (role.includes('backend') || role.includes('back end')) {
-    els.jobRole.value = 'Backend Engineer'
+    setInputValue(els.jobRole, 'Backend Engineer')
     return
   }
   if (role.includes('sr') || role.includes('senior')) {
-    els.jobRole.value = 'Sr. Software Engineer'
+    setInputValue(els.jobRole, 'Sr. Software Engineer')
     return
   }
   if (role.includes('software')) {
-    els.jobRole.value = 'Software Engineer'
+    setInputValue(els.jobRole, 'Software Engineer')
+    return
   }
+  setInputValue(els.jobRole, raw)
 }
 
 function extMessage(payload) {
@@ -128,6 +146,50 @@ function chromeStorageGet(keys) {
 
 function chromeStorageSet(value) {
   return new Promise((resolve) => chrome.storage.local.set(value, resolve))
+}
+
+function uniqueNonEmpty(values) {
+  return Array.from(new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter(Boolean)))
+}
+
+function normalizeTextKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+}
+
+function setDatalistOptions(datalistEl, values, placeholderLabel = '') {
+  if (!datalistEl) return
+  const items = uniqueNonEmpty(values)
+  const options = items.map((value) => `<option value="${esc(value)}">${esc(value)}</option>`)
+  datalistEl.innerHTML = options.join('')
+  if (datalistEl.previousElementSibling && placeholderLabel && !items.length) {
+    datalistEl.previousElementSibling.placeholder = placeholderLabel
+  }
+}
+
+function datalistValuesForInput(inputEl) {
+  const options = Array.from(inputEl?.list?.options || [])
+  return options.map((option) => String(option.value || '').trim()).filter(Boolean)
+}
+
+function updateMatchHint(inputEl, hintEl, entityLabel) {
+  if (!hintEl || !inputEl) return
+  const typed = String(inputEl.value || '').trim()
+  if (!typed) {
+    hintEl.textContent = ''
+    hintEl.classList.remove('is-new')
+    return
+  }
+  const matchesExisting = datalistValuesForInput(inputEl).some((value) => normalizeTextKey(value) === normalizeTextKey(typed))
+  if (matchesExisting) {
+    hintEl.textContent = `Existing ${entityLabel} match found in backend.`
+    hintEl.classList.remove('is-new')
+    return
+  }
+  hintEl.textContent = `No exact match found. A new ${entityLabel} value will be saved when you continue.`
+  hintEl.classList.add('is-new')
 }
 
 function renderAuthState(auth) {
@@ -157,48 +219,54 @@ function normalizeLocationKey(value) {
 function selectBestLocationOption(rawLocation) {
   const raw = String(rawLocation || '').trim()
   if (!raw || !els.jobLocation) return
-  const options = Array.from(els.jobLocation.options || [])
-  if (!options.length) return
+  const options = datalistValuesForInput(els.jobLocation)
+  if (!options.length) {
+    els.jobLocation.value = raw
+    return
+  }
 
   const rawKey = normalizeLocationKey(raw)
   if (!rawKey) return
 
-  let best = options.find((opt) => normalizeLocationKey(opt.value) === rawKey)
+  let best = options.find((opt) => normalizeLocationKey(opt) === rawKey)
   if (best) {
-    els.jobLocation.value = best.value
+    els.jobLocation.value = best
     return
   }
 
   const tokens = rawKey.split(' ').filter(Boolean)
   const lastToken = tokens[tokens.length - 1] || ''
   best = options.find((opt) => {
-    const key = normalizeLocationKey(opt.value)
+    const key = normalizeLocationKey(opt)
     return rawKey.includes(key) || key.includes(rawKey) || (lastToken && key.includes(lastToken))
   })
   if (best) {
-    els.jobLocation.value = best.value
+    els.jobLocation.value = best
   }
 }
 
 function selectLocationInDropdown(selectEl, rawLocation) {
   const raw = String(rawLocation || '').trim()
   if (!raw || !selectEl) return
-  const options = Array.from(selectEl.options || [])
-  if (!options.length) return
+  const options = datalistValuesForInput(selectEl)
+  if (!options.length) {
+    selectEl.value = raw
+    return
+  }
 
   const rawKey = normalizeLocationKey(raw)
   if (!rawKey) return
 
-  let best = options.find((opt) => normalizeLocationKey(opt.value) === rawKey)
+  let best = options.find((opt) => normalizeLocationKey(opt) === rawKey)
   if (!best) {
     const tokens = rawKey.split(' ').filter(Boolean)
     const lastToken = tokens[tokens.length - 1] || ''
     best = options.find((opt) => {
-      const key = normalizeLocationKey(opt.value)
+      const key = normalizeLocationKey(opt)
       return rawKey.includes(key) || key.includes(rawKey) || (lastToken && key.includes(lastToken))
     })
   }
-  if (best) selectEl.value = best.value
+  if (best) selectEl.value = best
 }
 
 function splitEmployeeName(fullName) {
@@ -214,103 +282,108 @@ function splitEmployeeName(fullName) {
 }
 
 function selectEmployeeRole(rawRole) {
-  const role = String(rawRole || '').trim().toLowerCase()
+  const raw = String(rawRole || '').trim()
+  const role = raw.toLowerCase()
   if (!role) return
 
   const isSenior = role.includes('sr') || role.includes('senior')
 
   if (role.includes('talent acquisition')) {
     if (isSenior) {
-      els.empRole.value = 'Sr. Talent Acquisition Specialist'
+      setInputValue(els.empRole, 'Sr. Talent Acquisition Specialist')
       return
     }
-    els.empRole.value = 'Talent Acquisition Specialist'
+    setInputValue(els.empRole, 'Talent Acquisition Specialist')
     return
   }
   if (role.includes('talent sourc')) {
-    els.empRole.value = 'Talent Sourcer'
+    setInputValue(els.empRole, 'Talent Sourcer')
     return
   }
   if (role.includes('hiring manager')) {
-    els.empRole.value = 'Hiring Manager'
+    setInputValue(els.empRole, 'Hiring Manager')
     return
   }
   if (role.includes('hr') || role.includes('recruit') || role.includes('talent')) {
     if (isSenior) {
-      els.empRole.value = 'Sr. HR Recruiter'
+      setInputValue(els.empRole, 'Sr. HR Recruiter')
       return
     }
-    els.empRole.value = 'HR Recruiter'
+    setInputValue(els.empRole, 'HR Recruiter')
     return
   }
   if (role.includes('team lead') || role.includes('tech lead')) {
-    els.empRole.value = 'Team Lead'
+    setInputValue(els.empRole, 'Team Lead')
     return
   }
   if (role.includes('manager')) {
-    els.empRole.value = 'Manager'
+    setInputValue(els.empRole, 'Manager')
     return
   }
 
   if (role.includes('fullstack') || role.includes('full stack')) {
-    els.empRole.value = isSenior ? 'Sr. Fullstack Engineer' : 'Fullstack Engineer'
+    setInputValue(els.empRole, isSenior ? 'Sr. Fullstack Engineer' : 'Fullstack Engineer')
     return
   }
   if (role.includes('frontend') || role.includes('front end')) {
-    els.empRole.value = isSenior ? 'Sr. Frontend Engineer' : 'Frontend Engineer'
+    setInputValue(els.empRole, isSenior ? 'Sr. Frontend Engineer' : 'Frontend Engineer')
     return
   }
   if (role.includes('backend') || role.includes('back end')) {
-    els.empRole.value = isSenior ? 'Sr. Backend Engineer' : 'Backend Engineer'
+    setInputValue(els.empRole, isSenior ? 'Sr. Backend Engineer' : 'Backend Engineer')
     return
   }
   if (role.includes('software') || role.includes('engineer') || role.includes('developer') || role.includes('sde')) {
-    els.empRole.value = isSenior ? 'Sr. Software Engineer' : 'Software Engineer'
+    setInputValue(els.empRole, isSenior ? 'Sr. Software Engineer' : 'Software Engineer')
+    return
   }
+  setInputValue(els.empRole, raw)
 }
 
 function selectEmployeeDepartment(rawDepartment, rawRole) {
   const dep = String(rawDepartment || '').toLowerCase()
   const role = String(rawRole || '').toLowerCase()
   if (dep.includes('hr') || dep.includes('human') || dep.includes('recruit') || role.includes('recruit') || role.includes('talent')) {
-    els.empDepartment.value = 'HR'
+    setInputValue(els.empDepartment, 'HR')
     return
   }
   if (dep.includes('data') || role.includes('data analyst') || role.includes('data engineer')) {
-    els.empDepartment.value = 'Data'
+    setInputValue(els.empDepartment, 'Data')
     return
   }
   if (dep.includes('product') || role.includes('product manager')) {
-    els.empDepartment.value = 'Product'
+    setInputValue(els.empDepartment, 'Product')
     return
   }
   if (dep.includes('design') || role.includes('designer')) {
-    els.empDepartment.value = 'Design'
+    setInputValue(els.empDepartment, 'Design')
     return
   }
   if (dep.includes('sales') || role.includes('sales')) {
-    els.empDepartment.value = 'Sales'
+    setInputValue(els.empDepartment, 'Sales')
     return
   }
   if (dep.includes('market') || role.includes('marketing')) {
-    els.empDepartment.value = 'Marketing'
+    setInputValue(els.empDepartment, 'Marketing')
     return
   }
   if (dep.includes('finance') || role.includes('finance')) {
-    els.empDepartment.value = 'Finance'
+    setInputValue(els.empDepartment, 'Finance')
     return
   }
   if (dep.includes('support') || role.includes('support')) {
-    els.empDepartment.value = 'Support'
+    setInputValue(els.empDepartment, 'Support')
     return
   }
   if (dep.includes('operation') || role.includes('operation')) {
-    els.empDepartment.value = 'Operations'
+    setInputValue(els.empDepartment, 'Operations')
     return
   }
   if (role.includes('software') || role.includes('sde') || role.includes('engineer') || role.includes('developer') || role.includes('lead') || role.includes('devops') || role.includes('qa')) {
-    els.empDepartment.value = 'Engineering'
+    setInputValue(els.empDepartment, 'Engineering')
+    return
   }
+  setInputValue(els.empDepartment, String(rawDepartment || '').trim())
 }
 
 function pickTopItHubLocations(locations, count = 8) {
@@ -338,46 +411,40 @@ function pickTopItHubLocations(locations, count = 8) {
 
 async function loadMetaAndCompanies() {
   const apiBase = els.apiBase.value.trim()
-  const stored = await chromeStorageGet([META_CACHE_KEY])
-  const cache = stored?.[META_CACHE_KEY]
-  const canUseCache = cache
-    && cache.apiBase === apiBase
-    && Number(cache.savedAt || 0) > (Date.now() - META_CACHE_TTL_MS)
-    && cache.data
-  const meta = canUseCache ? cache.data : await extMessage({ type: 'EXTENSION_GET_FORM_META', apiBase })
-
-  if (!canUseCache) {
-    await chromeStorageSet({
-      [META_CACHE_KEY]: {
-        apiBase,
-        savedAt: Date.now(),
-        data: meta,
-      },
-    })
-  }
+  const meta = await extMessage({ type: 'EXTENSION_GET_FORM_META', apiBase })
 
   const locations = Array.isArray(meta?.location_options) ? meta.location_options : []
-  const locationNames = []
-  for (const item of locations) {
-    const value = String(item?.value || '').trim()
-    const label = String(item?.label || value).trim()
-    if (!value) continue
-    locationNames.push(value)
+  const jobRoles = Array.isArray(meta?.job_role_options) ? meta.job_role_options : []
+  const employeeRoles = Array.isArray(meta?.employee_role_options) ? meta.employee_role_options : []
+  const departments = Array.isArray(meta?.department_options) ? meta.department_options : []
+  const locationNames = uniqueNonEmpty(locations.map((item) => String(item?.value || item?.label || '').trim()))
+  const jobRoleNames = uniqueNonEmpty(jobRoles.map((item) => String(item?.value || item?.label || '').trim()))
+  const employeeRoleNames = uniqueNonEmpty(employeeRoles.map((item) => String(item?.value || item?.label || '').trim()))
+  const departmentNames = uniqueNonEmpty(departments.map((item) => String(item?.value || item?.label || '').trim()))
+  const rankedLocations = pickTopItHubLocations(locationNames, Math.max(8, locationNames.length || 8))
+  setDatalistOptions(els.jobLocationSuggestions, rankedLocations)
+  setDatalistOptions(els.empLocationSuggestions, rankedLocations)
+  setDatalistOptions(els.jobRoleSuggestions, jobRoleNames)
+  setDatalistOptions(els.empRoleSuggestions, employeeRoleNames)
+  setDatalistOptions(els.empDepartmentSuggestions, departmentNames)
+
+  try {
+    const companyData = await extMessage({ type: 'EXTENSION_SEARCH_COMPANIES', apiBase, q: '' })
+    const companyNames = uniqueNonEmpty(
+      (Array.isArray(companyData?.results) ? companyData.results : []).map((item) => String(item?.name || '').trim()),
+    )
+    setDatalistOptions(els.jobCompanySuggestions, companyNames)
+    setDatalistOptions(els.empCompanySuggestions, companyNames)
+  } catch {
+    setDatalistOptions(els.jobCompanySuggestions, [])
+    setDatalistOptions(els.empCompanySuggestions, [])
   }
 
-  const topItHubLocations = pickTopItHubLocations(locationNames, 8)
-  const jobLocationOptions = ['<option value="">Select city</option>']
-  for (const city of topItHubLocations) {
-    jobLocationOptions.push(`<option value="${esc(city)}">${esc(city)}</option>`)
-  }
-  els.jobLocation.innerHTML = jobLocationOptions.join('')
-
-  const empLocations = topItHubLocations
-  const empLocationOptions = ['<option value="">Select city</option>']
-  for (const city of empLocations) {
-    empLocationOptions.push(`<option value="${esc(city)}">${esc(city)}</option>`)
-  }
-  els.empLocation.innerHTML = empLocationOptions.join('')
+  updateMatchHint(els.jobCompanyName, els.jobCompanyHint, 'company')
+  updateMatchHint(els.empCompanyName, els.empCompanyHint, 'company')
+  updateMatchHint(els.jobRole, els.jobRoleHint, 'job role')
+  updateMatchHint(els.empRole, els.empRoleHint, 'employee role')
+  updateMatchHint(els.empDepartment, els.empDepartmentHint, 'department')
 }
 
 function clearJobFields() {
@@ -389,11 +456,12 @@ function clearJobFields() {
   els.jobApplied.value = 'no'
   els.jobLink.value = ''
   els.jdText.value = ''
+  updateMatchHint(els.jobCompanyName, els.jobCompanyHint, 'company')
+  updateMatchHint(els.jobRole, els.jobRoleHint, 'job role')
   setJobStatus('Job fields cleared')
 }
 
 async function refreshPanel() {
-  await chromeStorageSet({ [META_CACHE_KEY]: null })
   await loadMetaAndCompanies()
   setStatus('Refreshed form data')
 }
@@ -460,18 +528,22 @@ function clearEmployeeFields() {
   els.empEmail.value = ''
   els.empCompanyName.value = ''
   els.empLocation.value = ''
+  updateMatchHint(els.empCompanyName, els.empCompanyHint, 'company')
+  updateMatchHint(els.empRole, els.empRoleHint, 'employee role')
+  updateMatchHint(els.empDepartment, els.empDepartmentHint, 'department')
   setEmployeeStatus('Employee fields cleared')
 }
 
 async function fetchFromPage() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  const res = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_JD' })
+  const res = await extMessage({ type: 'EXTENSION_EXTRACT_JD' })
   if (res?.jdText) els.jdText.value = res.jdText
   if (res?.jobUrl) els.jobLink.value = res.jobUrl
   if (res?.jobId) els.jobId.value = res.jobId
   if (res?.jobTitle) selectBestRoleOption(res.jobTitle)
   if (res?.companyName) els.jobCompanyName.value = res.companyName
   if (res?.location) selectBestLocationOption(res.location)
+  updateMatchHint(els.jobCompanyName, els.jobCompanyHint, 'company')
+  updateMatchHint(els.jobRole, els.jobRoleHint, 'job role')
 
   if (res?.postedDateIso) {
     els.postedDate.value = res.postedDateIso
@@ -535,8 +607,7 @@ async function saveEmployee() {
 }
 
 async function fetchEmployeeFromPage() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  const res = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_EMPLOYEE' })
+  const res = await extMessage({ type: 'EXTENSION_EXTRACT_EMPLOYEE' })
   const hasAnyData = Boolean(
     String(res?.name || '').trim() ||
     String(res?.linkedinUrl || '').trim() ||
@@ -562,6 +633,9 @@ async function fetchEmployeeFromPage() {
   if (res?.role) selectEmployeeRole(res.role)
   selectEmployeeDepartment(res?.department, res?.role)
   if (res?.location) selectLocationInDropdown(els.empLocation, res.location)
+  updateMatchHint(els.empCompanyName, els.empCompanyHint, 'company')
+  updateMatchHint(els.empRole, els.empRoleHint, 'employee role')
+  updateMatchHint(els.empDepartment, els.empDepartmentHint, 'department')
 
   setEmployeeStatus('Employee data fetched from page')
 }
@@ -582,7 +656,7 @@ els.clearEmployeeBtn.addEventListener('click', () => clearEmployeeFields())
 
 els.apiBase.addEventListener('change', async () => {
   const value = String(els.apiBase.value || '').trim()
-  await chromeStorageSet({ [API_BASE_STORAGE_KEY]: value, [META_CACHE_KEY]: null })
+  await chromeStorageSet({ [API_BASE_STORAGE_KEY]: value })
   try {
     if (value) {
       const result = await extMessage({
@@ -598,6 +672,19 @@ els.apiBase.addEventListener('change', async () => {
     setStatus(String(err?.message || err || 'Could not grant API access'), true)
   }
 })
+
+els.jobCompanyName.addEventListener('input', () => updateMatchHint(els.jobCompanyName, els.jobCompanyHint, 'company'))
+els.empCompanyName.addEventListener('input', () => updateMatchHint(els.empCompanyName, els.empCompanyHint, 'company'))
+els.jobRole.addEventListener('input', () => updateMatchHint(els.jobRole, els.jobRoleHint, 'job role'))
+els.empRole.addEventListener('input', () => updateMatchHint(els.empRole, els.empRoleHint, 'employee role'))
+els.empDepartment.addEventListener('input', () => updateMatchHint(els.empDepartment, els.empDepartmentHint, 'department'))
+els.jobCompanyName.addEventListener('focus', () => loadMetaAndCompanies().catch(() => {}))
+els.empCompanyName.addEventListener('focus', () => loadMetaAndCompanies().catch(() => {}))
+els.jobLocation.addEventListener('focus', () => loadMetaAndCompanies().catch(() => {}))
+els.empLocation.addEventListener('focus', () => loadMetaAndCompanies().catch(() => {}))
+els.jobRole.addEventListener('focus', () => loadMetaAndCompanies().catch(() => {}))
+els.empRole.addEventListener('focus', () => loadMetaAndCompanies().catch(() => {}))
+els.empDepartment.addEventListener('focus', () => loadMetaAndCompanies().catch(() => {}))
 
 ;(async () => {
   const stored = await chromeStorageGet([API_BASE_STORAGE_KEY])

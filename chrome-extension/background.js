@@ -119,6 +119,94 @@ function sendMessageToTab(tabId, payload) {
   })
 }
 
+function getOriginPattern(url) {
+  let parsed
+  try {
+    parsed = new URL(String(url || '').trim())
+  } catch {
+    return ''
+  }
+  if (!/^https?:$/.test(parsed.protocol)) return ''
+  return `${parsed.origin}/*`
+}
+
+function ensureTabOriginAccess(url, interactive = false) {
+  const originPattern = getOriginPattern(url)
+  if (!originPattern || !chrome.permissions?.contains) {
+    return Promise.resolve(originPattern)
+  }
+  return new Promise((resolve, reject) => {
+    chrome.permissions.contains({ origins: [originPattern] }, (hasPermission) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message || 'Could not check page access'))
+        return
+      }
+      if (hasPermission) {
+        resolve(originPattern)
+        return
+      }
+      if (!interactive) {
+        reject(new Error(`Grant extension access to ${originPattern} and try again.`))
+        return
+      }
+      chrome.permissions.request({ origins: [originPattern] }, (granted) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message || 'Could not request page access'))
+          return
+        }
+        if (!granted) {
+          reject(new Error(`Access to ${originPattern} was denied.`))
+          return
+        }
+        resolve(originPattern)
+      })
+    })
+  })
+}
+
+function executeContentScript(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.scripting.executeScript(
+      {
+        target: { tabId },
+        files: ['content.js'],
+      },
+      () => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message || 'Could not inject scraper'))
+          return
+        }
+        resolve(true)
+      },
+    )
+  })
+}
+
+async function extractFromActiveTab(messageType) {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true })
+  const activeTab = tabs?.[0]
+  if (!activeTab?.id) {
+    throw new Error('No active tab found.')
+  }
+  const tabUrl = String(activeTab.url || '').trim()
+  if (!/^https?:/i.test(tabUrl)) {
+    throw new Error('Open a normal http/https page before scraping.')
+  }
+
+  await ensureTabOriginAccess(tabUrl, true)
+
+  try {
+    return await sendMessageToTab(activeTab.id, { type: messageType })
+  } catch (error) {
+    if (!/Receiving end does not exist|Could not reach tab content script/i.test(String(error?.message || ''))) {
+      throw error
+    }
+  }
+
+  await executeContentScript(activeTab.id)
+  return sendMessageToTab(activeTab.id, { type: messageType })
+}
+
 async function loginWithCredentials(apiBase, username, password) {
   await ensureApiAccess(apiBase, true)
   const response = await fetch(`${normalizeApiBase(apiBase)}/token/`, {
@@ -329,6 +417,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (type === 'EXTENSION_SEARCH_COMPANIES') {
     const q = encodeURIComponent(String(msg?.q || '').trim())
     apiFetch(`/extension/companies/?q=${q}`, { apiBase: msg?.apiBase })
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }))
+    return true
+  }
+
+  if (type === 'EXTENSION_EXTRACT_JD') {
+    extractFromActiveTab('EXTRACT_JD')
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }))
+    return true
+  }
+
+  if (type === 'EXTENSION_EXTRACT_EMPLOYEE') {
+    extractFromActiveTab('EXTRACT_EMPLOYEE')
       .then((data) => sendResponse({ ok: true, data }))
       .catch((err) => sendResponse({ ok: false, error: String(err?.message || err) }))
     return true

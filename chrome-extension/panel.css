@@ -74,6 +74,19 @@ h2 {
   color: #2b5fcc;
 }
 
+.field-hint {
+  min-height: 16px;
+  margin: 5px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #5a6b80;
+}
+
+.field-hint.is-new {
+  color: #0f766e;
+  font-weight: 600;
+}
+
 .card {
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid #dde7ee;
