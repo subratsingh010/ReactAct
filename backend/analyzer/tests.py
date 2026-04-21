@@ -4,14 +4,12 @@ import tempfile
 from unittest.mock import patch
 
 from django.contrib.auth.models import Group, Permission, User
-from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.test.utils import override_settings
 from django.utils import timezone
 from rest_framework.test import APIRequestFactory, force_authenticate
 
-from analyzer.dummy_data import DUMMY_DATA_PERMISSION, grant_dummy_data_permission, seed_shared_dummy_workspace
 from analyzer.management.commands.send_tracking_mails import Command
 from analyzer.models import Company, Employee, Interview, Job, Location, MailTrackingEvent, ProfilePanel, Resume, SubjectTemplate, Template, Tracking, TrackingAction, UserProfile
 from analyzer.profile_settings import resolve_imap_settings, resolve_openai_settings, resolve_smtp_settings
@@ -91,16 +89,9 @@ class TemplateAccessTests(TestCase):
         self.profile = UserProfile.objects.create(user=self.user)
         self.other_profile = UserProfile.objects.create(user=self.other)
         self.own_template = Template.objects.create(profile=self.profile, name="My Opening", category="opening", achievement="Mine")
-        self.system_template = Template.objects.create(
-            profile=None,
-            template_scope=Template.TEMPLATE_SCOPE_SYSTEM,
-            name="System Opening",
-            category="opening",
-            achievement="Shared",
-        )
         self.other_template = Template.objects.create(profile=self.other_profile, name="Other Opening", category="opening", achievement="Other")
 
-    def test_template_list_returns_only_own_and_system_templates(self):
+    def test_template_list_returns_only_own_templates(self):
         request = self.factory.get("/api/templates/")
         force_authenticate(request, user=self.user)
         response = TemplateListCreateView.as_view()(request)
@@ -108,22 +99,50 @@ class TemplateAccessTests(TestCase):
         self.assertEqual(response.status_code, 200)
         names = {row["name"] for row in response.data}
         self.assertIn("My Opening", names)
-        self.assertIn("System Opening", names)
         self.assertNotIn("Other Opening", names)
-        system_row = next(row for row in response.data if row["name"] == "System Opening")
-        self.assertTrue(system_row["is_system"])
-        self.assertEqual(system_row["owner_label"], "system")
+        own_row = next(row for row in response.data if row["name"] == "My Opening")
+        self.assertFalse(own_row["is_system"])
+        self.assertEqual(own_row["owner_label"], "templater")
 
-    def test_system_template_cannot_be_edited_from_api(self):
-        request = self.factory.put(
-            f"/api/templates/{self.system_template.id}/",
-            {"name": "Edited System"},
+
+class TemplateAccessControlTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = User.objects.create_user(username="template-owner", password="x")
+        self.profile = UserProfile.objects.create(user=self.user)
+        self.template = Template.objects.create(profile=self.profile, name="Owned Template", category="opening", achievement="Owned text")
+
+    def test_admin_role_can_create_template_without_explicit_model_permission(self):
+        request = self.factory.post(
+            "/api/templates/",
+            {
+                "name": "New Template",
+                "category": "general",
+                "paragraph": "Template paragraph",
+            },
             format="json",
         )
         force_authenticate(request, user=self.user)
-        response = TemplateDetailView.as_view()(request, template_id=self.system_template.id)
 
-        self.assertEqual(response.status_code, 404)
+        response = TemplateListCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["name"], "New Template")
+
+    def test_read_only_role_cannot_update_owned_template(self):
+        self.profile.role = UserProfile.ROLE_READ_ONLY
+        self.profile.save(update_fields=["role", "updated_at"])
+        request = self.factory.put(
+            f"/api/templates/{self.template.id}/",
+            {"paragraph": "Blocked update"},
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = TemplateDetailView.as_view()(request, template_id=self.template.id)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("role does not allow", str(response.data.get("detail", "")).lower())
 
 
 class SendTrackingMailsThreadingTests(TestCase):
@@ -189,21 +208,15 @@ class SendTrackingMailsThreadingTests(TestCase):
         self.assertEqual(context["references"], ["<first@example.com>", "<second@example.com>"])
         self.assertEqual(context["subject"], "Re: Application for Engineer at acme")
 
-    def test_get_achievements_keeps_system_and_user_templates(self):
+    def test_get_achievements_keeps_user_templates_in_requested_order(self):
         own_template = Template.objects.create(profile=self.profile, name="Own Opening", category="opening", achievement="Mine")
-        system_template = Template.objects.create(
-            profile=None,
-            template_scope=Template.TEMPLATE_SCOPE_SYSTEM,
-            name="System Closing",
-            category="closing",
-            achievement="Shared",
-        )
-        self.tracking.template_ids_ordered = [own_template.id, system_template.id]
+        follow_up_template = Template.objects.create(profile=self.profile, name="Own Closing", category="closing", achievement="Shared")
+        self.tracking.template_ids_ordered = [own_template.id, follow_up_template.id]
         self.tracking.save(update_fields=["template_ids_ordered", "updated_at"])
 
         rows = self.command._get_achievements(self.tracking)
 
-        self.assertEqual([item.id for item in rows], [own_template.id, system_template.id])
+        self.assertEqual([item.id for item in rows], [own_template.id, follow_up_template.id])
 
     @patch("analyzer.management.commands.send_tracking_mails.smtplib.SMTP", DummySMTP)
     @patch.dict(
@@ -584,6 +597,7 @@ class TrackingFreshRuleApiTests(TestCase):
         self.view = ApplicationTrackingDetailView.as_view()
         self.user = User.objects.create_user(username="tracker", email="tracker@example.com", password="x")
         self.profile = UserProfile.objects.create(user=self.user)
+        grant_model_permissions(self.user, "tracking", "change")
         self.company = Company.objects.create(profile=self.profile, name="beta", mail_format="{first}@beta.com")
         self.employee_one = Employee.objects.create(
             owner_profile=self.profile,
@@ -828,6 +842,7 @@ class TrackingDuplicateRulesTests(TestCase):
         self.factory = APIRequestFactory()
         self.user = User.objects.create_user(username="tracking-owner", password="x")
         self.profile = UserProfile.objects.create(user=self.user)
+        grant_model_permissions(self.user, "tracking", "add")
         self.company = Company.objects.create(profile=self.profile, name="delta", mail_format="{first}.{last}@delta.com")
         self.employee = Employee.objects.create(
             owner_profile=self.profile,
@@ -1056,12 +1071,32 @@ class JobAccessControlTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
 
+    def test_read_only_role_cannot_update_owned_job_even_with_permissions(self):
+        self.owner_profile.role = UserProfile.ROLE_READ_ONLY
+        self.owner_profile.save(update_fields=["role", "updated_at"])
+        request = self.factory.put(
+            f"/api/jobs/{self.owner_job.id}/",
+            {
+                "company": self.owner_job.company_id,
+                "job_id": self.owner_job.job_id,
+                "role": "Blocked Update",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.owner)
+
+        response = JobDetailView.as_view()(request, job_id=self.owner_job.id)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("role does not allow", str(response.data.get("detail", "")).lower())
+
 
 class ExtensionJobCreateViewTests(TestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
         self.user = User.objects.create_user(username="ext-job-user", email="ext-job@example.com", password="x")
         self.profile = UserProfile.objects.create(user=self.user)
+        grant_model_permissions(self.user, "job", "add")
         self.company = Company.objects.create(profile=self.profile, name="ext company")
 
     def test_extension_create_allows_blank_job_id(self):
@@ -1082,6 +1117,111 @@ class ExtensionJobCreateViewTests(TestCase):
         self.assertEqual(response.status_code, 201)
         created = Job.objects.get(id=response.data["job"]["id"])
         self.assertEqual(created.job_id, "")
+
+
+class TrackingAccessControlTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = User.objects.create_user(username="tracking-rbac", email="tracking-rbac@example.com", password="x")
+        self.profile = UserProfile.objects.create(user=self.user)
+        grant_model_permissions(self.user, "tracking", "add", "change", "delete")
+        self.company = Company.objects.create(profile=self.profile, name="tracking rbac company", mail_format="{first}@rbac.com")
+        self.job = Job.objects.create(company=self.company, job_id="RBAC-1", role="Backend Engineer", created_by=self.user)
+        self.resume = Resume.objects.create(profile=self.profile, title="RBAC Resume")
+        self.opening = Template.objects.create(profile=self.profile, name="RBAC Open", category="opening", achievement="Open")
+        self.experience = Template.objects.create(profile=self.profile, name="RBAC Experience", category="experience", achievement="Experience")
+        self.closing = Template.objects.create(profile=self.profile, name="RBAC Close", category="closing", achievement="Close")
+        self.employee = Employee.objects.create(
+            owner_profile=self.profile,
+            company=self.company,
+            name="RBAC Recruiter",
+            department="HR",
+            email="rbac@company.com",
+            working_mail=True,
+        )
+        self.tracking = Tracking.objects.create(
+            profile=self.profile,
+            job=self.job,
+            resume=self.resume,
+            template=self.opening,
+            template_ids_ordered=[self.opening.id, self.experience.id, self.closing.id],
+            mail_type="fresh",
+        )
+        self.tracking.selected_hrs.set([self.employee])
+
+    def test_missing_add_tracking_permission_blocks_create(self):
+        permission = Permission.objects.get(codename="add_tracking")
+        self.user.user_permissions.remove(permission)
+        request = self.factory.post(
+            "/api/tracking/",
+            {
+                "company": self.company.id,
+                "job": self.job.id,
+                "resume": self.resume.id,
+                "mail_type": "fresh",
+                "selected_hr_ids": [self.employee.id],
+                "template_ids_ordered": [self.opening.id, self.experience.id, self.closing.id],
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = ApplicationTrackingListCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("permission", str(response.data.get("detail", "")).lower())
+
+    def test_missing_change_tracking_permission_blocks_update(self):
+        permission = Permission.objects.get(codename="change_tracking")
+        self.user.user_permissions.remove(permission)
+        request = self.factory.put(
+            f"/api/tracking/{self.tracking.id}/",
+            {
+                "mail_type": "fresh",
+                "selected_hr_ids": [self.employee.id],
+                "template_ids_ordered": [self.opening.id, self.experience.id, self.closing.id],
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = ApplicationTrackingDetailView.as_view()(request, tracking_id=self.tracking.id)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("permission", str(response.data.get("detail", "")).lower())
+
+    def test_missing_delete_tracking_permission_blocks_delete(self):
+        permission = Permission.objects.get(codename="delete_tracking")
+        self.user.user_permissions.remove(permission)
+        request = self.factory.delete(f"/api/tracking/{self.tracking.id}/")
+        force_authenticate(request, user=self.user)
+
+        response = ApplicationTrackingDetailView.as_view()(request, tracking_id=self.tracking.id)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("permission", str(response.data.get("detail", "")).lower())
+
+    def test_read_only_role_blocks_tracking_create_even_with_permissions(self):
+        self.profile.role = UserProfile.ROLE_READ_ONLY
+        self.profile.save(update_fields=["role", "updated_at"])
+        request = self.factory.post(
+            "/api/tracking/",
+            {
+                "company": self.company.id,
+                "job": self.job.id,
+                "resume": self.resume.id,
+                "mail_type": "fresh",
+                "selected_hr_ids": [self.employee.id],
+                "template_ids_ordered": [self.opening.id, self.experience.id, self.closing.id],
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = ApplicationTrackingListCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("role does not allow", str(response.data.get("detail", "")).lower())
 
 
 class ExtensionLookupViewTests(TestCase):
@@ -1204,6 +1344,32 @@ class CompanyEmployeeAccessControlTests(TestCase):
         response = EmployeeDetailView.as_view()(request, employee_id=self.owner_employee.id)
 
         self.assertEqual(response.status_code, 404)
+
+    def test_read_only_role_cannot_create_company_even_with_permissions(self):
+        self.owner_profile.role = UserProfile.ROLE_READ_ONLY
+        self.owner_profile.save(update_fields=["role", "updated_at"])
+        request = self.factory.post(
+            "/api/companies/",
+            {"name": "Blocked Company"},
+            format="json",
+        )
+        force_authenticate(request, user=self.owner)
+
+        response = CompanyListCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("role does not allow", str(response.data.get("detail", "")).lower())
+
+    def test_read_only_role_cannot_delete_owned_employee_even_with_permissions(self):
+        self.owner_profile.role = UserProfile.ROLE_READ_ONLY
+        self.owner_profile.save(update_fields=["role", "updated_at"])
+        request = self.factory.delete(f"/api/employees/{self.owner_employee.id}/")
+        force_authenticate(request, user=self.owner)
+
+        response = EmployeeDetailView.as_view()(request, employee_id=self.owner_employee.id)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("role does not allow", str(response.data.get("detail", "")).lower())
 
 
 class ResumeSaveStorageTests(TestCase):
@@ -1397,112 +1563,3 @@ class SerializerNormalizationTests(TestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
         user = serializer.save()
         self.assertTrue(user.groups.filter(name__iexact='admin').exists())
-        self.assertTrue(user.has_perm(DUMMY_DATA_PERMISSION))
-
-
-class DummyWorkspaceSharingTests(TestCase):
-    def setUp(self):
-        self.factory = APIRequestFactory()
-        self.user = User.objects.create_user(username="viewer", password="x")
-        self.profile = UserProfile.objects.create(user=self.user, full_name="Viewer")
-        grant_dummy_data_permission(self.user)
-        self.state = seed_shared_dummy_workspace()
-
-    def test_seed_shared_dummy_workspace_creates_minimum_rows_for_each_panel(self):
-        profile = self.state["profile"]
-
-        self.assertGreaterEqual(Company.objects.filter(profile=profile).count(), 3)
-        self.assertGreaterEqual(Employee.objects.filter(owner_profile=profile).count(), 3)
-        self.assertGreaterEqual(Job.objects.filter(company__profile=profile).count(), 3)
-        self.assertGreaterEqual(Tracking.objects.filter(profile=profile).count(), 3)
-        self.assertGreaterEqual(Interview.objects.filter(profile=profile).count(), 3)
-        self.assertGreaterEqual(ProfilePanel.objects.filter(profile=profile).count(), 3)
-        self.assertGreaterEqual(Template.objects.filter(profile=profile, template_scope=Template.TEMPLATE_SCOPE_USER_BASED).count(), 3)
-        self.assertGreaterEqual(SubjectTemplate.objects.filter(profile=profile).count(), 3)
-        self.assertGreaterEqual(Resume.objects.filter(profile=profile).count(), 3)
-
-    def test_profile_panel_list_includes_dummy_rows_when_user_has_permission(self):
-        request = self.factory.get("/api/profile-panels/")
-        force_authenticate(request, user=self.user)
-
-        response = ProfilePanelListCreateView.as_view()(request)
-
-        self.assertEqual(response.status_code, 200)
-        titles = {row["title"] for row in response.data}
-        self.assertIn("Backend Outreach Profile", titles)
-        self.assertIn("Full Stack Profile", titles)
-        self.assertIn("Follow Up Profile", titles)
-
-    def test_profile_panel_list_hides_dummy_rows_when_user_hides_dummy_data(self):
-        self.profile.hide_dummy_data = True
-        self.profile.save(update_fields=["hide_dummy_data", "updated_at"])
-
-        request = self.factory.get("/api/profile-panels/")
-        force_authenticate(request, user=self.user)
-        response = ProfilePanelListCreateView.as_view()(request)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, [])
-
-    def test_profile_panel_list_hides_dummy_rows_when_admin_disables_shared_dummy_data(self):
-        dummy_profile = self.state["profile"]
-        dummy_profile.hide_shared_dummy_data = True
-        dummy_profile.save(update_fields=["hide_shared_dummy_data", "updated_at"])
-
-        request = self.factory.get("/api/profile-panels/")
-        force_authenticate(request, user=self.user)
-        response = ProfilePanelListCreateView.as_view()(request)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, [])
-
-    def test_subject_template_list_includes_dummy_subject_templates(self):
-        request = self.factory.get("/api/subject-templates/")
-        force_authenticate(request, user=self.user)
-
-        response = SubjectTemplateListCreateView.as_view()(request)
-
-        self.assertEqual(response.status_code, 200)
-        names = {row["name"] for row in response.data}
-        self.assertIn("Demo Fresh Subject", names)
-        self.assertIn("Demo Follow Up Subject", names)
-
-    def test_shared_dummy_resume_cannot_be_updated_by_viewer(self):
-        resume = Resume.objects.filter(profile=self.state["profile"]).order_by("id").first()
-        request = self.factory.put(
-            f"/api/resumes/{resume.id}/",
-            {"title": "Attempted overwrite"},
-            format="json",
-        )
-        force_authenticate(request, user=self.user)
-
-        response = ResumeDetailView.as_view()(request, resume_id=resume.id)
-
-        self.assertEqual(response.status_code, 404)
-        resume.refresh_from_db()
-        self.assertNotEqual(resume.title, "Attempted overwrite")
-
-
-class DummyDataCommandTests(TestCase):
-    def test_create_dummy_data_command_populates_core_models(self):
-        call_command(
-            "create_dummy_data",
-            username="seed_user",
-            password="seed12345",
-            companies=2,
-            employees_per_company=2,
-            jobs_per_company=2,
-        )
-
-        user = User.objects.get(username="seed_user")
-        profile = UserProfile.objects.get(user=user)
-
-        self.assertTrue(Company.objects.filter(profile=profile).exists())
-        self.assertTrue(Employee.objects.filter(owner_profile=profile).exists())
-        self.assertTrue(Job.objects.filter(created_by=user).exists())
-        self.assertTrue(Tracking.objects.filter(profile=profile).exists())
-        self.assertTrue(Interview.objects.filter(profile=profile).exists())
-        self.assertTrue(ProfilePanel.objects.filter(profile=profile).exists())
-        self.assertTrue(SubjectTemplate.objects.filter(profile=profile).exists())
-        self.assertTrue(Template.objects.filter(profile=profile, template_scope=Template.TEMPLATE_SCOPE_USER_BASED).exists())
-        self.assertTrue(Template.objects.filter(template_scope=Template.TEMPLATE_SCOPE_SYSTEM).exists())
