@@ -1719,6 +1719,24 @@ class CompanyEmployeeAccessControlTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Company.objects.filter(name="owner co").count(), 1)
 
+    def test_owner_can_update_company_mail_format_without_triggering_duplicate_name_error(self):
+        request = self.factory.put(
+            f"/api/companies/{self.owner_company.id}/",
+            {
+                "name": "  OWNER   CO  ",
+                "mail_format": "firstname.lastname@ownerco.com",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.owner)
+
+        response = CompanyDetailView.as_view()(request, company_id=self.owner_company.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.owner_company.refresh_from_db()
+        self.assertEqual(self.owner_company.name, "owner co")
+        self.assertEqual(self.owner_company.mail_format, "firstname.lastname@ownerco.com")
+
     def test_outsider_cannot_delete_other_employee(self):
         request = self.factory.delete(f"/api/employees/{self.owner_employee.id}/")
         force_authenticate(request, user=self.outsider)

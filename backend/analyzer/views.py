@@ -4342,15 +4342,19 @@ class CompanyDetailView(CompanyAccessMixin, APIView):
             company_name = normalize_company_name(payload.get('name'))
             if not company_name:
                 return Response({'name': ['Company name is required.']}, status=status.HTTP_400_BAD_REQUEST)
-            duplicate = _find_accessible_company_by_name(
-                request.user,
-                company_name,
-                exclude_id=row.id,
-                for_write=True,
-            )
-            if duplicate is not None:
-                return Response({'name': ['This company already exists.']}, status=status.HTTP_400_BAD_REQUEST)
-            payload['name'] = company_name
+            current_name = normalize_company_name(row.name)
+            if company_name != current_name:
+                duplicate = _find_accessible_company_by_name(
+                    request.user,
+                    company_name,
+                    exclude_id=row.id,
+                    for_write=True,
+                )
+                if duplicate is not None:
+                    return Response({'name': ['This company already exists.']}, status=status.HTTP_400_BAD_REQUEST)
+                payload['name'] = company_name
+            else:
+                payload['name'] = row.name
         serializer = CompanySerializer(row, data=payload, partial=True)
         if serializer.is_valid():
             updated = serializer.save()
