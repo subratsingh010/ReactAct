@@ -26,6 +26,8 @@ from analyzer.resume_rendering import (
     available_browser_binaries,
     build_builder_pdf_bytes,
     build_frontend_ats_pdf_html,
+    default_pdf_filename,
+    pick_local_pdf_path,
     pdf_page_count,
     render_pdf_bytes_from_html,
 )
@@ -564,6 +566,9 @@ class Command(BaseCommand):
                 preserve_highlights=True,
             )
             if exact_pdf:
+                persisted_path = self._persist_attachment_pdf(row, builder, exact_pdf)
+                if persisted_path:
+                    return {"path": persisted_path, "bytes": None}
                 return {"path": None, "bytes": exact_pdf}
 
         if not builder:
@@ -576,6 +581,19 @@ class Command(BaseCommand):
 
     def _build_builder_pdf_bytes(self, builder_data, filename_hint="resume", preserve_highlights=False):
         return build_builder_pdf_bytes(builder_data, preserve_highlights=preserve_highlights)
+
+    def _persist_attachment_pdf(self, row, builder_data, pdf_bytes):
+        if not row or not row.resume or not pdf_bytes:
+            return None
+        try:
+            file_name = default_pdf_filename(builder_data, resume=row.resume)
+            output_path = pick_local_pdf_path(file_name, row.resume.id if row.resume else None)
+            output_path.write_bytes(pdf_bytes)
+            row.resume.ats_pdf_path = str(output_path)
+            row.resume.save(update_fields=["ats_pdf_path", "updated_at"])
+            return str(output_path)
+        except Exception:
+            return None
 
     def _render_browser_pdf_bytes(self, html_text, browser_bins):
         return render_pdf_bytes_from_html(html_text)

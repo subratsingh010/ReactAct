@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -10,6 +11,52 @@ try:
     from pypdf import PdfReader
 except Exception:  # noqa: BLE001
     PdfReader = None
+
+
+def sanitize_pdf_filename_stem(raw: str) -> str:
+    value = re.sub(r"\s+", " ", str(raw or "").strip())
+    value = re.sub(r"[^\w\s-]", "", value)
+    value = value.strip("._- ")
+    value = value.replace("-", " ")
+    value = re.sub(r"\s+", "_", value).strip("._-").lower()
+    return value or "resume"
+
+
+def default_pdf_filename(builder_data: dict, resume=None) -> str:
+    data = builder_data if isinstance(builder_data, dict) else {}
+    full_name = str(data.get("fullName") or "").strip()
+    parts = []
+    if full_name:
+        parts.append(full_name)
+    elif str(getattr(resume, "title", "") or "").strip():
+        parts.append(str(getattr(resume, "title", "") or "").strip())
+
+    resume_job = getattr(resume, "job", None) if resume else None
+    company_name = ""
+    job_code = ""
+    if resume_job:
+        job_code = str(getattr(resume_job, "job_id", "") or "").strip()
+        company = getattr(resume_job, "company", None)
+        company_name = str(getattr(company, "name", "") or "").strip()
+
+    if company_name:
+        parts.append(company_name)
+    if job_code:
+        parts.append(job_code)
+    if not company_name:
+        parts.append("3 YOE")
+
+    stem = sanitize_pdf_filename_stem(" - ".join([part for part in parts if part]) or "Resume")
+    return f"{stem}.pdf"
+
+
+def pick_local_pdf_path(file_name: str, resume_id: int | None = None) -> Path:
+    target_dir = Path(__file__).resolve().parents[1] / "storage" / "ats_pdfs"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    stem = sanitize_pdf_filename_stem(Path(str(file_name or "")).stem)
+    if not stem:
+        stem = "Resume"
+    return target_dir / f"{stem}.pdf"
 
 
 def available_browser_binaries():
@@ -62,31 +109,32 @@ def render_pdf_from_html(html_text: str, output_pdf: Path):
     try:
         output_pdf.parent.mkdir(parents=True, exist_ok=True)
         for browser_bin in browser_bins:
-            cmd = [
-                browser_bin,
-                "--headless=new",
-                "--disable-gpu",
-                "--no-sandbox",
-                "--no-pdf-header-footer",
-                f"--print-to-pdf={str(output_pdf)}",
-                html_url,
-            ]
-            try:
-                run = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=45,
-                    check=False,
-                )
-                if run.returncode == 0 and output_pdf.exists() and output_pdf.stat().st_size > 0:
-                    return True, ""
-                stderr = (run.stderr or "").strip()
-                stdout = (run.stdout or "").strip()
-                snippet = stderr or stdout or f"exit code {run.returncode}"
-                errors.append(f"{Path(browser_bin).name}: {snippet[:220]}")
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"{Path(browser_bin).name}: {exc}")
+            for headless_flag in ("--headless=new", "--headless"):
+                cmd = [
+                    browser_bin,
+                    headless_flag,
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    "--no-pdf-header-footer",
+                    f"--print-to-pdf={str(output_pdf)}",
+                    html_url,
+                ]
+                try:
+                    run = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=45,
+                        check=False,
+                    )
+                    if run.returncode == 0 and output_pdf.exists() and output_pdf.stat().st_size > 0:
+                        return True, ""
+                    stderr = (run.stderr or "").strip()
+                    stdout = (run.stdout or "").strip()
+                    snippet = stderr or stdout or f"exit code {run.returncode}"
+                    errors.append(f"{Path(browser_bin).name} {headless_flag}: {snippet[:220]}")
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"{Path(browser_bin).name} {headless_flag}: {exc}")
         return False, "; ".join(errors) or "PDF generation failed."
     finally:
         try:
@@ -96,18 +144,12 @@ def render_pdf_from_html(html_text: str, output_pdf: Path):
 
 
 def render_pdf_bytes_from_html(html_text: str):
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
-        output_pdf = Path(tmp_pdf.name)
-    try:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        output_pdf = Path(tmp_dir) / "rendered.pdf"
         ok, _note = render_pdf_from_html(html_text, output_pdf)
         if ok and output_pdf.exists() and output_pdf.stat().st_size > 0:
             return output_pdf.read_bytes()
         return None
-    finally:
-        try:
-            output_pdf.unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def pdf_page_count(pdf_bytes):

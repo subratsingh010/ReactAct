@@ -63,7 +63,12 @@ from .tailor import (
 from .tracking_mail_utils import build_mail_tracking_status_map
 from .management.commands.send_tracking_mails import Command as SendTrackingMailsCommand
 from .profile_settings import resolve_openai_settings
-from .resume_rendering import build_builder_pdf_bytes, render_pdf_from_html as shared_render_pdf_from_html
+from .resume_rendering import (
+    build_builder_pdf_bytes,
+    default_pdf_filename,
+    pick_local_pdf_path,
+    render_pdf_from_html as shared_render_pdf_from_html,
+)
 from .template_access import (
     owned_template_queryset_for_user,
     owned_subject_template_queryset_for_user,
@@ -924,53 +929,6 @@ def _restrict_to_reference_sections(reference_builder: dict, result_builder: dic
         result["role"] = ""
 
     return sanitize_builder_data(result)
-
-
-def _sanitize_filename_stem(raw: str) -> str:
-    value = re.sub(r"\s+", " ", str(raw or "").strip())
-    value = re.sub(r"[^\w\s-]", "", value)
-    value = value.strip("._- ")
-    value = value.replace("-", " ")
-    value = re.sub(r"\s+", "_", value).strip("._-").lower()
-    return value or "resume"
-
-
-def _default_pdf_filename(builder_data: dict, resume=None) -> str:
-    data = builder_data if isinstance(builder_data, dict) else {}
-    full_name = str(data.get("fullName") or "").strip()
-    parts = []
-    if full_name:
-        parts.append(full_name)
-    elif str(getattr(resume, "title", "") or "").strip():
-        parts.append(str(getattr(resume, "title", "") or "").strip())
-
-    resume_job = getattr(resume, "job", None) if resume else None
-    company_name = ""
-    job_code = ""
-    if resume_job:
-        job_code = str(getattr(resume_job, "job_id", "") or "").strip()
-        company = getattr(resume_job, "company", None)
-        company_name = str(getattr(company, "name", "") or "").strip()
-
-    if company_name:
-        parts.append(company_name)
-    if job_code:
-        parts.append(job_code)
-    if not company_name:
-        parts.append("3 YOE")
-
-    stem = _sanitize_filename_stem(" - ".join([part for part in parts if part]) or "Resume")
-    return f"{stem}.pdf"
-
-
-def _pick_local_pdf_path(file_name: str, resume_id: int | None = None) -> Path:
-    target_dir = Path(__file__).resolve().parents[1] / "storage" / "ats_pdfs"
-    target_dir.mkdir(parents=True, exist_ok=True)
-    stem = _sanitize_filename_stem(Path(str(file_name or "")).stem)
-    if not stem:
-        stem = "Resume"
-    # Always overwrite existing file as requested.
-    return target_dir / f"{stem}.pdf"
 
 
 def _render_pdf_from_html(html_text: str, output_pdf: Path):
@@ -2694,8 +2652,8 @@ class ExportAtsPdfLocalView(APIView):
             except Resume.DoesNotExist:
                 return Response({"detail": "Resume not found for PDF export."}, status=status.HTTP_404_NOT_FOUND)
 
-        file_name = _default_pdf_filename(builder_data, resume=resume)
-        output_path = _pick_local_pdf_path(file_name, resume.id if resume else None)
+        file_name = default_pdf_filename(builder_data, resume=resume)
+        output_path = pick_local_pdf_path(file_name, resume.id if resume else None)
         if len(html_text) >= 40:
             ok, note = _render_pdf_from_html(html_text, output_path)
             if not ok:

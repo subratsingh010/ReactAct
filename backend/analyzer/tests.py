@@ -1,6 +1,7 @@
 import os
 import shutil
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth.models import Group, Permission, User
@@ -14,7 +15,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from analyzer.management.commands.send_tracking_mails import Command
 from analyzer.models import Company, Employee, Interview, Job, Location, MailTrackingEvent, ProfilePanel, Resume, SubjectTemplate, Template, Tracking, TrackingAction, UserProfile
 from analyzer.profile_settings import resolve_imap_settings, resolve_openai_settings, resolve_smtp_settings
-from analyzer.resume_rendering import available_browser_binaries
+from analyzer.resume_rendering import available_browser_binaries, render_pdf_bytes_from_html
 from analyzer.serializers import CompanySerializer, InterviewSerializer, JobSerializer, ProfilePanelSerializer, SubjectTemplateSerializer, UserProfileSerializer
 from analyzer.tracking_mail_utils import ensure_mail_tracking
 from analyzer.views import (
@@ -273,7 +274,8 @@ class SendTrackingMailsThreadingTests(TestCase):
         self.assertEqual(DummySMTP.last_from_email, "profile-sender@example.com")
         self.assertEqual(DummySMTP.last_to_emails, ["hr@acme.com"])
 
-    def test_attachment_fallback_uses_in_memory_pdf_bytes(self):
+    @patch("analyzer.management.commands.send_tracking_mails.pick_local_pdf_path")
+    def test_attachment_fallback_persists_exact_builder_pdf_for_reuse(self, mocked_pick_path):
         self.resume.builder_data = {
             "resumeTitle": "Base Resume",
             "fullName": "Subrat Singh",
@@ -281,14 +283,21 @@ class SendTrackingMailsThreadingTests(TestCase):
         }
         self.resume.ats_pdf_path = ""
         self.resume.save(update_fields=["builder_data", "ats_pdf_path", "updated_at"])
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+            persisted_path = Path(tmp_pdf.name)
+        persisted_path.unlink(missing_ok=True)
+        mocked_pick_path.return_value = persisted_path
 
         with patch.object(Command, "_build_builder_pdf_bytes", return_value=b"%PDF-1.4 generated") as mocked_builder_pdf:
             payload = self.command._resolve_attachment_payload(self.tracking)
 
-        self.assertIsNone(payload.get("path"))
-        attachment_bytes = payload.get("bytes")
-        self.assertTrue(isinstance(attachment_bytes, (bytes, bytearray)))
-        self.assertTrue(bytes(attachment_bytes).startswith(b"%PDF-1.4"))
+        self.addCleanup(lambda: persisted_path.unlink(missing_ok=True))
+        self.resume.refresh_from_db()
+        self.assertEqual(payload.get("path"), str(persisted_path))
+        self.assertIsNone(payload.get("bytes"))
+        self.assertEqual(self.resume.ats_pdf_path, str(persisted_path))
+        self.assertTrue(persisted_path.exists())
+        self.assertEqual(persisted_path.read_bytes(), b"%PDF-1.4 generated")
         mocked_builder_pdf.assert_called_once_with(
             self.resume.builder_data,
             filename_hint="Base Resume",
@@ -717,6 +726,19 @@ class ResumeRenderingBrowserDetectionTests(TestCase):
 
         self.assertIn(env_browser.name, bins)
         self.assertIn(which_browser.name, bins)
+
+    @patch("analyzer.resume_rendering.render_pdf_from_html")
+    def test_render_pdf_bytes_from_html_reads_pdf_from_fresh_output_path(self, mocked_render_pdf):
+        def fake_render(_html, output_pdf):
+            self.assertFalse(output_pdf.exists())
+            output_pdf.write_bytes(b"%PDF-1.4 html")
+            return True, ""
+
+        mocked_render_pdf.side_effect = fake_render
+
+        pdf_bytes = render_pdf_bytes_from_html("<html><body>Resume</body></html>")
+
+        self.assertEqual(pdf_bytes, b"%PDF-1.4 html")
 
 
 class TrackingFreshRuleApiTests(TestCase):
