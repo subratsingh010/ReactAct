@@ -37,8 +37,7 @@ const EMPTY_PROFILE = {
   country: '',
   country_code: '',
   location: '',
-  location_ref: '',
-  preferred_location_refs: [],
+  preferred_locations: [],
   summary: '',
   smtp_host: '',
   smtp_port: '',
@@ -145,7 +144,7 @@ function stateOptionsForCountry(countryName, currentState = '') {
 
 const EMPTY_INTERVIEW = {
   job: '',
-  location_ref: '',
+  location: '',
   company_name: '',
   job_role: '',
   job_code: '',
@@ -199,9 +198,8 @@ function renderProfileValue(value) {
 
 function normalizeProfileLike(data, fallbackFullName = '') {
   const nextValue = { ...EMPTY_PROFILE, ...(data || {}) }
-  nextValue.location_ref = nextValue.location_ref ? String(nextValue.location_ref) : ''
-  nextValue.preferred_location_refs = Array.isArray(nextValue.preferred_location_refs)
-    ? nextValue.preferred_location_refs.map((value) => String(value))
+  nextValue.preferred_locations = Array.isArray(nextValue.preferred_locations)
+    ? nextValue.preferred_locations.map((value) => String(value))
     : []
   nextValue.smtp_port = nextValue.smtp_port ? String(nextValue.smtp_port) : ''
   nextValue.imap_port = nextValue.imap_port ? String(nextValue.imap_port) : ''
@@ -333,6 +331,8 @@ function ProfilePage() {
   const [editingSubjectTemplateId, setEditingSubjectTemplateId] = useState(null)
   const [subjectTemplateForm, setSubjectTemplateForm] = useState(EMPTY_SUBJECT_TEMPLATE)
   const [showSubjectTemplateHints, setShowSubjectTemplateHints] = useState(false)
+  const [subjectTemplateError, setSubjectTemplateError] = useState('')
+  const [subjectTemplateOk, setSubjectTemplateOk] = useState('')
 
   const [interviews, setInterviews] = useState([])
   const [jobOptions, setJobOptions] = useState([])
@@ -375,14 +375,6 @@ function ProfilePage() {
         label: interviewJobDisplay(job.company_name, job.role, job.job_id),
       }))
   }, [jobOptions, interviewForm.company_name])
-
-  const interviewLocationName = useMemo(() => {
-    if (!interviewForm.location_ref) return ''
-    const match = (Array.isArray(locationOptions) ? locationOptions : []).find(
-      (location) => String(location?.id) === String(interviewForm.location_ref),
-    )
-    return String(match?.name || '').trim()
-  }, [interviewForm.location_ref, locationOptions])
 
   const profileStateOptions = useMemo(
     () => stateOptionsForCountry(profileForm.country, profileForm.state),
@@ -505,6 +497,8 @@ function ProfilePage() {
   const openCreateSubjectTemplate = () => {
     setError('')
     setOk('')
+    setSubjectTemplateError('')
+    setSubjectTemplateOk('')
     setEditingSubjectTemplateId(null)
     setSubjectTemplateForm(EMPTY_SUBJECT_TEMPLATE)
     setShowSubjectTemplateHints(false)
@@ -521,10 +515,12 @@ function ProfilePage() {
   const editSubjectTemplate = (row) => {
     setError('')
     setOk('')
+    setSubjectTemplateError('')
+    setSubjectTemplateOk('')
     setEditingSubjectTemplateId(row.id)
     setSubjectTemplateForm({
       name: row.name || '',
-      category: row.category || 'general',
+      category: row.category || 'fresh',
       subject: row.subject || '',
     })
     setShowSubjectTemplateHints(false)
@@ -533,38 +529,41 @@ function ProfilePage() {
 
   const saveSubjectTemplate = async () => {
     try {
-      setError('')
-      setOk('')
+      setSubjectTemplateError('')
+      setSubjectTemplateOk('')
       const payload = {
         name: String(subjectTemplateForm.name || '').trim(),
         category: String(subjectTemplateForm.category || 'fresh').trim() || 'fresh',
         subject: String(subjectTemplateForm.subject || '').trim(),
       }
       if (!payload.name || !payload.subject) {
-        setError('Subject template needs name and subject text.')
+        setSubjectTemplateError('Subject template needs name and subject text.')
         return
       }
       if (editingSubjectTemplateId) {
         const updated = await updateSubjectTemplate(access, editingSubjectTemplateId, payload)
         setSubjectTemplates((prev) => prev.map((row) => (row.id === editingSubjectTemplateId ? updated : row)))
-        setOk('Subject template updated.')
+        setSubjectTemplateOk('Subject template updated.')
       } else {
         const created = await createSubjectTemplate(access, payload)
         setSubjectTemplates((prev) => [created, ...prev])
-        setOk('Subject template added.')
+        setSubjectTemplateOk('Subject template added.')
       }
       closeSubjectTemplateForm()
     } catch (err) {
-      setError(err.message || 'Could not save subject template.')
+      setSubjectTemplateError(err.message || 'Could not save subject template.')
     }
   }
 
   const removeSubjectTemplate = async (id) => {
     try {
+      setSubjectTemplateError('')
+      setSubjectTemplateOk('')
       await deleteSubjectTemplate(access, id)
       setSubjectTemplates((prev) => prev.filter((row) => row.id !== id))
+      setSubjectTemplateOk('Subject template deleted.')
     } catch (err) {
-      setError(err.message || 'Could not delete subject template.')
+      setSubjectTemplateError(err.message || 'Could not delete subject template.')
     }
   }
 
@@ -588,7 +587,7 @@ function ProfilePage() {
       setOk('')
       const payload = {
         job: interviewForm.job || null,
-        location_ref: interviewForm.location_ref || null,
+        location: String(interviewForm.location || '').trim(),
         company_name: String(interviewForm.company_name || '').trim(),
         job_role: String(interviewForm.job_role || '').trim(),
         job_code: String(interviewForm.job_code || '').trim(),
@@ -622,7 +621,7 @@ function ProfilePage() {
     setEditingInterviewId(row.id)
     setInterviewForm({
       job: row.job ? String(row.job) : '',
-      location_ref: row.location_ref ? String(row.location_ref) : '',
+      location: row.location_name || row.location || '',
       company_name: row.company_name || '',
       job_role: row.job_role || '',
       job_code: row.job_code || '',
@@ -737,6 +736,8 @@ function ProfilePage() {
           </div>
         </div>
         <p className="hint">Manage your own reusable subject templates here. These will appear in the tracking subject dropdown.</p>
+        {subjectTemplateError ? <p className="error">{subjectTemplateError}</p> : null}
+        {subjectTemplateOk ? <p className="success">{subjectTemplateOk}</p> : null}
         <div className="profile-ach-grid">
           {filteredSubjectTemplates.map((row) => (
             <article key={row.id} className="profile-template-row">
@@ -959,30 +960,15 @@ function ProfilePage() {
               </label>
               <label>Country Code<input value={profileForm.country_code} onChange={(e) => setProfileForm((p) => ({ ...p, country_code: e.target.value }))} placeholder="+91" /></label>
               <label>Location<input value={profileForm.location} onChange={(e) => setProfileForm((p) => ({ ...p, location: e.target.value }))} /></label>
-              <label>Location Ref
-                <SingleSelectDropdown
-                  value={profileForm.location_ref || ''}
-                  placeholder="Select location"
-                  options={locationOptions.map((location) => ({ value: String(location.id), label: String(location.name || '') }))}
-                  onChange={(nextValue) => {
-                    const selected = locationOptions.find((item) => String(item.id) === String(nextValue || ''))
-                    setProfileForm((p) => ({
-                      ...p,
-                      location_ref: nextValue || '',
-                      location: selected?.name || p.location,
-                    }))
-                  }}
-                />
-              </label>
               <label>Preferred Locations
                 <MultiSelectDropdown
-                  values={Array.isArray(profileForm.preferred_location_refs) ? profileForm.preferred_location_refs : []}
+                  values={Array.isArray(profileForm.preferred_locations) ? profileForm.preferred_locations : []}
                   placeholder="Select preferred locations"
                   searchPlaceholder="Search location"
                   options={locationOptions.map((location) => ({ value: String(location.id), label: String(location.name || '') }))}
                   onChange={(nextValues) => setProfileForm((p) => ({
                     ...p,
-                    preferred_location_refs: Array.isArray(nextValues) ? nextValues : [],
+                    preferred_locations: Array.isArray(nextValues) ? nextValues : [],
                   }))}
                 />
               </label>
@@ -1058,7 +1044,12 @@ function ProfilePage() {
               </label>
               <label>Job Role<input value={interviewForm.job_role} onChange={(e) => setInterviewForm((p) => ({ ...p, job_role: e.target.value }))} /></label>
               <label>Job ID<input value={interviewForm.job_code} onChange={(e) => setInterviewForm((p) => ({ ...p, job_code: e.target.value }))} /></label>
-              {interviewLocationName ? <div className="hint profile-form-note">Location: {interviewLocationName}</div> : null}
+              <label>Location<input list="interview-location-options" value={interviewForm.location || ''} onChange={(e) => setInterviewForm((p) => ({ ...p, location: e.target.value }))} placeholder="Interview location" /></label>
+              <datalist id="interview-location-options">
+                {locationOptions.map((location) => (
+                  <option key={`interview-location-${location.id}`} value={String(location.name || '')} />
+                ))}
+              </datalist>
               <label>Interview At<input type="datetime-local" value={interviewForm.interview_at} onChange={(e) => setInterviewForm((p) => ({ ...p, interview_at: e.target.value }))} /></label>
               <label className="md:col-span-2">Notes<textarea rows={3} value={interviewForm.notes} onChange={(e) => setInterviewForm((p) => ({ ...p, notes: e.target.value }))} /></label>
             </div>

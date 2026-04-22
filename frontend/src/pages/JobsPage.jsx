@@ -3,7 +3,7 @@ import ResumeSheet from '../components/ResumeSheet'
 import { SingleSelectDropdown } from '../components/SearchableDropdown'
 import { capitalizeFirstDisplay } from '../utils/displayText'
 
-import { createJob, deleteJob, fetchCompanies, fetchJobs, updateJob } from '../api'
+import { createJob, deleteJob, fetchCompanies, fetchJobs, fetchLocations, updateJob } from '../api'
 
 const ROLE_PRESETS = ['Backend', 'Software', 'Fullstack']
 
@@ -68,6 +68,7 @@ function emptyJobForm() {
     job_id: '',
     role: '',
     job_link: '',
+    location: '',
     jd_text: '',
     date_of_posting: toDateInput(new Date().toISOString()),
     applied_at: '',
@@ -83,6 +84,7 @@ function JobsPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const [companyOptions, setCompanyOptions] = useState([])
+  const [locationOptions, setLocationOptions] = useState([])
   const [companyReloadTick, setCompanyReloadTick] = useState(0)
   const [jobForm, setJobForm] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -188,6 +190,22 @@ function JobsPage() {
     }
   }, [access, companyReloadTick])
 
+  useEffect(() => {
+    if (!access) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await fetchLocations(access)
+        if (!cancelled) setLocationOptions(Array.isArray(rows) ? rows : [])
+      } catch {
+        if (!cancelled) setLocationOptions([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [access])
+
   const openCreateForm = () => {
     setFormError('')
     setJobForm(emptyJobForm())
@@ -202,6 +220,7 @@ function JobsPage() {
       job_id: row.job_id || '',
       role: row.role || '',
       job_link: row.job_link || '',
+      location: row.location_name || row.location || '',
       jd_text: row.jd_text || '',
       date_of_posting: toDateInput(row.date_of_posting),
       applied_at: toDateInput(row.applied_at),
@@ -241,6 +260,7 @@ function JobsPage() {
         job_id: jobId,
         role,
         job_link: normalizeUrl(jobForm.job_link),
+        location: String(jobForm.location || '').trim(),
         jd_text: jd,
         date_of_posting: jobForm.date_of_posting || null,
         applied_at: jobForm.applied_at || null,
@@ -293,7 +313,7 @@ function JobsPage() {
         <div className="tracking-head">
           <div>
             <h1>Jobs</h1>
-            <p className="subtitle">Filter, edit, and manage company-linked roles in one place.</p>
+            <p className="subtitle">Filter, edit, and manage company-linked roles and locations in one place.</p>
           </div>
           <div className="actions">
             <button type="button" className="secondary" onClick={bulkMarkClosed} disabled={!selectedIds.length || loading}>Mark Closed</button>
@@ -379,6 +399,7 @@ function JobsPage() {
               <th>Job ID</th>
               <th>Company</th>
               <th>Role</th>
+              <th>Location</th>
               <th>Posting date</th>
               <th>Resume</th>
               <th>Job link</th>
@@ -399,6 +420,7 @@ function JobsPage() {
                 <td className="jobs-id-cell">{row.job_id || '—'}</td>
                 <td className="jobs-company-cell">{capitalizeFirstDisplay(row.company_name) || '—'}</td>
                 <td className="jobs-role-cell">{row.role || '—'}</td>
+                <td>{row.location_name || row.location || '—'}</td>
                 <td className="jobs-date-cell">{formatDisplayDate(row.date_of_posting)}</td>
                 <td className="jobs-tailored-cell">
                   {row.resume_preview ? (
@@ -474,7 +496,7 @@ function JobsPage() {
           <div className="modal-panel modal-panel-jobs jobs-modal-panel" onClick={(event) => event.stopPropagation()}>
             <div className="tracking-modal-head">
               <h2>{jobForm.editingId ? 'Edit job' : 'Add job'}</h2>
-              <p className="subtitle">Keep the company, role, posting details, and resume link structured in one place.</p>
+              <p className="subtitle">Keep the company, role, location, posting details, and resume link structured in one place.</p>
             </div>
             <div className="tracking-form-grid jobs-form-grid">
             <div className="tracking-form-section-title tracking-form-span-2">Company</div>
@@ -527,6 +549,20 @@ function JobsPage() {
                 </button>
               ))}
             </div>
+            <label className="tracking-form-span-2">
+              Job location
+              <input
+                value={jobForm.location}
+                onChange={(e) => setJobForm((prev) => ({ ...prev, location: e.target.value }))}
+                list="job-location-presets-list"
+                placeholder="City, Remote, Hybrid, etc."
+              />
+            </label>
+            <datalist id="job-location-presets-list">
+              {locationOptions.map((location) => (
+                <option key={String(location.id)} value={String(location.name || '')} />
+              ))}
+            </datalist>
             <div className="tracking-form-section-title tracking-form-span-2">Links & Dates</div>
             <label>
               Job link

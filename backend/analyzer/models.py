@@ -128,6 +128,16 @@ class Location(BaseModel):
 
     class Meta:
         ordering = ['name']
+        constraints = [
+            models.UniqueConstraint(
+                Lower('name'),
+                name='uniq_location_name_ci',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.name = ' '.join(str(self.name or '').split())
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
@@ -177,14 +187,6 @@ class Employee(BaseModel):
     personalized_template = models.TextField(blank=True)
     profile = models.URLField(blank=True, max_length=1000)
     location = models.CharField(max_length=180, blank=True)
-    location_ref = models.ForeignKey(
-        Location,
-        on_delete=models.SET_NULL,
-        blank=True,
-        null=True,
-        related_name='employees',
-    )
-
 
     class Meta:
         ordering = ['name']
@@ -205,6 +207,7 @@ class Job(BaseModel):
     job_id = models.CharField(max_length=120)
     role = models.CharField(max_length=180)
     job_link = models.URLField(blank=True, max_length=1000)
+    location = models.CharField(max_length=180, blank=True)
     created_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -229,6 +232,15 @@ class Job(BaseModel):
     is_removed = models.BooleanField(default=False)
     class Meta:
         ordering = ['-date_of_posting', '-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                'company',
+                Lower('job_id'),
+                Lower('location'),
+                condition=models.Q(is_removed=False) & ~models.Q(job_id=''),
+                name='uniq_active_job_company_jobid_location_ci',
+            ),
+        ]
         permissions = [
             ('view_all_job', 'Can view all job records'),
         ]
@@ -517,13 +529,6 @@ class UserProfile(BaseModel):
     country = models.CharField(max_length=120, blank=True)
     country_code = models.CharField(max_length=16, blank=True)
     location = models.CharField(max_length=180, blank=True)
-    location_ref = models.ForeignKey(
-        Location,
-        on_delete=models.SET_NULL,
-        blank=True,
-        null=True,
-        related_name='profiles',
-    )
     preferred_locations = models.ManyToManyField(
         Location,
         blank=True,
@@ -574,13 +579,6 @@ class ProfilePanel(BaseModel):
     country = models.CharField(max_length=120, blank=True)
     country_code = models.CharField(max_length=16, blank=True)
     location = models.CharField(max_length=180, blank=True)
-    location_ref = models.ForeignKey(
-        Location,
-        on_delete=models.SET_NULL,
-        blank=True,
-        null=True,
-        related_name='profile_panels',
-    )
     preferred_locations = models.ManyToManyField(
         Location,
         blank=True,
@@ -744,13 +742,7 @@ class Interview(BaseModel):
         null=True,
         related_name='interviews',
     )
-    location_ref = models.ForeignKey(
-        Location,
-        on_delete=models.SET_NULL,
-        blank=True,
-        null=True,
-        related_name='interviews',
-    )
+    location = models.CharField(max_length=180, blank=True, default='')
     company_name = models.CharField(max_length=180)
     job_role = models.CharField(max_length=180)
     job_code = models.CharField(max_length=120, blank=True, default='')

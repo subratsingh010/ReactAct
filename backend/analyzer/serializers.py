@@ -301,16 +301,12 @@ class EmployeeSerializer(serializers.ModelSerializer):
                 payload.pop('company', None)
             else:
                 payload['company'] = None
-        if 'location_ref' in payload and str(payload.get('location_ref') or '').strip() == '':
-            payload['location_ref'] = None
         return super().to_internal_value(payload)
 
     def get_company_name(self, obj):
         return obj.company.name if getattr(obj, 'company', None) else ''
 
     def get_location_name(self, obj):
-        if getattr(obj, 'location_ref_id', None) and getattr(obj, 'location_ref', None):
-            return obj.location_ref.name
         return str(getattr(obj, 'location', '') or '')
 
     def validate_email(self, value):
@@ -381,7 +377,6 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'personalized_template',
             'profile',
             'location',
-            'location_ref',
             'location_name',
             'created_at',
             'updated_at',
@@ -426,14 +421,22 @@ class JobSerializer(serializers.ModelSerializer):
     job_id = serializers.CharField(required=False, allow_blank=True)
     job_link = serializers.CharField(required=False, allow_blank=True)
     company_name = serializers.SerializerMethodField()
+    location_name = serializers.SerializerMethodField()
     has_tailored_resume = serializers.SerializerMethodField()
     tailored_resumes = serializers.SerializerMethodField()
     associated_resumes = serializers.SerializerMethodField()
     resume_preview = serializers.SerializerMethodField()
     applied = serializers.SerializerMethodField()
 
+    def to_internal_value(self, data):
+        payload = data.copy() if hasattr(data, 'copy') else dict(data or {})
+        return super().to_internal_value(payload)
+
     def get_company_name(self, obj):
         return obj.company.name if getattr(obj, 'company', None) else ''
+
+    def get_location_name(self, obj):
+        return str(getattr(obj, 'location', '') or '')
 
     def get_has_tailored_resume(self, obj):
         return obj.resumes.filter(is_tailored=True).exists()
@@ -491,6 +494,29 @@ class JobSerializer(serializers.ModelSerializer):
     def validate_job_link(self, value):
         return _normalize_url(value)
 
+    def validate_location(self, value):
+        return _normalize_text(value)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        company = attrs.get('company') or getattr(self.instance, 'company', None)
+        job_id_value = str(attrs.get('job_id') or getattr(self.instance, 'job_id', '') or '').strip()
+        location_value = str(attrs.get('location') or getattr(self.instance, 'location', '') or '').strip()
+        if company is not None and job_id_value:
+            duplicate_rows = Job.objects.filter(
+                company=company,
+                job_id__iexact=job_id_value,
+                location__iexact=location_value,
+                is_removed=False,
+            )
+            if self.instance is not None:
+                duplicate_rows = duplicate_rows.exclude(id=self.instance.id)
+            if duplicate_rows.exists():
+                raise serializers.ValidationError({
+                    'job_id': ['This job id + location already exists for this company.']
+                })
+        return attrs
+
     class Meta:
         model = Job
         fields = [
@@ -498,6 +524,8 @@ class JobSerializer(serializers.ModelSerializer):
             'job_id',
             'role',
             'job_link',
+            'location',
+            'location_name',
             'has_tailored_resume',
             'tailored_resumes',
             'associated_resumes',
@@ -516,6 +544,7 @@ class JobSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id',
             'company_name',
+            'location_name',
             'has_tailored_resume',
             'applied',
             'created_at',
@@ -548,8 +577,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     openai_model = serializers.CharField(required=False, allow_blank=True)
     ai_task_instructions = serializers.CharField(required=False, allow_blank=True)
     location_name = serializers.SerializerMethodField()
-    preferred_location_refs = serializers.PrimaryKeyRelatedField(
-        source='preferred_locations',
+    preferred_locations = serializers.PrimaryKeyRelatedField(
         many=True,
         queryset=Location.objects.all(),
         required=False,
@@ -557,8 +585,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
     preferred_location_names = serializers.SerializerMethodField()
 
     def get_location_name(self, obj):
-        if getattr(obj, 'location_ref_id', None) and getattr(obj, 'location_ref', None):
-            return obj.location_ref.name
         return str(getattr(obj, 'location', '') or '')
 
     def get_preferred_location_names(self, obj):
@@ -657,9 +683,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'country',
             'country_code',
             'location',
-            'location_ref',
             'location_name',
-            'preferred_location_refs',
+            'preferred_locations',
             'preferred_location_names',
             'summary',
             'smtp_host',
@@ -689,8 +714,7 @@ class ProfilePanelSerializer(serializers.ModelSerializer):
     portfolio_url = serializers.CharField(required=False, allow_blank=True)
     resume_link = serializers.CharField(required=False, allow_blank=True)
     location_name = serializers.SerializerMethodField()
-    preferred_location_refs = serializers.PrimaryKeyRelatedField(
-        source='preferred_locations',
+    preferred_locations = serializers.PrimaryKeyRelatedField(
         many=True,
         queryset=Location.objects.all(),
         required=False,
@@ -698,8 +722,6 @@ class ProfilePanelSerializer(serializers.ModelSerializer):
     preferred_location_names = serializers.SerializerMethodField()
 
     def get_location_name(self, obj):
-        if getattr(obj, 'location_ref_id', None) and getattr(obj, 'location_ref', None):
-            return obj.location_ref.name
         return str(getattr(obj, 'location', '') or '')
 
     def get_preferred_location_names(self, obj):
@@ -761,9 +783,8 @@ class ProfilePanelSerializer(serializers.ModelSerializer):
             'country',
             'country_code',
             'location',
-            'location_ref',
             'location_name',
-            'preferred_location_refs',
+            'preferred_locations',
             'preferred_location_names',
             'summary',
             'created_at',
@@ -873,6 +894,8 @@ AchievementSerializer = TemplateSerializer
 
 
 class SubjectTemplateSerializer(serializers.ModelSerializer):
+    category = serializers.CharField(required=False, allow_blank=False)
+
     def validate_name(self, value):
         text = str(value or '').strip()
         if not text:
@@ -892,9 +915,11 @@ class SubjectTemplateSerializer(serializers.ModelSerializer):
         return text
 
     def validate_category(self, value):
-        text = str(value or '').strip().lower()
-        if text not in {'personalized', 'follow_up', 'opening', 'experience', 'closing', 'general'}:
-            raise serializers.ValidationError('Category must be Personalized, Follow Up, Opening, Experience, Closing, or General.')
+        text = str(value or '').strip().lower().replace(' ', '_')
+        if text == 'followup':
+            text = 'follow_up'
+        if text not in {'fresh', 'follow_up'}:
+            raise serializers.ValidationError('Category must be Fresh or Follow Up.')
         return text
 
     def validate_subject(self, value):
@@ -930,9 +955,7 @@ class InterviewSerializer(serializers.ModelSerializer):
         return f"{obj.job.job_id} | {company_name} | {obj.job.role}"
 
     def get_location_name(self, obj):
-        if getattr(obj, 'location_ref_id', None) and getattr(obj, 'location_ref', None):
-            return obj.location_ref.name
-        return ''
+        return str(getattr(obj, 'location', '') or '')
 
     def validate_company_name(self, value):
         return _normalize_text(value)
@@ -941,6 +964,9 @@ class InterviewSerializer(serializers.ModelSerializer):
         return _normalize_text(value)
 
     def validate_job_code(self, value):
+        return _normalize_text(value)
+
+    def validate_location(self, value):
         return _normalize_text(value)
 
     def validate_stage(self, value):
@@ -958,7 +984,7 @@ class InterviewSerializer(serializers.ModelSerializer):
             'id',
             'job',
             'job_label',
-            'location_ref',
+            'location',
             'location_name',
             'company_name',
             'job_role',
@@ -976,6 +1002,17 @@ class InterviewSerializer(serializers.ModelSerializer):
 
 
 class LocationSerializer(serializers.ModelSerializer):
+    def validate_name(self, value):
+        text = ' '.join(str(value or '').split())
+        if not text:
+            raise serializers.ValidationError('Location name is required.')
+        duplicate_rows = Location.objects.filter(name__iexact=text)
+        if self.instance is not None:
+            duplicate_rows = duplicate_rows.exclude(id=self.instance.id)
+        if duplicate_rows.exists():
+            raise serializers.ValidationError('This location already exists.')
+        return text
+
     class Meta:
         model = Location
         fields = ['id', 'name']

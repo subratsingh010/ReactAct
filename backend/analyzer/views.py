@@ -30,6 +30,7 @@ from .permissions import (
     filter_companies_for_user,
     filter_employees_for_user,
     filter_jobs_for_user,
+    user_has_global_workspace_access,
 )
 from .profile_utils import ensure_profile_for_user
 from .serializers import (
@@ -117,6 +118,32 @@ def _owned_profile_ids_for_user(user):
 
 def _accessible_profile_ids_for_user(user):
     return _owned_profile_ids_for_user(user)
+
+
+def _apply_location_payload(payload):
+    data = payload.copy() if hasattr(payload, 'copy') else dict(payload or {})
+    location_raw = str(data.get('location') or '').strip()
+    if location_raw:
+        matched_location = Location.objects.filter(name__iexact=location_raw).only('id', 'name').first()
+        if matched_location is not None:
+            data['location'] = matched_location.name
+    return data, None
+
+
+def _duplicate_job_id_location_exists(company, job_id, location, *, exclude_id=None):
+    normalized_job_id = str(job_id or '').strip()
+    normalized_location = str(location or '').strip()
+    if company is None or not normalized_job_id:
+        return False
+    rows = Job.objects.filter(
+        company=company,
+        job_id__iexact=normalized_job_id,
+        location__iexact=normalized_location,
+        is_removed=False,
+    )
+    if exclude_id is not None:
+        rows = rows.exclude(id=exclude_id)
+    return rows.exists()
 
 
 def _find_accessible_company_by_name(user, raw_name, *, exclude_id=None, for_write=False):
@@ -1550,25 +1577,18 @@ class ProfileInfoView(APIView):
             if port_field in payload and str(raw_value or '').strip() == '':
                 payload[port_field] = None
         payload.pop('role', None)
-        location_ref_raw = str(payload.get('location_ref') or '').strip()
-        if 'location_ref' in payload and not location_ref_raw:
-            payload['location_ref'] = None
-        if location_ref_raw:
-            try:
-                location = Location.objects.get(id=location_ref_raw)
-                payload['location_ref'] = location.id
-                payload['location'] = location.name
-            except Location.DoesNotExist:
-                return Response({'detail': 'Location not found.'}, status=status.HTTP_400_BAD_REQUEST)
-        preferred_location_refs = payload.get('preferred_location_refs')
-        if preferred_location_refs is None and hasattr(request.data, 'getlist'):
-            raw_list = [str(v or '').strip() for v in request.data.getlist('preferred_location_refs') if str(v or '').strip()]
+        payload, location_error = _apply_location_payload(payload)
+        if location_error:
+            return location_error
+        preferred_locations = payload.get('preferred_locations')
+        if preferred_locations is None and hasattr(request.data, 'getlist'):
+            raw_list = [str(v or '').strip() for v in request.data.getlist('preferred_locations') if str(v or '').strip()]
             if raw_list:
-                preferred_location_refs = raw_list
-        if isinstance(preferred_location_refs, str):
-            preferred_location_refs = [item.strip() for item in preferred_location_refs.split(',') if item.strip()]
-        if preferred_location_refs is not None:
-            payload['preferred_location_refs'] = preferred_location_refs
+                preferred_locations = raw_list
+        if isinstance(preferred_locations, str):
+            preferred_locations = [item.strip() for item in preferred_locations.split(',') if item.strip()]
+        if preferred_locations is not None:
+            payload['preferred_locations'] = preferred_locations
         serializer = UserProfileSerializer(profile, data=payload, partial=True)
         if serializer.is_valid():
             updated = serializer.save()
@@ -1593,25 +1613,18 @@ class ProfilePanelListCreateView(APIView):
         if ProfilePanel.objects.filter(profile=profile).count() >= self.max_panels:
             return Response({'detail': 'Maximum 2 profile panels allowed.'}, status=status.HTTP_400_BAD_REQUEST)
         payload = dict(request.data or {})
-        location_ref_raw = str(payload.get('location_ref') or '').strip()
-        if 'location_ref' in payload and not location_ref_raw:
-            payload['location_ref'] = None
-        if location_ref_raw:
-            try:
-                location = Location.objects.get(id=location_ref_raw)
-                payload['location_ref'] = location.id
-                payload['location'] = location.name
-            except Location.DoesNotExist:
-                return Response({'detail': 'Location not found.'}, status=status.HTTP_400_BAD_REQUEST)
-        preferred_location_refs = payload.get('preferred_location_refs')
-        if preferred_location_refs is None and hasattr(request.data, 'getlist'):
-            raw_list = [str(v or '').strip() for v in request.data.getlist('preferred_location_refs') if str(v or '').strip()]
+        payload, location_error = _apply_location_payload(payload)
+        if location_error:
+            return location_error
+        preferred_locations = payload.get('preferred_locations')
+        if preferred_locations is None and hasattr(request.data, 'getlist'):
+            raw_list = [str(v or '').strip() for v in request.data.getlist('preferred_locations') if str(v or '').strip()]
             if raw_list:
-                preferred_location_refs = raw_list
-        if isinstance(preferred_location_refs, str):
-            preferred_location_refs = [item.strip() for item in preferred_location_refs.split(',') if item.strip()]
-        if preferred_location_refs is not None:
-            payload['preferred_location_refs'] = preferred_location_refs
+                preferred_locations = raw_list
+        if isinstance(preferred_locations, str):
+            preferred_locations = [item.strip() for item in preferred_locations.split(',') if item.strip()]
+        if preferred_locations is not None:
+            payload['preferred_locations'] = preferred_locations
         serializer = ProfilePanelSerializer(data=payload, context={'request': request})
         if serializer.is_valid():
             row = serializer.save(profile=profile)
@@ -1635,25 +1648,18 @@ class ProfilePanelDetailView(APIView):
         if not row:
             return Response({'detail': 'Profile panel not found.'}, status=status.HTTP_404_NOT_FOUND)
         payload = dict(request.data or {})
-        location_ref_raw = str(payload.get('location_ref') or '').strip()
-        if 'location_ref' in payload and not location_ref_raw:
-            payload['location_ref'] = None
-        if location_ref_raw:
-            try:
-                location = Location.objects.get(id=location_ref_raw)
-                payload['location_ref'] = location.id
-                payload['location'] = location.name
-            except Location.DoesNotExist:
-                return Response({'detail': 'Location not found.'}, status=status.HTTP_400_BAD_REQUEST)
-        preferred_location_refs = payload.get('preferred_location_refs')
-        if preferred_location_refs is None and hasattr(request.data, 'getlist'):
-            raw_list = [str(v or '').strip() for v in request.data.getlist('preferred_location_refs') if str(v or '').strip()]
+        payload, location_error = _apply_location_payload(payload)
+        if location_error:
+            return location_error
+        preferred_locations = payload.get('preferred_locations')
+        if preferred_locations is None and hasattr(request.data, 'getlist'):
+            raw_list = [str(v or '').strip() for v in request.data.getlist('preferred_locations') if str(v or '').strip()]
             if raw_list:
-                preferred_location_refs = raw_list
-        if isinstance(preferred_location_refs, str):
-            preferred_location_refs = [item.strip() for item in preferred_location_refs.split(',') if item.strip()]
-        if preferred_location_refs is not None:
-            payload['preferred_location_refs'] = preferred_location_refs
+                preferred_locations = raw_list
+        if isinstance(preferred_locations, str):
+            preferred_locations = [item.strip() for item in preferred_locations.split(',') if item.strip()]
+        if preferred_locations is not None:
+            payload['preferred_locations'] = preferred_locations
         serializer = ProfilePanelSerializer(row, data=payload, partial=True, context={'request': request})
         if serializer.is_valid():
             updated = serializer.save()
@@ -1875,6 +1881,9 @@ class InterviewListCreateView(APIView):
         if denied:
             return denied
         payload = dict(request.data or {})
+        payload, location_error = _apply_location_payload(payload)
+        if location_error:
+            return location_error
         payload['action'] = str(payload.get('action') or payload.get('section') or 'active').strip().lower() or 'active'
         raw_job_id = str(payload.get('job') or '').strip()
         selected_job = None
@@ -1889,13 +1898,7 @@ class InterviewListCreateView(APIView):
         company_name = str(payload.get('company_name') or '').strip()
         job_role = str(payload.get('job_role') or '').strip()
         job_code = str(payload.get('job_code') or '').strip()
-        location_ref_raw = str(payload.get('location_ref') or '').strip()
-        selected_location = None
-        if location_ref_raw:
-            try:
-                selected_location = Location.objects.get(id=location_ref_raw)
-            except Location.DoesNotExist:
-                return Response({'detail': 'Location not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        location = str(payload.get('location') or '').strip()
         if selected_job:
             if not company_name and selected_job.company_id:
                 company_name = str(selected_job.company.name or '').strip()
@@ -1912,8 +1915,7 @@ class InterviewListCreateView(APIView):
         payload['company_name'] = company_name
         payload['job_role'] = job_role
         payload['job_code'] = job_code
-        if selected_location:
-            payload['location_ref'] = selected_location.id
+        payload['location'] = location
         if selected_job:
             payload['job'] = selected_job.id
         serializer = InterviewSerializer(data=payload)
@@ -1985,6 +1987,9 @@ class InterviewDetailView(APIView):
         prev_stage = row.stage
         prev_action = row.action
         payload = dict(request.data or {})
+        payload, location_error = _apply_location_payload(payload)
+        if location_error:
+            return location_error
         stage_explicitly_sent = 'stage' in payload
         payload['action'] = str(payload.get('action') or payload.get('section') or row.action or 'active').strip().lower() or 'active'
         raw_job_id = str(payload.get('job') or '').strip()
@@ -2000,13 +2005,7 @@ class InterviewDetailView(APIView):
         company_name = payload.get('company_name', row.company_name)
         job_role = payload.get('job_role', row.job_role)
         job_code = payload.get('job_code', row.job_code)
-        location_ref_raw = str(payload.get('location_ref') or '').strip()
-        selected_location = row.location_ref if getattr(row, 'location_ref_id', None) else None
-        if location_ref_raw:
-            try:
-                selected_location = Location.objects.get(id=location_ref_raw)
-            except Location.DoesNotExist:
-                return Response({'detail': 'Location not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        location = str(payload.get('location', row.location) or '').strip()
         if selected_job:
             if not str(company_name or '').strip() and selected_job.company_id:
                 company_name = selected_job.company.name
@@ -2037,7 +2036,7 @@ class InterviewDetailView(APIView):
         payload['job_role'] = str(job_role or '').strip()
         payload['job_code'] = str(job_code or '').strip()
         payload['job'] = selected_job.id if selected_job else None
-        payload['location_ref'] = selected_location.id if selected_location else None
+        payload['location'] = location
         serializer = InterviewSerializer(row, data=payload, partial=True)
         if serializer.is_valid():
             updated = serializer.save(max_round_reached=next_max_round)
@@ -4281,7 +4280,11 @@ class CompanyListCreateView(CompanyAccessMixin, APIView):
         queryset = queryset.order_by('name')
         ready_for_tracking = str(request.query_params.get('ready_for_tracking') or '').strip().lower() in {'1', 'true', 'yes', 'y'}
         if ready_for_tracking:
-            profile_ids = _accessible_profile_ids_for_user(request.user)
+            profile_ids = (
+                list(UserProfile.objects.values_list('id', flat=True))
+                if user_has_global_workspace_access(request.user)
+                else _accessible_profile_ids_for_user(request.user)
+            )
             open_job_company_ids = set(
                 Job.objects.filter(
                     company__profile_id__in=profile_ids,
@@ -4430,9 +4433,9 @@ class EmployeeDetailView(EmployeeAccessMixin, APIView):
             except Company.DoesNotExist:
                 return Response({'company': ['Company not found.']}, status=status.HTTP_400_BAD_REQUEST)
             payload['company'] = company.id
-        location_ref_raw = str(payload.get('location_ref') or '').strip()
-        if 'location_ref' in payload and not location_ref_raw:
-            payload['location_ref'] = None
+        payload, location_error = _apply_location_payload(payload)
+        if location_error:
+            return location_error
 
         serializer = EmployeeSerializer(row, data=payload, partial=True)
         if serializer.is_valid():
@@ -4543,6 +4546,9 @@ class JobListCreateView(JobAccessMixin, APIView):
         data = request.data.copy()
         if hasattr(data, '_mutable'):
             data._mutable = True
+        data, location_error = _apply_location_payload(data)
+        if location_error:
+            return location_error
         company_id = data.get('company')
         new_company_name = data.get('new_company_name')
         company = _find_accessible_company_by_name(request.user, new_company_name, for_write=True)
@@ -4558,14 +4564,8 @@ class JobListCreateView(JobAccessMixin, APIView):
             except ValueError as exc:
                 return Response({'company': [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
         job_id_value = str(data.get('job_id') or '').strip()
-        if job_id_value:
-            exists = _writable_jobs_for_user(request.user).filter(
-                company=company,
-                job_id__iexact=job_id_value,
-                is_removed=False,
-            ).exists()
-            if exists:
-                return Response({'job_id': ['This job id already exists for this company.']}, status=status.HTTP_400_BAD_REQUEST)
+        if _duplicate_job_id_location_exists(company, job_id_value, data.get('location')):
+            return Response({'job_id': ['This job id + location already exists for this company.']}, status=status.HTTP_400_BAD_REQUEST)
         data['company'] = company.id
         data['job_id'] = job_id_value
         data.pop('new_company_name', None)
@@ -4604,6 +4604,9 @@ class JobDetailView(JobAccessMixin, APIView):
         data = request.data.copy()
         if hasattr(data, '_mutable'):
             data._mutable = True
+        data, location_error = _apply_location_payload(data)
+        if location_error:
+            return location_error
         target_company = row.company
         if 'company' in data or 'new_company_name' in data:
             cid = data.get('company')
@@ -4627,14 +4630,13 @@ class JobDetailView(JobAccessMixin, APIView):
                 target_company = company
             data.pop('new_company_name', None)
         target_job_id = str(data.get('job_id') if 'job_id' in data else row.job_id).strip()
-        if target_job_id:
-            duplicate = Job.objects.filter(
-                company=target_company,
-                job_id__iexact=target_job_id,
-                is_removed=False,
-            ).exclude(id=row.id).exists()
-            if duplicate:
-                return Response({'job_id': ['This job id already exists for this company.']}, status=status.HTTP_400_BAD_REQUEST)
+        if _duplicate_job_id_location_exists(
+            target_company,
+            target_job_id,
+            data.get('location') if 'location' in data else row.location,
+            exclude_id=row.id,
+        ):
+            return Response({'job_id': ['This job id + location already exists for this company.']}, status=status.HTTP_400_BAD_REQUEST)
         data['job_id'] = target_job_id
         serializer = JobSerializer(row, data=data, partial=True, context={'request': request})
         if serializer.is_valid():
@@ -4871,6 +4873,13 @@ class BulkUploadJobsEmployeesView(APIView):
                 'job_link': job_link,
                 'role': role,
             }
+            location = str(row.get('location') or '').strip()
+            if location:
+                payload['location'] = location
+            payload, location_error = _apply_location_payload(payload)
+            if location_error:
+                summary['errors'].append({'row': idx, 'error': 'Location not found.'})
+                continue
             serializer = JobSerializer(data=payload, context={'request': request})
             if not serializer.is_valid():
                 summary['errors'].append({'row': idx, 'error': serializer.errors})
@@ -5175,7 +5184,9 @@ class ExtensionJobCreateView(APIView):
         return company, ''
 
     def post(self, request):
-        payload = request.data or {}
+        payload, location_error = _apply_location_payload(request.data or {})
+        if location_error:
+            return location_error
         actor = _resolve_extension_user(request)
         if not actor:
             return Response({'detail': 'Please login in web app'}, status=status.HTTP_401_UNAUTHORIZED)
@@ -5221,23 +5232,18 @@ class ExtensionJobCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if job_id_value:
-            duplicate = Job.objects.filter(
-                company=company,
-                job_id__iexact=job_id_value,
-                is_removed=False,
-            ).exists()
-            if duplicate:
-                return Response(
-                    {'detail': 'This company + job_id already exists.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        if _duplicate_job_id_location_exists(company, job_id_value, payload.get('location')):
+            return Response(
+                {'detail': 'This company already has the same job id + location.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         created = Job.objects.create(
             company=company,
             job_id=job_id_value,
             role=role_value,
             job_link=job_link_value,
+            location=str(payload.get('location') or '').strip(),
             jd_text=jd_value,
             date_of_posting=posted_date,
             applied_at=applied_at,

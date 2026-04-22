@@ -13,9 +13,7 @@ import { useAuth } from '../contexts/useAuth'
 const TEMPLATE_CATEGORY_OPTIONS = [
   { value: 'personalized', label: 'Personalized' },
   { value: 'follow_up', label: 'Follow Up' },
-  { value: 'opening', label: 'Opening' },
   { value: 'experience', label: 'Experience' },
-  { value: 'closing', label: 'Closing' },
   { value: 'general', label: 'General' },
 ]
 const EMPTY_TEMPLATE = {
@@ -24,6 +22,12 @@ const EMPTY_TEMPLATE = {
   paragraph: '',
 }
 const PAGE_SIZE = 10
+
+function normalizeTemplateCategory(value) {
+  const normalized = String(value || 'general').trim().toLowerCase()
+  if (normalized === 'opening' || normalized === 'closing') return 'general'
+  return normalized || 'general'
+}
 
 function buildPageNumberWindow(currentPage, totalPages, maxVisible = 5) {
   const safeTotal = Math.max(1, Number(totalPages || 1))
@@ -39,7 +43,7 @@ function buildPageNumberWindow(currentPage, totalPages, maxVisible = 5) {
 }
 
 function templateSortValue(row) {
-  const category = String(row?.category || 'general').trim().toLowerCase()
+  const category = normalizeTemplateCategory(row?.category)
   const name = String(row?.name || '').trim().toLowerCase()
   return `${category}|${name}`
 }
@@ -51,7 +55,7 @@ function sortTemplates(rows) {
 }
 
 function humanizeCategory(value) {
-  return String(value || 'general').trim().replaceAll('_', ' ') || 'general'
+  return normalizeTemplateCategory(value).replaceAll('_', ' ') || 'general'
 }
 
 function formatTemplateDate(value) {
@@ -86,6 +90,8 @@ function TemplatesPage() {
   const [editingTemplateId, setEditingTemplateId] = useState(null)
   const [templateForm, setTemplateForm] = useState(EMPTY_TEMPLATE)
   const [showTemplateHints, setShowTemplateHints] = useState(false)
+  const [templateError, setTemplateError] = useState('')
+  const [templateOk, setTemplateOk] = useState('')
 
   useEffect(() => {
     if (!accessToken) return undefined
@@ -123,10 +129,10 @@ function TemplatesPage() {
   }, [accessToken])
 
   const filteredRows = useMemo(() => {
-    const selectedCategory = String(category || '').trim().toLowerCase()
+    const selectedCategory = normalizeTemplateCategory(category)
     const nextRows = Array.isArray(rows) ? rows : []
-    if (!selectedCategory) return nextRows
-    return nextRows.filter((row) => String(row?.category || '').trim().toLowerCase() === selectedCategory)
+    if (!String(category || '').trim()) return nextRows
+    return nextRows.filter((row) => normalizeTemplateCategory(row?.category) === selectedCategory)
   }, [rows, category])
 
   const totalPages = useMemo(
@@ -149,6 +155,8 @@ function TemplatesPage() {
     if (!permissions.can_add) return
     setError('')
     setOk('')
+    setTemplateError('')
+    setTemplateOk('')
     setEditingTemplateId(null)
     setTemplateForm(EMPTY_TEMPLATE)
     setShowTemplateHints(false)
@@ -160,16 +168,19 @@ function TemplatesPage() {
     setEditingTemplateId(null)
     setTemplateForm(EMPTY_TEMPLATE)
     setShowTemplateHints(false)
+    setTemplateError('')
   }
 
   const editTemplate = (row) => {
     if (!row?.can_edit) return
     setError('')
     setOk('')
+    setTemplateError('')
+    setTemplateOk('')
     setEditingTemplateId(row.id)
     setTemplateForm({
       name: row.name || '',
-      category: row.category || 'general',
+      category: normalizeTemplateCategory(row.category),
       paragraph: row.paragraph || '',
     })
     setShowTemplateHints(false)
@@ -178,29 +189,29 @@ function TemplatesPage() {
 
   const saveTemplate = async () => {
     try {
-      setError('')
-      setOk('')
+      setTemplateError('')
+      setTemplateOk('')
       const payload = {
         name: String(templateForm.name || '').trim(),
-        category: String(templateForm.category || 'general').trim() || 'general',
+        category: normalizeTemplateCategory(templateForm.category),
         paragraph: String(templateForm.paragraph || '').trim(),
       }
       if (!payload.name || !payload.paragraph) {
-        setError('Template needs name and paragraph text.')
+        setTemplateError('Template needs name and paragraph text.')
         return
       }
       if (editingTemplateId) {
         const updated = await updateTemplate(accessToken, editingTemplateId, payload)
         setRows((prev) => sortTemplates(prev.map((row) => (row.id === editingTemplateId ? updated : row))))
-        setOk('Template updated.')
+        setTemplateOk('Template updated.')
       } else {
         const created = await createTemplate(accessToken, payload)
         setRows((prev) => sortTemplates([created, ...prev]))
-        setOk('Template added.')
+        setTemplateOk('Template added.')
       }
       closeTemplateForm()
     } catch (err) {
-      setError(err.message || 'Could not save template.')
+      setTemplateError(err.message || 'Could not save template.')
     }
   }
 
@@ -209,11 +220,13 @@ function TemplatesPage() {
     try {
       setError('')
       setOk('')
+      setTemplateError('')
+      setTemplateOk('')
       await deleteTemplate(accessToken, row.id)
       setRows((prev) => prev.filter((item) => item.id !== row.id))
-      setOk('Template deleted.')
+      setTemplateOk('Template deleted.')
     } catch (err) {
-      setError(err.message || 'Could not delete template.')
+      setTemplateError(err.message || 'Could not delete template.')
     }
   }
 
@@ -248,6 +261,8 @@ function TemplatesPage() {
         {loading ? <p className="hint">Loading templates...</p> : null}
         {!loading && error ? <p className="error">{error}</p> : null}
         {!loading && !error && ok ? <p className="success">{ok}</p> : null}
+        {!loading && !error && templateError ? <p className="error">{templateError}</p> : null}
+        {!loading && !error && templateOk ? <p className="success">{templateOk}</p> : null}
         {!loading && !error && !permissions.can_add && !permissions.can_edit && !permissions.can_delete ? (
           <p className="hint">You have read-only access to templates.</p>
         ) : null}
@@ -329,16 +344,38 @@ function TemplatesPage() {
 
       {showForm ? (
         <div className="modal-overlay" onClick={closeTemplateForm}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel profile-modal-panel" onClick={(e) => e.stopPropagation()}>
             <h2>{editingTemplateId ? 'Edit Template' : 'Add Template'}</h2>
-            <div className="grid">
-              <label>Name<input value={templateForm.name} onChange={(e) => setTemplateForm((current) => ({ ...current, name: e.target.value }))} /></label>
-              <label>Category<select value={templateForm.category || 'general'} onChange={(e) => setTemplateForm((current) => ({ ...current, category: e.target.value }))}><option value="personalized">Personalized</option><option value="follow_up">Follow Up</option><option value="opening">Opening</option><option value="experience">Experience</option><option value="closing">Closing</option><option value="general">General</option></select></label>
-              <label>Paragraph</label>
-              <div className="rich-editor-shell">
-                <textarea rows={4} value={templateForm.paragraph} onChange={(e) => setTemplateForm((current) => ({ ...current, paragraph: e.target.value }))} placeholder="Example: Hi {name}, I’m reaching out about the {role} role at {company_name}. My experience at {current_employer} and {years_of_experience} years in the field feel closely aligned." />
-              </div>
-              <div className="actions" style={{ justifyContent: 'space-between' }}>
+            <div className="profile-form-grid">
+              <label>
+                Name
+                <input
+                  value={templateForm.name}
+                  onChange={(e) => setTemplateForm((current) => ({ ...current, name: e.target.value }))}
+                  placeholder="Example: Follow Up Interview"
+                />
+              </label>
+              <label>
+                Category
+                <SingleSelectDropdown
+                  value={templateForm.category || 'general'}
+                  placeholder="Select category"
+                  searchPlaceholder="Search category"
+                  options={TEMPLATE_CATEGORY_OPTIONS}
+                  onChange={(nextValue) => setTemplateForm((current) => ({ ...current, category: nextValue || 'general' }))}
+                />
+              </label>
+              <label className="tracking-form-span-2">
+                Template Paragraph
+                <textarea
+                  rows={6}
+                  value={templateForm.paragraph}
+                  onChange={(e) => setTemplateForm((current) => ({ ...current, paragraph: e.target.value }))}
+                  placeholder="Example: Hi {name}, I’m reaching out about the {role} role at {company_name}. My experience at {current_employer} and {years_of_experience} years in the field feel closely aligned."
+                />
+              </label>
+              {templateError ? <p className="error tracking-form-span-2">{templateError}</p> : null}
+              <div className="profile-template-hint-panel tracking-form-span-2">
                 <button
                   type="button"
                   className="secondary"
@@ -347,8 +384,9 @@ function TemplatesPage() {
                   {showTemplateHints ? 'Hide Hints' : 'Show Hints'}
                 </button>
                 {showTemplateHints ? (
-                  <div className="hint" style={{ flex: 1, marginLeft: 12 }}>
-                    Available placeholders: {'{name}'}, {'{employee_name}'}, {'{first_name}'}, {'{employee_role}'}, {'{department}'}, {'{employee_department}'}, {'{company_name}'}, {'{current_employer}'}, {'{role}'}, {'{job_id}'}, {'{job_link}'}, {'{resume_link}'}, {'{years_of_experience}'}, {'{yoe}'}, {'{interaction_time}'}, {'{interview_round}'}.
+                  <div className="profile-template-hint-box">
+                    <p className="hint profile-form-note">Pick the category first, then write one reusable paragraph with placeholders.</p>
+                    <p className="hint profile-form-note">Available placeholders: <code>{'{name}'}</code>, <code>{'{employee_name}'}</code>, <code>{'{first_name}'}</code>, <code>{'{employee_role}'}</code>, <code>{'{department}'}</code>, <code>{'{employee_department}'}</code>, <code>{'{company_name}'}</code>, <code>{'{current_employer}'}</code>, <code>{'{role}'}</code>, <code>{'{job_id}'}</code>, <code>{'{job_link}'}</code>, <code>{'{resume_link}'}</code>, <code>{'{years_of_experience}'}</code>, <code>{'{yoe}'}</code>, <code>{'{interaction_time}'}</code>, <code>{'{interview_round}'}</code>.</p>
                   </div>
                 ) : null}
               </div>

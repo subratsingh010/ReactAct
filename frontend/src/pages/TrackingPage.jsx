@@ -164,6 +164,11 @@ function uniqueArray(values) {
   return Array.from(new Set((Array.isArray(values) ? values : []).map((x) => String(x || '').trim()).filter(Boolean)))
 }
 
+function sortTextValues(values) {
+  return Array.from(new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter(Boolean)))
+    .sort((left, right) => left.localeCompare(right))
+}
+
 function normalizeId(value) {
   return String(value || '').trim()
 }
@@ -364,6 +369,23 @@ function departmentBucketForEmployee(employee) {
   return departmentBucket(`${dept} ${role}`.trim())
 }
 
+function employeeLocationValue(employee) {
+  return String(employee?.location_name || employee?.location || '').trim()
+}
+
+function jobLocationValue(job) {
+  return String(job?.location_name || job?.location || '').trim()
+}
+
+function companyDropdownOptions(options, selectedValue = '', selectedLabel = '') {
+  const baseOptions = Array.isArray(options) ? options : []
+  const selectedId = String(selectedValue || '').trim()
+  const selectedName = String(selectedLabel || '').trim()
+  if (!selectedId) return baseOptions
+  if (baseOptions.some((item) => String(item?.id) === selectedId)) return baseOptions
+  return [{ id: selectedId, name: selectedName || 'Selected Company' }, ...baseOptions]
+}
+
 function resolveDepartmentBuckets({ department, selectedIds, employees }) {
   const selectedSet = new Set((Array.isArray(selectedIds) ? selectedIds : []).map((id) => String(id)))
   const selectedEmployees = (Array.isArray(employees) ? employees : []).filter((emp) => selectedSet.has(String(emp.id)))
@@ -503,6 +525,9 @@ function buildFollowUpCandidates(row) {
         id,
         name,
         email,
+        location_name: employeeLocationValue(employee),
+        department: String(employee?.department || '').trim(),
+        JobRole: String(employee?.JobRole || '').trim(),
         replied,
         last_action_at: String(event?.action_at || '').trim(),
         last_action_label: formatShortDateTime(event?.action_at),
@@ -595,6 +620,13 @@ function initialDepartmentFromRow(row) {
   const selectedEmployees = Array.isArray(row?.selected_employees) ? row.selected_employees : []
   const firstDepartment = String(selectedEmployees[0]?.department || '').trim()
   if (firstDepartment) return firstDepartment
+  return ''
+}
+
+function initialEmployeeLocationFromRow(row) {
+  const selectedEmployees = Array.isArray(row?.selected_employees) ? row.selected_employees : []
+  const firstLocation = employeeLocationValue(selectedEmployees[0])
+  if (firstLocation) return firstLocation
   return ''
 }
 
@@ -797,7 +829,7 @@ function TrackingPage() {
     ;(async () => {
       try {
         const [companyRows, resumesData, tailoredData, achievementsData, subjectTemplatesData, profileData] = await Promise.all([
-          fetchAllCompanies(access, { ready_for_tracking: true, scope: 'all' }),
+          fetchAllCompanies(access, { scope: 'all', ready_for_tracking: true }),
           fetchResumes(access).catch(() => []),
           fetchTailoredResumes(access).catch(() => []),
           fetchTemplates(access).catch(() => []),
@@ -848,6 +880,7 @@ function TrackingPage() {
     setCreateForm({
       company: '',
       job: '',
+      employee_location: '',
       department: '',
       employee_role: '',
       mail_type: 'fresh',
@@ -987,6 +1020,7 @@ function TrackingPage() {
         id: fullRow.id,
         company: fullRow.company || '',
         job: fullRow.job || '',
+        employee_location: initialEmployeeLocationFromRow(fullRow),
         department: initialDepartmentFromRow(fullRow),
         employee_role: initialRoleFromRow(fullRow),
         company_name: fullRow.company_name || '',
@@ -1307,6 +1341,52 @@ function TrackingPage() {
     () => (Array.isArray(employeeOptions) ? employeeOptions.filter((emp) => emp?.working_mail !== false) : []),
     [employeeOptions],
   )
+  const createSelectedJob = useMemo(
+    () => (Array.isArray(jobOptions) ? jobOptions.find((job) => String(job.id) === String(createForm?.job || '')) : null),
+    [jobOptions, createForm?.job],
+  )
+  const editSelectedJob = useMemo(
+    () => (Array.isArray(jobOptions) ? jobOptions.find((job) => String(job.id) === String(editForm?.job || '')) : null),
+    [jobOptions, editForm?.job],
+  )
+  const createSelectedJobLocation = useMemo(
+    () => jobLocationValue(createSelectedJob),
+    [createSelectedJob],
+  )
+  const editSelectedJobLocation = useMemo(
+    () => jobLocationValue(editSelectedJob),
+    [editSelectedJob],
+  )
+  const createCompanyDropdownOptions = useMemo(
+    () => companyDropdownOptions(companyOptions, createForm?.company),
+    [companyOptions, createForm?.company],
+  )
+  const editCompanyDropdownOptions = useMemo(
+    () => companyDropdownOptions(companyOptions, editForm?.company, editForm?.company_name),
+    [companyOptions, editForm?.company, editForm?.company_name],
+  )
+  const createEmployeeLocationOptions = useMemo(
+    () => sortTextValues(activeEmployeeOptions.map((emp) => employeeLocationValue(emp))),
+    [activeEmployeeOptions],
+  )
+  const editEmployeeLocationOptions = useMemo(
+    () => sortTextValues(activeEmployeeOptions.map((emp) => employeeLocationValue(emp))),
+    [activeEmployeeOptions],
+  )
+  const createScopedEmployeeOptions = useMemo(
+    () => activeEmployeeOptions.filter((emp) => {
+      if (!String(createForm?.employee_location || '').trim()) return true
+      return employeeLocationValue(emp) === String(createForm?.employee_location || '').trim()
+    }),
+    [activeEmployeeOptions, createForm?.employee_location],
+  )
+  const editScopedEmployeeOptions = useMemo(
+    () => activeEmployeeOptions.filter((emp) => {
+      if (!String(editForm?.employee_location || '').trim()) return true
+      return employeeLocationValue(emp) === String(editForm?.employee_location || '').trim()
+    }),
+    [activeEmployeeOptions, editForm?.employee_location],
+  )
   const createSubjectOptions = useMemo(
     () => subjectOptionsForForm(createForm, companyOptions, jobOptions, profileYoe, subjectTemplateOptions),
     [createForm, companyOptions, jobOptions, profileYoe, subjectTemplateOptions],
@@ -1348,46 +1428,49 @@ function TrackingPage() {
     () => editFollowUpCandidates.map((item) => item.id),
     [editFollowUpCandidates],
   )
-  const departmentOptions = useMemo(
-    () => Array.from(new Set(activeEmployeeOptions.map((emp) => String(emp.department || '').trim()).filter(Boolean))),
-    [activeEmployeeOptions],
+  const createDepartmentOptions = useMemo(
+    () => sortTextValues(createScopedEmployeeOptions.map((emp) => String(emp.department || '').trim())),
+    [createScopedEmployeeOptions],
+  )
+  const editDepartmentOptions = useMemo(
+    () => sortTextValues(editScopedEmployeeOptions.map((emp) => String(emp.department || '').trim())),
+    [editScopedEmployeeOptions],
   )
   const createRoleOptions = useMemo(
-    () => Array.from(new Set(
-      activeEmployeeOptions
+    () => sortTextValues(
+      createScopedEmployeeOptions
         .filter((emp) => !createForm?.department || String(emp.department || '').trim() === String(createForm?.department || '').trim())
         .map((emp) => String(emp.JobRole || '').trim())
-        .filter(Boolean),
-    )),
-    [activeEmployeeOptions, createForm?.department],
+    ),
+    [createScopedEmployeeOptions, createForm?.department],
   )
   const editRoleOptions = useMemo(
-    () => Array.from(new Set(
-      activeEmployeeOptions
+    () => sortTextValues(
+      editScopedEmployeeOptions
         .filter((emp) => !editForm?.department || String(emp.department || '').trim() === String(editForm?.department || '').trim())
         .map((emp) => String(emp.JobRole || '').trim())
-        .filter(Boolean),
-    )),
-    [activeEmployeeOptions, editForm?.department],
+    ),
+    [editScopedEmployeeOptions, editForm?.department],
   )
   const createEmployeeDropdownOptions = useMemo(
-    () => activeEmployeeOptions
+    () => createScopedEmployeeOptions
       .filter((emp) => !createForm?.department || String(emp.department || '').trim() === String(createForm?.department || '').trim())
       .filter((emp) => !createForm?.employee_role || String(emp.JobRole || '').trim() === String(createForm?.employee_role || '').trim())
       .map((emp) => ({ value: String(emp.id), label: String(emp.name || '') })),
-    [activeEmployeeOptions, createForm?.department, createForm?.employee_role],
+    [createScopedEmployeeOptions, createForm?.department, createForm?.employee_role],
   )
   const editEmployeeDropdownOptions = useMemo(
     () => {
       const source = String(editForm?.mail_type || '').trim() === 'followed_up'
         ? editFollowUpCandidates
-        : activeEmployeeOptions
+        : editScopedEmployeeOptions
       return source
-        .filter((emp) => !editForm?.department || String(emp.department || '') === String(editForm?.department || ''))
+        .filter((emp) => !editForm?.employee_location || employeeLocationValue(emp) === String(editForm?.employee_location || '').trim())
+        .filter((emp) => !editForm?.department || String(emp.department || '').trim() === String(editForm?.department || '').trim())
         .filter((emp) => !editForm?.employee_role || String(emp.JobRole || '').trim() === String(editForm?.employee_role || '').trim())
         .map((emp) => ({ value: String(emp.id), label: String(emp.name || '') }))
     },
-    [activeEmployeeOptions, editFollowUpCandidates, editForm?.department, editForm?.employee_role, editForm?.mail_type],
+    [editScopedEmployeeOptions, editFollowUpCandidates, editForm?.employee_location, editForm?.department, editForm?.employee_role, editForm?.mail_type],
   )
   const editFollowThreadOptions = useMemo(
     () => editFollowUpCandidates.map((item) => ({
@@ -1868,12 +1951,13 @@ function TrackingPage() {
               <SingleSelectDropdown
                 value={createForm.company || ''}
                 placeholder="Select company"
-                options={companyOptions.map((company) => ({ value: String(company.id), label: capitalizeFirstDisplay(company.name) }))}
+                options={createCompanyDropdownOptions.map((company) => ({ value: String(company.id), label: capitalizeFirstDisplay(company.name) }))}
                 onChange={async (nextValue) => {
                   setCreateForm((prev) => ({
                     ...prev,
                     company: nextValue,
                     job: '',
+                    employee_location: '',
                     department: '',
                     employee_role: '',
                     selected_hr_ids: [],
@@ -1886,11 +1970,42 @@ function TrackingPage() {
               />
             </label>
             <label>
+              Job (dropdown)
+              <SingleSelectDropdown
+                value={createForm.job || ''}
+                placeholder="Select job"
+                options={jobOptions.map((job) => ({ value: String(job.id), label: `${job.job_id || ''} - ${job.role || ''}` }))}
+                onChange={(nextValue) => setCreateForm((prev) => ({
+                  ...prev,
+                  job: nextValue,
+                  attachment_source: '',
+                  resume_id: '',
+                  tailored_resume_id: '',
+                }))}
+              />
+            </label>
+            <label>
+              Job Location
+              <span className="hint">
+                {createSelectedJobLocation || (createForm.job ? 'Job location not available' : 'Select job first')}
+              </span>
+            </label>
+            <label>
+              Employee Location
+              <SingleSelectDropdown
+                value={createForm.employee_location || ''}
+                placeholder="Select employee location"
+                disabled={!createForm.company}
+                options={createEmployeeLocationOptions.map((location) => ({ value: location, label: location }))}
+                onChange={(nextValue) => setCreateForm((prev) => ({ ...prev, employee_location: nextValue, department: '', employee_role: '', selected_hr_ids: [] }))}
+              />
+            </label>
+            <label>
               Department
               <SingleSelectDropdown
                 value={createForm.department || ''}
                 placeholder="Select department"
-                options={departmentOptions.map((dept) => ({ value: dept, label: dept }))}
+                options={createDepartmentOptions.map((dept) => ({ value: dept, label: dept }))}
                 onChange={(nextValue) => setCreateForm((prev) => ({ ...prev, department: nextValue, employee_role: '', selected_hr_ids: [] }))}
               />
             </label>
@@ -1915,22 +2030,7 @@ function TrackingPage() {
               />
             </label>
             {createBlockedMessage ? <p className="error tracking-form-span-2">{createBlockedMessage}</p> : null}
-            <div className="tracking-form-section-title tracking-form-span-2">Job & Mail Setup</div>
-            <label>
-              Job (dropdown)
-              <SingleSelectDropdown
-                value={createForm.job || ''}
-                placeholder="Select job"
-                options={jobOptions.map((job) => ({ value: String(job.id), label: `${job.job_id || ''} - ${job.role || ''}` }))}
-                onChange={(nextValue) => setCreateForm((prev) => ({
-                  ...prev,
-                  job: nextValue,
-                  attachment_source: '',
-                  resume_id: '',
-                  tailored_resume_id: '',
-                }))}
-              />
-            </label>
+            <div className="tracking-form-section-title tracking-form-span-2">Mail Setup</div>
             <label>
               Mail Type
               <input value="Fresh" readOnly disabled />
@@ -2225,12 +2325,13 @@ function TrackingPage() {
               <SingleSelectDropdown
                 value={editForm.company || ''}
                 placeholder="Select company"
-                options={companyOptions.map((company) => ({ value: String(company.id), label: capitalizeFirstDisplay(company.name) }))}
+                options={editCompanyDropdownOptions.map((company) => ({ value: String(company.id), label: capitalizeFirstDisplay(company.name) }))}
                 onChange={async (value) => {
                   setEditForm((prev) => ({
                     ...prev,
                     company: value,
                     job: '',
+                    employee_location: '',
                     department: '',
                     employee_role: '',
                     selected_hr_ids: [],
@@ -2243,11 +2344,37 @@ function TrackingPage() {
               />
             </label>
             <label>
+              Job (dropdown)
+              <SingleSelectDropdown
+                value={editForm.job || ''}
+                placeholder="Select job"
+                options={jobOptions.map((job) => ({ value: String(job.id), label: `${job.job_id || ''} - ${job.role || ''}` }))}
+                disabled
+                onChange={() => {}}
+              />
+            </label>
+            <label>
+              Job Location
+              <span className="hint">
+                {editSelectedJobLocation || (editForm.job ? 'Job location not available' : 'Select job first')}
+              </span>
+            </label>
+            <label>
+              Employee Location
+              <SingleSelectDropdown
+                value={editForm.employee_location || ''}
+                placeholder="Select employee location"
+                disabled={!editForm.company}
+                options={editEmployeeLocationOptions.map((location) => ({ value: location, label: location }))}
+                onChange={(value) => setEditForm((prev) => ({ ...prev, employee_location: value, department: '', employee_role: '', selected_hr_ids: [] }))}
+              />
+            </label>
+            <label>
               Department
               <SingleSelectDropdown
                 value={editForm.department || ''}
                 placeholder="Select department"
-                options={departmentOptions.map((dept) => ({ value: dept, label: dept }))}
+                options={editDepartmentOptions.map((dept) => ({ value: dept, label: dept }))}
                 onChange={(value) => setEditForm((prev) => ({ ...prev, department: value, employee_role: '', selected_hr_ids: [] }))}
               />
             </label>
@@ -2276,17 +2403,7 @@ function TrackingPage() {
               />
             </label>
             {editBlockedMessage ? <p className="error tracking-form-span-2">{editBlockedMessage}</p> : null}
-            <div className="tracking-form-section-title tracking-form-span-2">Job & Mail Setup</div>
-            <label>
-              Job (dropdown)
-              <SingleSelectDropdown
-                value={editForm.job || ''}
-                placeholder="Select job"
-                options={jobOptions.map((job) => ({ value: String(job.id), label: `${job.job_id || ''} - ${job.role || ''}` }))}
-                disabled
-                onChange={() => {}}
-              />
-            </label>
+            <div className="tracking-form-section-title tracking-form-span-2">Mail Setup</div>
             <label>
               Mail Type
               <SingleSelectDropdown
