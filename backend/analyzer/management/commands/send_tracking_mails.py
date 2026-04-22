@@ -558,7 +558,11 @@ class Command(BaseCommand):
                 return {"path": str(saved_path), "bytes": None}
 
         if builder:
-            exact_pdf = self._build_builder_pdf_bytes(builder, filename_hint=title)
+            exact_pdf = self._build_builder_pdf_bytes(
+                builder,
+                filename_hint=title,
+                preserve_highlights=True,
+            )
             if exact_pdf:
                 return {"path": None, "bytes": exact_pdf}
 
@@ -570,8 +574,8 @@ class Command(BaseCommand):
             return {"path": None, "bytes": self._build_simple_pdf_bytes(text, filename_hint=title)}
         return None
 
-    def _build_builder_pdf_bytes(self, builder_data, filename_hint="resume"):
-        return build_builder_pdf_bytes(builder_data)
+    def _build_builder_pdf_bytes(self, builder_data, filename_hint="resume", preserve_highlights=False):
+        return build_builder_pdf_bytes(builder_data, preserve_highlights=preserve_highlights)
 
     def _render_browser_pdf_bytes(self, html_text, browser_bins):
         return render_pdf_bytes_from_html(html_text)

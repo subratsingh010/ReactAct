@@ -2699,7 +2699,7 @@ class ExportAtsPdfLocalView(APIView):
         if len(html_text) >= 40:
             ok, note = _render_pdf_from_html(html_text, output_path)
             if not ok:
-                pdf_bytes = build_builder_pdf_bytes(builder_data) if builder_data else None
+                pdf_bytes = build_builder_pdf_bytes(builder_data, preserve_highlights=True) if builder_data else None
                 if pdf_bytes:
                     output_path.write_bytes(pdf_bytes)
                 else:
@@ -2708,7 +2708,7 @@ class ExportAtsPdfLocalView(APIView):
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     )
         else:
-            pdf_bytes = build_builder_pdf_bytes(builder_data) if builder_data else None
+            pdf_bytes = build_builder_pdf_bytes(builder_data, preserve_highlights=True) if builder_data else None
             if pdf_bytes:
                 output_path.write_bytes(pdf_bytes)
             else:

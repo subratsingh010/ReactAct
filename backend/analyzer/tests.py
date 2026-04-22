@@ -281,12 +281,18 @@ class SendTrackingMailsThreadingTests(TestCase):
         self.resume.ats_pdf_path = ""
         self.resume.save(update_fields=["builder_data", "ats_pdf_path", "updated_at"])
 
-        payload = self.command._resolve_attachment_payload(self.tracking)
+        with patch.object(Command, "_build_builder_pdf_bytes", return_value=b"%PDF-1.4 generated") as mocked_builder_pdf:
+            payload = self.command._resolve_attachment_payload(self.tracking)
 
         self.assertIsNone(payload.get("path"))
         attachment_bytes = payload.get("bytes")
         self.assertTrue(isinstance(attachment_bytes, (bytes, bytearray)))
         self.assertTrue(bytes(attachment_bytes).startswith(b"%PDF-1.4"))
+        mocked_builder_pdf.assert_called_once_with(
+            self.resume.builder_data,
+            filename_hint="Base Resume",
+            preserve_highlights=True,
+        )
 
     def test_profile_resume_link_uses_profile_value_without_hardcoded_fallback(self):
         self.assertEqual(self.command._profile_resume_link(self.profile), "https://example.com/resume.pdf")
@@ -670,14 +676,15 @@ class ExportAtsPdfLocalViewTests(TestCase):
 
     @patch("analyzer.views.build_builder_pdf_bytes", return_value=b"%PDF-1.7 export")
     def test_export_accepts_builder_data_without_html_payload(self, mocked_builder_pdf):
+        builder_data = {
+            "fullName": "Subrat Singh",
+            "summary": "<p>Backend engineer</p>",
+        }
         request = self.factory.post(
             "/api/export-ats-pdf-local/",
             {
                 "resume_id": self.resume.id,
-                "builder_data": {
-                    "fullName": "Subrat Singh",
-                    "summary": "<p>Backend engineer</p>",
-                },
+                "builder_data": builder_data,
             },
             format="json",
         )
@@ -687,6 +694,10 @@ class ExportAtsPdfLocalViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         mocked_builder_pdf.assert_called_once()
+        called_builder_data = mocked_builder_pdf.call_args.args[0]
+        self.assertEqual(called_builder_data["fullName"], builder_data["fullName"])
+        self.assertEqual(called_builder_data["summary"], builder_data["summary"])
+        self.assertEqual(mocked_builder_pdf.call_args.kwargs.get("preserve_highlights"), True)
         saved_path = response.data["saved_path"]
         self.addCleanup(lambda: os.unlink(saved_path) if os.path.exists(saved_path) else None)
         self.assertTrue(os.path.exists(saved_path))
