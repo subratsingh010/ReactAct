@@ -9,6 +9,7 @@ import {
   deleteEmployee as deleteEmployeeApi,
   fetchCompanies,
   fetchEmployees,
+  fetchLocations,
   updateCompany as updateCompanyApi,
   updateEmployee as updateEmployeeApi,
 } from '../api'
@@ -80,6 +81,7 @@ function CompanyPage() {
   const [loading, setLoading] = useState(true)
   const [companyForm, setCompanyForm] = useState(null)
   const [employeeForm, setEmployeeForm] = useState(null)
+  const [locationOptions, setLocationOptions] = useState([])
 
   const employeesByCompany = useMemo(() => {
     const map = {}
@@ -107,7 +109,7 @@ function CompanyPage() {
       return hrs.some((hr) => {
         const hrName = String(hr.name || '').toLowerCase()
         const hrRole = String(hr.department || '').toLowerCase()
-        const hrLocation = String(hr.location || '').toLowerCase()
+        const hrLocation = String(hr.location_name || hr.location || '').toLowerCase()
         if (hrFilter && !hrName.includes(hrFilter)) return false
         if (roleFilter && !hrRole.includes(roleFilter)) return false
         if (locationFilter && !hrLocation.includes(locationFilter)) return false
@@ -161,9 +163,10 @@ function CompanyPage() {
     }
     setLoading(true)
     try {
-      const [firstCompanyPage, employeeRows] = await Promise.all([
+      const [firstCompanyPage, employeeRows, locationRows] = await Promise.all([
         fetchCompanies(access, { page: 1, page_size: 200 }),
         fetchEmployees(access, '', { scope: 'all' }),
+        fetchLocations(access).catch(() => []),
       ])
       const firstRows = Array.isArray(firstCompanyPage?.results) ? firstCompanyPage.results : []
       let allCompanies = [...firstRows]
@@ -181,8 +184,10 @@ function CompanyPage() {
       }
       setCompanies(allCompanies)
       setEmployees(Array.isArray(employeeRows) ? employeeRows : [])
+      setLocationOptions(Array.isArray(locationRows) ? locationRows : [])
     } catch (err) {
       console.error(err.message || 'Could not load company data.')
+      setLocationOptions([])
     } finally {
       setLoading(false)
     }
@@ -298,7 +303,7 @@ function CompanyPage() {
       email: employee.email || '',
       working_mail: Boolean(employee.working_mail ?? true),
       contact_number: employee.contact_number || '',
-      location: employee.location || '',
+      location: employee.location_name || employee.location || '',
       profile: employee.profile || '',
       about: employee.about || '',
       personalized_template: employee.personalized_template || '',
@@ -348,7 +353,7 @@ function CompanyPage() {
           email: employeeForm.email,
           working_mail: Boolean(employeeForm.working_mail),
           contact_number: employeeForm.contact_number,
-          location: employeeForm.location,
+          location: String(employeeForm.location || '').trim(),
           profile: employeeForm.profile,
           about: employeeForm.about,
           personalized_template: employeeForm.personalized_template,
@@ -367,7 +372,7 @@ function CompanyPage() {
           email: employeeForm.email,
           working_mail: Boolean(employeeForm.working_mail),
           contact_number: employeeForm.contact_number,
-          location: employeeForm.location,
+          location: String(employeeForm.location || '').trim(),
           profile: employeeForm.profile,
           about: employeeForm.about,
           personalized_template: employeeForm.personalized_template,
@@ -519,7 +524,7 @@ function CompanyPage() {
                       ) : null}
                       {hr.email ? <p className="company-hr-meta">{hr.email}</p> : null}
                       {hr.contact_number ? <p className="company-hr-meta">{hr.contact_number}</p> : null}
-                      {hr.location ? <p className="company-hr-meta">{hr.location}</p> : null}
+                      {hr.location_name || hr.location ? <p className="company-hr-meta">{hr.location_name || hr.location}</p> : null}
                       <div className="company-hr-actions">
                         {hr.profile ? (
                           <a
@@ -618,7 +623,12 @@ function CompanyPage() {
               Working Mail
             </label>
             <label>Contact Number<input value={employeeForm.contact_number} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, contact_number: event.target.value }))} /></label>
-            <label>Location<input value={employeeForm.location} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, location: event.target.value }))} /></label>
+            <label>Location<input list="employee-location-presets-list" value={employeeForm.location} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, location: event.target.value }))} placeholder="Employee location" /></label>
+            <datalist id="employee-location-presets-list">
+              {locationOptions.map((location) => (
+                <option key={String(location.id)} value={String(location.name || '')} />
+              ))}
+            </datalist>
             <div className="tracking-form-section-title tracking-form-span-2">Profile & Notes</div>
             <label>LinkedIn URL<input value={employeeForm.profile} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, profile: event.target.value }))} /></label>
             <label className="tracking-form-span-2">About<textarea rows="4" value={employeeForm.about} onChange={(event) => setEmployeeForm((prev) => ({ ...prev, about: event.target.value }))} /></label>

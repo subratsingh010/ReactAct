@@ -99,7 +99,6 @@ class Migration(migrations.Migration):
                 ('profile', models.URLField(blank=True, max_length=1000)),
                 ('location', models.CharField(blank=True, max_length=180)),
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='employees', to='analyzer.company')),
-                ('location_ref', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='employees', to='analyzer.location')),
             ],
             options={
                 'ordering': ['name'],
@@ -192,7 +191,6 @@ class Migration(migrations.Migration):
                 ('country_code', models.CharField(blank=True, max_length=16)),
                 ('location', models.CharField(blank=True, max_length=180)),
                 ('summary', models.TextField(blank=True)),
-                ('location_ref', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='profiles', to='analyzer.location')),
                 ('preferred_locations', models.ManyToManyField(blank=True, related_name='preferred_by_profiles', to='analyzer.location')),
                 ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='profile_info', to=settings.AUTH_USER_MODEL)),
             ],
@@ -238,7 +236,6 @@ class Migration(migrations.Migration):
                 ('country_code', models.CharField(blank=True, max_length=16)),
                 ('location', models.CharField(blank=True, max_length=180)),
                 ('summary', models.TextField(blank=True)),
-                ('location_ref', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='profile_panels', to='analyzer.location')),
                 ('preferred_locations', models.ManyToManyField(blank=True, related_name='preferred_by_profile_panels', to='analyzer.location')),
                 ('profile', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='profile_panels', to='analyzer.userprofile')),
             ],
@@ -280,7 +277,7 @@ class Migration(migrations.Migration):
                 ('interview_at', models.DateTimeField(blank=True, null=True)),
                 ('notes', models.TextField(blank=True)),
                 ('job', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='interviews', to='analyzer.job')),
-                ('location_ref', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='interviews', to='analyzer.location')),
+                ('location', models.CharField(blank=True, default='', max_length=180)),
                 ('profile', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='interviews', to='analyzer.userprofile')),
             ],
             options={

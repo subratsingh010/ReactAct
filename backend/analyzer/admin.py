@@ -19,7 +19,7 @@ class UserProfileAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {"fields": ("user", "role", "full_name", "email", "contact_number")}),
         ("Profile", {"fields": ("linkedin_url", "github_url", "portfolio_url", "resume_link", "current_employer", "years_of_experience", "summary")}),
-        ("Location", {"fields": ("address_line_1", "address_line_2", "state", "country", "country_code", "location", "location_ref", "preferred_locations")}),
+        ("Location", {"fields": ("address_line_1", "address_line_2", "state", "country", "country_code", "location", "preferred_locations")}),
         ("SMTP", {"fields": ("smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_use_tls", "smtp_from_email")}),
         ("IMAP", {"fields": ("imap_host", "imap_port", "imap_user", "imap_password", "imap_folder")}),
         ("OpenAI", {"fields": ("openai_api_key", "openai_model", "ai_task_instructions")}),

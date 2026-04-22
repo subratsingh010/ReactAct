@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import Group, Permission, User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError
 from django.test import TestCase
 from django.test.utils import override_settings
 from django.utils import timezone
@@ -13,7 +14,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from analyzer.management.commands.send_tracking_mails import Command
 from analyzer.models import Company, Employee, Interview, Job, Location, MailTrackingEvent, ProfilePanel, Resume, SubjectTemplate, Template, Tracking, TrackingAction, UserProfile
 from analyzer.profile_settings import resolve_imap_settings, resolve_openai_settings, resolve_smtp_settings
-from analyzer.serializers import CompanySerializer, InterviewSerializer, JobSerializer, ProfilePanelSerializer, UserProfileSerializer
+from analyzer.serializers import CompanySerializer, InterviewSerializer, JobSerializer, ProfilePanelSerializer, SubjectTemplateSerializer, UserProfileSerializer
 from analyzer.tracking_mail_utils import ensure_mail_tracking
 from analyzer.views import (
     ApplicationTrackingDetailView,
@@ -532,6 +533,47 @@ class TrackingTemplateValidationTests(TestCase):
         self.assertEqual(_validate_tracking_templates(rows, "followed_up"), "For follow up, select at most 2 templates.")
 
 
+class SubjectTemplateSerializerTests(TestCase):
+    def test_accepts_fresh_category(self):
+        serializer = SubjectTemplateSerializer(data={"name": "Fresh Subject", "category": "fresh", "subject": "Hello"})
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["category"], "fresh")
+
+    def test_accepts_followup_alias_and_normalizes(self):
+        serializer = SubjectTemplateSerializer(data={"name": "Follow Up Subject", "category": "followup", "subject": "Checking in"})
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["category"], "follow_up")
+
+    def test_rejects_legacy_template_categories(self):
+        serializer = SubjectTemplateSerializer(data={"name": "Bad Subject", "category": "general", "subject": "Hello"})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("Category must be Fresh or Follow Up.", str(serializer.errors.get("category", [""])[0]))
+
+
+class SubjectTemplateApiTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = User.objects.create_user(username="subject-api", email="subject-api@example.com", password="x")
+        self.profile = UserProfile.objects.create(user=self.user)
+        grant_model_permissions(self.user, "subjecttemplate", "view", "add", "change", "delete")
+
+    def test_create_subject_template_accepts_followup_alias(self):
+        request = self.factory.post(
+            "/api/subject-templates/",
+            {"name": "Follow Up Mail", "category": "followup", "subject": "Checking in on {role}"},
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = SubjectTemplateListCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["category"], "follow_up")
+
+
 class SendTrackingAttachmentSafetyTests(TestCase):
     def test_missing_attachment_payload_defaults_to_empty_dict(self):
         command = Command()
@@ -800,6 +842,17 @@ class SuperadminVisibilityTests(TestCase):
         results = response.data.get("results") or []
         self.assertFalse(any(int(row.get("id")) == self.tracking.id for row in results))
 
+    def test_superadmin_can_see_ready_for_tracking_companies_across_profiles(self):
+        request = self.factory.get("/api/companies/?ready_for_tracking=true")
+        force_authenticate(request, user=self.superadmin)
+
+        response = CompanyListCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        results = response.data.get("results") or []
+        names = {str(row.get("name") or "") for row in results}
+        self.assertIn("gamma", names)
+
     def test_regular_user_cannot_expand_company_visibility_with_scope_all(self):
         outsider = User.objects.create_user(username="company-outsider", email="company-outsider@example.com", password="x")
         outsider_profile = UserProfile.objects.create(user=outsider)
@@ -1006,6 +1059,100 @@ class JobAccessControlTests(TestCase):
         job = Job.objects.get(id=response.data["id"])
         self.assertEqual(job.job_id, "")
 
+    def test_create_persists_job_location(self):
+        location = Location.objects.create(name="Bengaluru")
+        request = self.factory.post(
+            "/api/jobs/",
+            {
+                "company": self.owner_company.id,
+                "job_id": "OWN-LOC-1",
+                "role": "Location Role",
+                "location": "bengaluru",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.owner)
+
+        response = JobListCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 201)
+        job = Job.objects.get(id=response.data["id"])
+        self.assertEqual(job.location, "Bengaluru")
+        self.assertEqual(response.data["location_name"], "Bengaluru")
+
+    def test_create_rejects_duplicate_job_id_and_location_for_company(self):
+        Job.objects.create(
+            company=self.owner_company,
+            job_id="OWN-DUP-LOC-1",
+            role="Location Role",
+            location="Bengaluru",
+            created_by=self.owner,
+        )
+        request = self.factory.post(
+            "/api/jobs/",
+            {
+                "company": self.owner_company.id,
+                "job_id": "own-dup-loc-1",
+                "role": "Another Role",
+                "location": "bengaluru",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.owner)
+
+        response = JobListCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("already exists", str(response.data.get("job_id", [""])[0]).lower())
+
+    def test_create_allows_same_job_id_with_different_location(self):
+        Job.objects.create(
+            company=self.owner_company,
+            job_id="OWN-SAME-ID-1",
+            role="Location Role",
+            location="Bengaluru",
+            created_by=self.owner,
+        )
+        request = self.factory.post(
+            "/api/jobs/",
+            {
+                "company": self.owner_company.id,
+                "job_id": "own-same-id-1",
+                "role": "Another Role",
+                "location": "Hyderabad",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.owner)
+
+        response = JobListCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 201)
+
+    def test_create_skips_duplicate_check_when_job_id_is_blank(self):
+        Job.objects.create(
+            company=self.owner_company,
+            job_id="",
+            role="Blank One",
+            location="Remote",
+            created_by=self.owner,
+        )
+        request = self.factory.post(
+            "/api/jobs/",
+            {
+                "company": self.owner_company.id,
+                "job_id": "",
+                "role": "Blank Two",
+                "location": "remote",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.owner)
+
+        response = JobListCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 201)
+
     def test_update_allows_blank_job_id(self):
         request = self.factory.put(
             f"/api/jobs/{self.owner_job.id}/",
@@ -1023,6 +1170,51 @@ class JobAccessControlTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.owner_job.refresh_from_db()
         self.assertEqual(self.owner_job.job_id, "")
+
+    def test_update_persists_job_location(self):
+        Location.objects.create(name="Remote")
+        request = self.factory.put(
+            f"/api/jobs/{self.owner_job.id}/",
+            {
+                "company": self.owner_job.company_id,
+                "job_id": self.owner_job.job_id,
+                "role": self.owner_job.role,
+                "location": "remote",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.owner)
+
+        response = JobDetailView.as_view()(request, job_id=self.owner_job.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.owner_job.refresh_from_db()
+        self.assertEqual(self.owner_job.location, "Remote")
+
+    def test_update_rejects_duplicate_job_id_and_location_for_company(self):
+        duplicate_job = Job.objects.create(
+            company=self.owner_company,
+            job_id="OWN-DUP-LOC-3",
+            role="Remote Role",
+            location="Remote",
+            created_by=self.owner,
+        )
+        request = self.factory.put(
+            f"/api/jobs/{self.owner_job.id}/",
+            {
+                "company": self.owner_job.company_id,
+                "job_id": duplicate_job.job_id.lower(),
+                "role": self.owner_job.role,
+                "location": duplicate_job.location.lower(),
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.owner)
+
+        response = JobDetailView.as_view()(request, job_id=self.owner_job.id)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("already exists", str(response.data.get("job_id", [""])[0]).lower())
 
     def test_list_returns_all_jobs_for_any_authenticated_user(self):
         request = self.factory.get("/api/jobs/?scope=all")
@@ -1143,6 +1335,7 @@ class ExtensionJobCreateViewTests(TestCase):
         self.profile = UserProfile.objects.create(user=self.user)
         grant_model_permissions(self.user, "job", "add")
         self.company = Company.objects.create(profile=self.profile, name="ext company")
+        self.location = Location.objects.create(name="Hyderabad")
 
     def test_extension_create_allows_blank_job_id(self):
         request = self.factory.post(
@@ -1162,6 +1355,76 @@ class ExtensionJobCreateViewTests(TestCase):
         self.assertEqual(response.status_code, 201)
         created = Job.objects.get(id=response.data["job"]["id"])
         self.assertEqual(created.job_id, "")
+
+    def test_extension_create_persists_job_location(self):
+        request = self.factory.post(
+            "/api/extension/jobs/",
+            {
+                "company_id": self.company.id,
+                "job_id": "EXT-LOC-1",
+                "role": "Extension Role",
+                "job_link": "https://example.com/jobs/location",
+                "location": "hyderabad",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = ExtensionJobCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 201)
+        created = Job.objects.get(id=response.data["job"]["id"])
+        self.assertEqual(created.location, "Hyderabad")
+        self.assertEqual(response.data["job"]["location_name"], "Hyderabad")
+
+    def test_extension_create_rejects_duplicate_job_id_and_location_for_company(self):
+        Job.objects.create(
+            company=self.company,
+            job_id="EXT-DUP-LOC-1",
+            role="Extension Role",
+            location="Hyderabad",
+        )
+        request = self.factory.post(
+            "/api/extension/jobs/",
+            {
+                "company_id": self.company.id,
+                "job_id": "ext-dup-loc-1",
+                "role": "Another Extension Role",
+                "job_link": "https://example.com/jobs/location-duplicate",
+                "location": "hyderabad",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = ExtensionJobCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("same job id + location", str(response.data.get("detail", "")).lower())
+
+    def test_extension_create_allows_same_job_id_with_different_location(self):
+        Job.objects.create(
+            company=self.company,
+            job_id="EXT-SAME-ID-1",
+            role="Extension Role",
+            location="Hyderabad",
+        )
+        request = self.factory.post(
+            "/api/extension/jobs/",
+            {
+                "company_id": self.company.id,
+                "job_id": "ext-same-id-1",
+                "role": "Another Extension Role",
+                "job_link": "https://example.com/jobs/location-other",
+                "location": "Bengaluru",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = ExtensionJobCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 201)
 
 
 class TrackingAccessControlTests(TestCase):
@@ -1334,6 +1597,17 @@ class ExtensionLookupViewTests(TestCase):
         self.assertEqual(job_roles, ["Backend Engineer", "Fullstack Engineer"])
         self.assertEqual(employee_roles, ["Hiring Manager", "Talent Acquisition Specialist"])
         self.assertEqual(departments, ["HR", "Engineering", "Other"])
+
+
+class LocationModelTests(TestCase):
+    def test_location_name_is_case_insensitive_unique(self):
+        Location.objects.create(name="Bengaluru")
+        with self.assertRaises(IntegrityError):
+            Location.objects.create(name="bengaluru")
+
+    def test_location_name_is_trimmed_on_save(self):
+        row = Location.objects.create(name="  New   York  ")
+        self.assertEqual(row.name, "New York")
 
 
 class CompanyEmployeeAccessControlTests(TestCase):
