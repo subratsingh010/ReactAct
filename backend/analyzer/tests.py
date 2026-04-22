@@ -150,7 +150,14 @@ class SendTrackingMailsThreadingTests(TestCase):
     def setUp(self):
         self.command = Command()
         self.user = User.objects.create_user(username="mailer", email="sender@example.com", password="x")
-        self.profile = UserProfile.objects.create(user=self.user)
+        self.profile = UserProfile.objects.create(
+            user=self.user,
+            full_name="Subrat Singh",
+            email="profile@example.com",
+            contact_number="+91 9999999999",
+            linkedin_url="https://linkedin.com/in/subrat",
+            resume_link="https://example.com/resume.pdf",
+        )
         self.company = Company.objects.create(profile=self.profile, name="acme")
         self.employee = Employee.objects.create(
             owner_profile=self.profile,
@@ -281,8 +288,15 @@ class SendTrackingMailsThreadingTests(TestCase):
         self.assertTrue(isinstance(attachment_bytes, (bytes, bytearray)))
         self.assertTrue(bytes(attachment_bytes).startswith(b"%PDF-1.4"))
 
+    def test_profile_resume_link_uses_profile_value_without_hardcoded_fallback(self):
+        self.assertEqual(self.command._profile_resume_link(self.profile), "https://example.com/resume.pdf")
+        self.profile.resume_link = ""
+        self.profile.save(update_fields=["resume_link", "updated_at"])
+
+        self.assertEqual(self.command._profile_resume_link(self.profile), "")
+
     @patch.object(Command, "_build_builder_pdf_bytes", return_value=b"%PDF-1.7 exact")
-    def test_attachment_prefers_shared_builder_pdf_over_saved_file(self, mocked_builder_pdf):
+    def test_attachment_prefers_saved_builder_pdf_file_over_rebuilt_bytes(self, mocked_builder_pdf):
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
             tmp_pdf.write(b"%PDF-1.4 saved")
             saved_path = tmp_pdf.name
@@ -298,9 +312,9 @@ class SendTrackingMailsThreadingTests(TestCase):
 
         payload = self.command._resolve_attachment_payload(self.tracking)
 
-        mocked_builder_pdf.assert_called_once()
-        self.assertIsNone(payload.get("path"))
-        self.assertEqual(payload.get("bytes"), b"%PDF-1.7 exact")
+        mocked_builder_pdf.assert_not_called()
+        self.assertEqual(payload.get("path"), saved_path)
+        self.assertIsNone(payload.get("bytes"))
 
     def test_body_html_preserves_existing_html_document(self):
         html_body = '<!DOCTYPE html><html><body><article class="resume-sheet"><h1>Subrat Singh</h1></article></body></html>'
@@ -308,6 +322,29 @@ class SendTrackingMailsThreadingTests(TestCase):
         rendered = self.command._body_html(html_body)
 
         self.assertEqual(rendered, html_body)
+
+    def test_build_signature_uses_profile_sender_details_for_fresh_mail(self):
+        self.tracking.mail_type = "fresh"
+
+        signature = self.command._build_signature(self.tracking, self.profile)
+
+        self.assertEqual(
+            signature,
+            "\n".join([
+                "Thanks,",
+                "Subrat Singh",
+                "Contact: +91 9999999999",
+                "Email: profile@example.com",
+                "LinkedIn: https://linkedin.com/in/subrat",
+            ]),
+        )
+
+    def test_build_signature_keeps_follow_up_short_but_uses_profile_name(self):
+        self.tracking.mail_type = "followed_up"
+
+        signature = self.command._build_signature(self.tracking, self.profile)
+
+        self.assertEqual(signature, "Thanks,\nSubrat Singh")
 
     def test_log_success_persists_message_metadata(self):
         self.command._log_success(
@@ -339,6 +376,9 @@ class SendTrackingMailsThreadingTests(TestCase):
         self.profile.years_of_experience = "3"
         self.profile.current_employer = "Inspektlabs"
         self.profile.save(update_fields=["years_of_experience", "current_employer", "updated_at"])
+        self.tracking.interaction_time = "Yesterday"
+        self.tracking.interview_round = "Technical Round"
+        self.tracking.save(update_fields=["interaction_time", "interview_round", "updated_at"])
 
         values = self.command._mail_placeholder_map(
             self.tracking,
@@ -354,8 +394,9 @@ class SendTrackingMailsThreadingTests(TestCase):
         self.assertEqual(values["yoe"], "3")
         self.assertEqual(values["department"], "HR")
         self.assertEqual(values["current_employer"], "Inspektlabs")
-        self.assertTrue(values["interaction_time"])
-        self.assertEqual(values["interview_round"], "")
+        self.assertEqual(values["resume_link"], "https://example.com/resume.pdf")
+        self.assertEqual(values["interaction_time"], "Yesterday")
+        self.assertEqual(values["interview_round"], "Technical Round")
         self.assertNotIn("employee_focus_area", values)
         self.assertNotIn("skills_text", values)
         self.assertNotIn("profile_role", values)
@@ -401,6 +442,26 @@ class SendTrackingMailsThreadingTests(TestCase):
         self.assertEqual(
             rendered,
             "Thank you again for the Technical interview at 17 Apr 2026 for the Fullstack role at Test.",
+        )
+
+    def test_display_interaction_time_formats_datetime_local_value(self):
+        self.tracking.interaction_time = "2026-04-17T14:30"
+
+        rendered = self.command._display_interaction_time(self.tracking)
+
+        self.assertEqual(rendered, "17 Apr 2026, 02:30 PM")
+
+    def test_render_mail_placeholders_supports_user_name(self):
+        rendered = self.command._render_mail_placeholders(
+            "Application from {user_name}",
+            {
+                "user_name": "subrat singh",
+            },
+        )
+
+        self.assertEqual(
+            rendered,
+            "Application from Subrat singh",
         )
 
 
@@ -1530,6 +1591,89 @@ class TrackingAccessControlTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertIn("role does not allow", str(response.data.get("detail", "")).lower())
+
+
+class TrackingDynamicPlaceholderApiTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.user = User.objects.create_user(username="tracking-dynamic", email="tracking-dynamic@example.com", password="x")
+        self.profile = UserProfile.objects.create(user=self.user)
+        grant_model_permissions(self.user, "tracking", "add", "change")
+        self.company = Company.objects.create(profile=self.profile, name="dynamic company", mail_format="{first}@dynamic.com")
+        self.job = Job.objects.create(company=self.company, job_id="DYN-1", role="Backend Engineer", created_by=self.user)
+        self.resume = Resume.objects.create(profile=self.profile, title="Dynamic Resume")
+        self.employee = Employee.objects.create(
+            owner_profile=self.profile,
+            company=self.company,
+            name="Dynamic Recruiter",
+            department="HR",
+            email="dynamic@company.com",
+            working_mail=True,
+        )
+        self.opening = Template.objects.create(profile=self.profile, name="Dynamic Open", category="opening", achievement="Open")
+        self.experience = Template.objects.create(profile=self.profile, name="Dynamic Experience", category="experience", achievement="Experience")
+        self.closing = Template.objects.create(profile=self.profile, name="Dynamic Close", category="closing", achievement="Close")
+
+    def test_create_persists_interaction_time_and_interview_round(self):
+        request = self.factory.post(
+            "/api/tracking/",
+            {
+                "company": self.company.id,
+                "job": self.job.id,
+                "resume": self.resume.id,
+                "mail_type": "fresh",
+                "selected_hr_ids": [self.employee.id],
+                "template_ids_ordered": [self.opening.id, self.experience.id, self.closing.id],
+                "interaction_time": "Yesterday",
+                "interview_round": "Technical Round",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = ApplicationTrackingListCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["interaction_time"], "Yesterday")
+        self.assertEqual(response.data["interview_round"], "Technical Round")
+
+        row = Tracking.objects.get(id=response.data["id"])
+        self.assertEqual(row.interaction_time, "Yesterday")
+        self.assertEqual(row.interview_round, "Technical Round")
+
+    def test_update_persists_interaction_time_and_interview_round(self):
+        tracking = Tracking.objects.create(
+            profile=self.profile,
+            job=self.job,
+            resume=self.resume,
+            template=self.opening,
+            template_ids_ordered=[self.opening.id, self.experience.id, self.closing.id],
+            mail_type="fresh",
+        )
+        tracking.selected_hrs.set([self.employee])
+
+        request = self.factory.put(
+            f"/api/tracking/{tracking.id}/",
+            {
+                "mail_type": "fresh",
+                "selected_hr_ids": [self.employee.id],
+                "template_ids_ordered": [self.opening.id, self.experience.id, self.closing.id],
+                "interaction_time": "Last week",
+                "interview_round": "Final Round",
+            },
+            format="json",
+        )
+        force_authenticate(request, user=self.user)
+
+        response = ApplicationTrackingDetailView.as_view()(request, tracking_id=tracking.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["interaction_time"], "Last week")
+        self.assertEqual(response.data["interview_round"], "Final Round")
+
+        tracking.refresh_from_db()
+        self.assertEqual(tracking.interaction_time, "Last week")
+        self.assertEqual(tracking.interview_round, "Final Round")
 
 
 class ExtensionLookupViewTests(TestCase):

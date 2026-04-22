@@ -70,6 +70,7 @@ const TEMPLATE_PLACEHOLDER_KEYS = [
   'name',
   'employee_name',
   'first_name',
+  'user_name',
   'employee_role',
   'department',
   'employee_department',
@@ -1086,7 +1087,7 @@ function ProfilePage() {
                 </button>
                 {showSubjectTemplateHints ? (
                   <div className="profile-template-hint-box">
-                    <p className="hint profile-form-note">Use placeholders in the subject like <code>{'{role}'}</code>, <code>{'{company_name}'}</code>, or <code>{'{job_id}'}</code>.</p>
+                    <p className="hint profile-form-note">Use placeholders in the subject like <code>{'{user_name}'}</code>, <code>{'{role}'}</code>, <code>{'{company_name}'}</code>, <code>{'{job_id}'}</code>, or <code>{'{years_of_experience}'}</code>.</p>
                     <div className="profile-template-hint-chips">
                       {TEMPLATE_PLACEHOLDER_KEYS.map((key) => (
                         <code key={`subject-template-key-${key}`} className="profile-template-hint-chip">{`{${key}}`}</code>

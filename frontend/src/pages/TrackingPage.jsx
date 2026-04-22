@@ -30,7 +30,6 @@ const WAVE_SVG_HEIGHT_PX = 16
 const WAVE_DOT_SIZE_PX = 8
 const WAVE_VIEWBOX_WIDTH = 1000
 const WAVE_VIEWBOX_HEIGHT = 44
-
 function DetailIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
@@ -110,6 +109,19 @@ function formatShortDateTime(value) {
   if (!value) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function formatInteractionTimeValue(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value || '').trim()
   return date.toLocaleString([], {
     year: 'numeric',
     month: 'short',
@@ -226,13 +238,22 @@ function subjectBaseValues(form, companies, jobs) {
   return { companyName, role, jobId }
 }
 
-function renderSubjectTemplateValue(template, companies, jobs, yearsOfExperience = '') {
-  if (!template) return ''
-  const { companyName, role, jobId } = subjectBaseValues(template, companies, jobs)
+function renderSubjectTemplateValue(template, companies, jobs, yearsOfExperience = '', profileFullName = '') {
+  return renderSubjectTextValue(template?.subject || '', template, companies, jobs, yearsOfExperience, profileFullName)
+}
+
+function renderSubjectTextValue(subject, form, companies, jobs, yearsOfExperience = '', profileFullName = '') {
+  if (!subject) return ''
+  const { companyName, role, jobId } = subjectBaseValues(form, companies, jobs)
+  const experience = String(yearsOfExperience || '').trim()
+  const userName = String(profileFullName || '').trim()
+  const interactionTime = formatInteractionTimeValue(form?.interaction_time)
+  const interviewRound = String(form?.interview_round || '').trim()
   const replacements = {
     name: '',
     employee_name: '',
     first_name: '',
+    user_name: userName,
     employee_role: '',
     department: '',
     employee_department: '',
@@ -242,12 +263,12 @@ function renderSubjectTemplateValue(template, companies, jobs, yearsOfExperience
     job_id: jobId,
     job_link: '',
     resume_link: '',
-    years_of_experience: String(yearsOfExperience || '').trim(),
-    yoe: String(yearsOfExperience || '').trim(),
-    interaction_time: '',
-    interview_round: '',
+    years_of_experience: experience,
+    yoe: experience,
+    interaction_time: interactionTime,
+    interview_round: interviewRound,
   }
-  return String(template?.subject || '')
+  return String(subject || '')
     .replace(/\{([a-z_]+)\}|\[([a-z_]+)\]/gi, (_, curlyKey, squareKey) => {
       const key = String(curlyKey || squareKey || '').trim().toLowerCase()
       return replacements[key] ?? ''
@@ -256,7 +277,7 @@ function renderSubjectTemplateValue(template, companies, jobs, yearsOfExperience
     .trim()
 }
 
-function subjectOptionsForForm(form, companies, jobs, yearsOfExperience = '', subjectTemplates = []) {
+function subjectOptionsForForm(form, companies, jobs, yearsOfExperience = '', subjectTemplates = [], profileFullName = '') {
   const { companyName, role, jobId } = subjectBaseValues(form, companies, jobs)
   const withJobId = jobId ? ` (Job ID: ${jobId})` : ''
   const yoe = String(yearsOfExperience || '').trim()
@@ -303,7 +324,7 @@ function subjectOptionsForForm(form, companies, jobs, yearsOfExperience = '', su
   const savedOptions = (Array.isArray(subjectTemplates) ? subjectTemplates : [])
     .filter((row) => String(row?.category || '').trim().toLowerCase() === subjectCategory)
     .map((row) => {
-      const rendered = renderSubjectTemplateValue({ ...form, subject: row?.subject }, companies, jobs, yearsOfExperience)
+      const rendered = renderSubjectTemplateValue({ ...form, subject: row?.subject }, companies, jobs, yearsOfExperience, profileFullName)
       if (!rendered) return null
       const templateName = String(row?.name || '').trim() || 'Untitled'
       return {
@@ -365,12 +386,16 @@ function departmentBucket(value) {
 
 function departmentBucketForEmployee(employee) {
   const dept = String(employee?.department || '').trim()
-  const role = String(employee?.JobRole || '').trim()
+  const role = employeeRoleValue(employee)
   return departmentBucket(`${dept} ${role}`.trim())
 }
 
 function employeeLocationValue(employee) {
   return String(employee?.location_name || employee?.location || '').trim()
+}
+
+function employeeRoleValue(employee) {
+  return String(employee?.role || employee?.JobRole || '').trim()
 }
 
 function jobLocationValue(job) {
@@ -527,7 +552,8 @@ function buildFollowUpCandidates(row) {
         email,
         location_name: employeeLocationValue(employee),
         department: String(employee?.department || '').trim(),
-        JobRole: String(employee?.JobRole || '').trim(),
+        role: employeeRoleValue(employee),
+        JobRole: employeeRoleValue(employee),
         replied,
         last_action_at: String(event?.action_at || '').trim(),
         last_action_label: formatShortDateTime(event?.action_at),
@@ -632,7 +658,7 @@ function initialEmployeeLocationFromRow(row) {
 
 function initialRoleFromRow(row) {
   const selectedEmployees = Array.isArray(row?.selected_employees) ? row.selected_employees : []
-  const firstRole = String(selectedEmployees[0]?.JobRole || '').trim()
+  const firstRole = employeeRoleValue(selectedEmployees[0])
   if (firstRole) return firstRole
   return ''
 }
@@ -762,6 +788,7 @@ function TrackingPage() {
   const [achievementOptions, setAchievementOptions] = useState([])
   const [subjectTemplateOptions, setSubjectTemplateOptions] = useState([])
   const [profileYoe, setProfileYoe] = useState('')
+  const [profileFullName, setProfileFullName] = useState('')
   const [previewResume, setPreviewResume] = useState(null)
   const [employeePreview, setEmployeePreview] = useState(null)
   const [sendingRowId, setSendingRowId] = useState(null)
@@ -842,6 +869,7 @@ function TrackingPage() {
         setAchievementOptions(Array.isArray(achievementsData) ? achievementsData : [])
         setSubjectTemplateOptions(Array.isArray(subjectTemplatesData) ? subjectTemplatesData : [])
         setProfileYoe(String(profileData?.years_of_experience || '').trim())
+        setProfileFullName(String(profileData?.full_name || '').trim())
       } catch {
         setCompanyOptions([])
         setResumeOptions([])
@@ -849,6 +877,7 @@ function TrackingPage() {
         setAchievementOptions([])
         setSubjectTemplateOptions([])
         setProfileYoe('')
+        setProfileFullName('')
       }
     })()
   }, [access])
@@ -898,6 +927,8 @@ function TrackingPage() {
       resume_id: '',
       tailored_resume_id: '',
       template_subject: '',
+      interaction_time: nowDateTimeLocalValue(),
+      interview_round: '',
       is_freezed: false,
       mailed: false,
       applied_date: toDateInput(new Date().toISOString()),
@@ -985,6 +1016,8 @@ function TrackingPage() {
         schedule_time: resolvedScheduleTime,
         mail_type: createForm.mail_type || 'fresh',
         template_subject: String(createForm.template_subject || '').trim(),
+        interaction_time: String(createForm.interaction_time || '').trim(),
+        interview_round: String(createForm.interview_round || '').trim(),
         resume: createForm.has_attachment ? (createForm.resume_id || null) : null,
         tailored_resume: createForm.has_attachment ? (createForm.tailored_resume_id || null) : null,
         is_freezed: Boolean(createForm.is_freezed),
@@ -1051,6 +1084,8 @@ function TrackingPage() {
         personalized_template_id: fullRow.personalized_template_id ? String(fullRow.personalized_template_id) : '',
         use_hardcoded_personalized_intro: Boolean(fullRow.use_hardcoded_personalized_intro),
         template_subject: String(fullRow.template_subject || '').trim(),
+        interaction_time: toDateTimeLocalInput(fullRow.interaction_time) || '',
+        interview_round: String(fullRow.interview_round || '').trim(),
         achievement_name: fullRow.achievement_name || '',
         achievement_text: fullRow.achievement_text || '',
         attachment_source: attachmentSource,
@@ -1167,6 +1202,8 @@ function TrackingPage() {
       schedule_time: resolvedScheduleTime,
       mail_type: editForm.mail_type || 'fresh',
       template_subject: String(editForm.template_subject || '').trim(),
+      interaction_time: String(editForm.interaction_time || '').trim(),
+      interview_round: String(editForm.interview_round || '').trim(),
       resume: editForm.resume_id || null,
       tailored_resume: editForm.tailored_resume_id || null,
       is_freezed: Boolean(editForm.is_freezed),
@@ -1253,6 +1290,8 @@ function TrackingPage() {
         schedule_time: null,
         mail_type: fullRow?.mail_type || 'fresh',
         template_subject: String(fullRow?.template_subject || '').trim(),
+        interaction_time: String(fullRow?.interaction_time || '').trim(),
+        interview_round: String(fullRow?.interview_round || '').trim(),
         resume: fullRow?.resume_preview?.id || null,
         tailored_resume: fullRow?.tailored_resume || null,
         is_freezed: Boolean(fullRow?.is_freezed),
@@ -1388,14 +1427,13 @@ function TrackingPage() {
     [activeEmployeeOptions, editForm?.employee_location],
   )
   const createSubjectOptions = useMemo(
-    () => subjectOptionsForForm(createForm, companyOptions, jobOptions, profileYoe, subjectTemplateOptions),
-    [createForm, companyOptions, jobOptions, profileYoe, subjectTemplateOptions],
+    () => subjectOptionsForForm(createForm, companyOptions, jobOptions, profileYoe, subjectTemplateOptions, profileFullName),
+    [createForm, companyOptions, jobOptions, profileYoe, subjectTemplateOptions, profileFullName],
   )
   const editSubjectOptions = useMemo(
-    () => subjectOptionsForForm(editForm, companyOptions, jobOptions, profileYoe, subjectTemplateOptions),
-    [editForm, companyOptions, jobOptions, profileYoe, subjectTemplateOptions],
+    () => subjectOptionsForForm(editForm, companyOptions, jobOptions, profileYoe, subjectTemplateOptions, profileFullName),
+    [editForm, companyOptions, jobOptions, profileYoe, subjectTemplateOptions, profileFullName],
   )
-
   const createDepartmentBuckets = useMemo(
     () => resolveDepartmentBuckets({
       department: createForm?.department || '',
@@ -1440,7 +1478,7 @@ function TrackingPage() {
     () => sortTextValues(
       createScopedEmployeeOptions
         .filter((emp) => !createForm?.department || String(emp.department || '').trim() === String(createForm?.department || '').trim())
-        .map((emp) => String(emp.JobRole || '').trim())
+        .map((emp) => employeeRoleValue(emp))
     ),
     [createScopedEmployeeOptions, createForm?.department],
   )
@@ -1448,14 +1486,14 @@ function TrackingPage() {
     () => sortTextValues(
       editScopedEmployeeOptions
         .filter((emp) => !editForm?.department || String(emp.department || '').trim() === String(editForm?.department || '').trim())
-        .map((emp) => String(emp.JobRole || '').trim())
+        .map((emp) => employeeRoleValue(emp))
     ),
     [editScopedEmployeeOptions, editForm?.department],
   )
   const createEmployeeDropdownOptions = useMemo(
     () => createScopedEmployeeOptions
       .filter((emp) => !createForm?.department || String(emp.department || '').trim() === String(createForm?.department || '').trim())
-      .filter((emp) => !createForm?.employee_role || String(emp.JobRole || '').trim() === String(createForm?.employee_role || '').trim())
+      .filter((emp) => !createForm?.employee_role || employeeRoleValue(emp) === String(createForm?.employee_role || '').trim())
       .map((emp) => ({ value: String(emp.id), label: String(emp.name || '') })),
     [createScopedEmployeeOptions, createForm?.department, createForm?.employee_role],
   )
@@ -1467,7 +1505,7 @@ function TrackingPage() {
       return source
         .filter((emp) => !editForm?.employee_location || employeeLocationValue(emp) === String(editForm?.employee_location || '').trim())
         .filter((emp) => !editForm?.department || String(emp.department || '').trim() === String(editForm?.department || '').trim())
-        .filter((emp) => !editForm?.employee_role || String(emp.JobRole || '').trim() === String(editForm?.employee_role || '').trim())
+        .filter((emp) => !editForm?.employee_role || employeeRoleValue(emp) === String(editForm?.employee_role || '').trim())
         .map((emp) => ({ value: String(emp.id), label: String(emp.name || '') }))
     },
     [editScopedEmployeeOptions, editFollowUpCandidates, editForm?.employee_location, editForm?.department, editForm?.employee_role, editForm?.mail_type],
@@ -2054,7 +2092,22 @@ function TrackingPage() {
                 placeholder="Example: Application for {role} at {company_name} | {job_id}"
               />
             </label>
-            <p className="hint tracking-form-span-2">Choose a system or user subject source above, then adjust the final subject here if needed. Dynamic values are filled automatically when you pick from the dropdown.</p>
+            <label>
+              Interaction Time
+              <input
+                type="datetime-local"
+                value={createForm.interaction_time || ''}
+                onChange={(event) => setCreateForm((prev) => ({ ...prev, interaction_time: event.target.value }))}
+              />
+            </label>
+            <label>
+              Interview Round
+              <input
+                value={createForm.interview_round || ''}
+                onChange={(event) => setCreateForm((prev) => ({ ...prev, interview_round: event.target.value }))}
+                placeholder="Example: Technical Round"
+              />
+            </label>
             <label>
               Send
               <SingleSelectDropdown
@@ -2457,7 +2510,22 @@ function TrackingPage() {
                 placeholder="Example: Application for {role} at {company_name} | {job_id}"
               />
             </label>
-            <p className="hint tracking-form-span-2">Choose a system or user subject source above, then adjust the final subject here if needed. Dynamic values are filled automatically when you pick from the dropdown.</p>
+            <label>
+              Interaction Time
+              <input
+                type="datetime-local"
+                value={editForm.interaction_time || ''}
+                onChange={(event) => setEditForm((prev) => ({ ...prev, interaction_time: event.target.value }))}
+              />
+            </label>
+            <label>
+              Interview Round
+              <input
+                value={editForm.interview_round || ''}
+                onChange={(event) => setEditForm((prev) => ({ ...prev, interview_round: event.target.value }))}
+                placeholder="Example: Final Round"
+              />
+            </label>
             <label>
               Send
               <SingleSelectDropdown

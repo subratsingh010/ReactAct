@@ -8,6 +8,7 @@ import tempfile
 import urllib.error
 import urllib.request
 import logging
+from datetime import datetime
 from pathlib import Path
 from email.mime.base import MIMEBase
 from email import encoders
@@ -37,30 +38,6 @@ LOGGER_NAME = "analyzer.send_tracking_mails"
 
 class Command(BaseCommand):
     help = "Send tracking mails one-by-one using company mail pattern; log all attempts in MailTracking and MailTrackingEvent."
-    HARDCODED_SIGNATURE_NAME = "Subrat Singh"
-    HARDCODED_SIGNATURE_LINKEDIN = "https://www.linkedin.com/in/subrat-s-81720a22a/"
-    HARDCODED_SIGNATURE_EMAIL = "subratsingh010@gmail.com"
-    HARDCODED_SIGNATURE_CONTACT = "+91 8546075639"
-    HARDCODED_RESUME_LINK = "https://drive.google.com/file/d/1WtbiqcSXz-xjAT4y84ggbGtpEBwx-uz-/view?usp=sharing"
-    ALLOWED_DYNAMIC_PLACEHOLDERS = {
-        "name",
-        "employee_name",
-        "first_name",
-        "company_name",
-        "current_employer",
-        "role",
-        "job_id",
-        "job_id_line",
-        "job_link",
-        "department",
-        "employee_department",
-        "employee_role",
-        "resume_link",
-        "years_of_experience",
-        "yoe",
-        "interaction_time",
-        "interview_round",
-    }
 
     def add_arguments(self, parser):
         parser.add_argument("--user-id", type=int, default=None, help="Process only this user id")
@@ -575,15 +552,15 @@ class Command(BaseCommand):
         title = str(getattr(row.resume, "title", "") or "").strip() or "Resume"
         saved_pdf_path = str(getattr(row.resume, "ats_pdf_path", "") or "").strip() if row and row.resume else ""
 
-        if builder:
-            exact_pdf = self._build_builder_pdf_bytes(builder, filename_hint=title)
-            if exact_pdf:
-                return {"path": None, "bytes": exact_pdf}
-
         if saved_pdf_path:
             saved_path = Path(saved_pdf_path)
             if saved_path.exists() and saved_path.is_file():
                 return {"path": str(saved_path), "bytes": None}
+
+        if builder:
+            exact_pdf = self._build_builder_pdf_bytes(builder, filename_hint=title)
+            if exact_pdf:
+                return {"path": None, "bytes": exact_pdf}
 
         if not builder:
             return None
@@ -1103,7 +1080,7 @@ class Command(BaseCommand):
             return ""
         if normalized_key in {"name", "employee_name", "first_name"}:
             return self._display_first_name(text)
-        if normalized_key in {"company_name", "role", "profile_role", "employee_role", "employee_department", "interview_round"}:
+        if normalized_key in {"company", "company_name", "role", "profile_role", "employee_role", "employee_department", "interview_round", "user_name", "full_name"}:
             return text[:1].upper() + text[1:]
         if normalized_key in {"resume_link", "job_link", "sender_linkedin", "employee_email", "sender_email"}:
             return text
@@ -1140,7 +1117,30 @@ class Command(BaseCommand):
 
     def _profile_resume_link(self, profile):
         configured = str(getattr(profile, "resume_link", "") or "").strip() if profile else ""
-        return configured or self.HARDCODED_RESUME_LINK
+        return configured
+
+    def _sender_identity(self, row, profile):
+        full_name = (
+            str(getattr(profile, "full_name", "") or "").strip()
+            or str(getattr(getattr(row, "user", None), "get_full_name", lambda: "")() or "").strip()
+            or str(getattr(getattr(row, "user", None), "username", "") or "").strip()
+            or "User"
+        )
+        email = (
+            str(getattr(profile, "email", "") or "").strip()
+            or str(getattr(getattr(row, "user", None), "email", "") or "").strip()
+        )
+        contact = str(getattr(profile, "contact_number", "") or "").strip() if profile else ""
+        linkedin = str(getattr(profile, "linkedin_url", "") or "").strip() if profile else ""
+        resume_link = self._profile_resume_link(profile)
+        return {
+            "full_name": full_name,
+            "first_name": self._display_first_name(full_name) or "User",
+            "email": email,
+            "contact": contact,
+            "linkedin": linkedin,
+            "resume_link": resume_link,
+        }
 
     def _employee_focus_area_text(self, employee):
         about = " ".join(str(getattr(employee, "about", "") or "").split()).strip()
@@ -1178,22 +1178,7 @@ class Command(BaseCommand):
         return "your field"
 
     def _sender_first_name(self, row, profile):
-        first_name = self._display_first_name(getattr(profile, "first_name", "") or "")
-        if first_name:
-            return first_name
-
-        full_name = str(getattr(profile, "full_name", "") or "").strip()
-        if full_name:
-            return self._display_first_name(full_name)
-
-        user_first = self._display_first_name(getattr(row.user, "first_name", "") or "")
-        if user_first:
-            return user_first
-
-        username = str(getattr(row.user, "username", "") or "").strip()
-        if username:
-            return self._display_first_name(username)
-        return "User"
+        return self._sender_identity(row, profile).get("first_name") or "User"
 
     def _resolve_openai_model(self, user=None):
         return resolve_openai_settings(user).get("model", "gpt-4o")
@@ -1253,18 +1238,22 @@ class Command(BaseCommand):
 
     def _build_signature(self, row, profile):
         mail_type = str(getattr(row, "mail_type", "") or "").strip().lower() if row else ""
+        sender = self._sender_identity(row, profile)
+        sender_name = str(sender.get("full_name") or "").strip()
         if mail_type == "followed_up":
             sign_parts = [
                 "Thanks,",
-                self.HARDCODED_SIGNATURE_NAME,
+                sender_name,
             ]
         else:
             sign_parts = [
                 "Thanks,",
-                self.HARDCODED_SIGNATURE_NAME,
-                f"LinkedIn: {self.HARDCODED_SIGNATURE_LINKEDIN}",
-                f"Email: {self.HARDCODED_SIGNATURE_EMAIL}",
-                self.HARDCODED_SIGNATURE_CONTACT,
+                *self._sender_detail_lines(
+                    sender_name,
+                    sender.get("email"),
+                    sender.get("contact"),
+                    sender.get("linkedin"),
+                ),
             ]
         return "\n".join([p for p in sign_parts if str(p or "").strip()])
 
@@ -1301,6 +1290,16 @@ class Command(BaseCommand):
             return date_value.strftime("%d %b %Y")
         except Exception:  # noqa: BLE001
             return "recently"
+
+    def _display_interaction_time(self, row):
+        raw_value = str(getattr(row, "interaction_time", "") or "").strip() if row else ""
+        if not raw_value:
+            return self._format_interaction_date(row)
+        try:
+            parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+            return parsed.strftime("%d %b %Y, %I:%M %p")
+        except Exception:  # noqa: BLE001
+            return raw_value
 
     def _approved_preview_for_employee(self, row, employee, to_email=""):
         payloads = getattr(row, "approved_test_mail_payloads", None)
@@ -1421,42 +1420,64 @@ class Command(BaseCommand):
 
         return self._strip_leading_greeting(self._employee_personalization(employee, company_name, max_about_chars=140))
 
-    def _mail_placeholder_map(self, row, employee, profile, *, company_name="", role="", job_id="", job_link="", sender_name="", employee_email=""):
+    def _mail_placeholder_pairs(self, row=None, employee=None, profile=None, *, company_name="", role="", job_id="", job_link="", employee_email=""):
         current_employer = str(getattr(profile, "current_employer", "") or "").strip() if profile else ""
+        sender = self._sender_identity(row, profile)
+        sender_full_name = str(sender.get("full_name") or "").strip()
         employee_name = self._preferred_employee_name(employee)
         employee_role = str(getattr(employee, "JobRole", "") or "").strip()
         employee_department = str(getattr(employee, "department", "") or "").strip()
         normalized_job_link = str(job_link or "").strip()
         first_name = self._display_first_name(employee_name)
         yoe = str(getattr(profile, "years_of_experience", "") or "").strip() if profile else ""
-        return {
-            "name": employee_name,
-            "employee_name": employee_name,
-            "first_name": first_name,
-            "employee_role": employee_role,
-            "department": employee_department,
-            "employee_department": employee_department,
-            "company_name": str(company_name or "").strip(),
-            "current_employer": current_employer,
-            "role": str(role or "").strip(),
-            "job_id": str(job_id or "").strip(),
-            "job_id_line": f" (Job ID: {str(job_id or '').strip()})" if str(job_id or "").strip() else "",
-            "job_link": normalized_job_link,
-            "resume_link": self._profile_resume_link(profile),
-            "years_of_experience": yoe,
-            "yoe": yoe,
-            "interaction_time": self._format_interaction_date(row),
-            "interview_round": "",
-        }
+        interview_round = str(getattr(row, "interview_round", "") or "").strip() if row else ""
+        return [
+            ("name", employee_name),
+            ("employee_name", employee_name),
+            ("first_name", first_name),
+            ("user_name", sender_full_name),
+            ("employee_role", employee_role),
+            ("department", employee_department),
+            ("employee_department", employee_department),
+            ("company_name", str(company_name or "").strip()),
+            ("current_employer", current_employer),
+            ("role", str(role or "").strip()),
+            ("job_id", str(job_id or "").strip()),
+            ("job_id_line", f" (Job ID: {str(job_id or '').strip()})" if str(job_id or "").strip() else ""),
+            ("job_link", normalized_job_link),
+            ("resume_link", str(sender.get("resume_link") or "").strip()),
+            ("years_of_experience", yoe),
+            ("yoe", yoe),
+            ("interaction_time", self._display_interaction_time(row)),
+            ("interview_round", interview_round),
+        ]
+
+    def _mail_placeholder_map(self, row, employee, profile, *, company_name="", role="", job_id="", job_link="", employee_email=""):
+        return dict(
+            self._mail_placeholder_pairs(
+                row,
+                employee,
+                profile,
+                company_name=company_name,
+                role=role,
+                job_id=job_id,
+                job_link=job_link,
+                employee_email=employee_email,
+            )
+        )
+
+    def _allowed_dynamic_placeholder_keys(self):
+        return {key for key, _value in self._mail_placeholder_pairs()}
 
     def _render_mail_placeholders(self, text, replacements):
         value = str(text or "")
         if not value:
             return ""
+        allowed_keys = self._allowed_dynamic_placeholder_keys()
         mapping = {
             key: replacement
             for key, replacement in (replacements or {}).items()
-            if str(key or "").strip() in self.ALLOWED_DYNAMIC_PLACEHOLDERS
+            if str(key or "").strip() in allowed_keys
         }
         for key, replacement in mapping.items():
             safe_value = self._capitalize_inserted_value(key, replacement)
@@ -1559,7 +1580,6 @@ class Command(BaseCommand):
             role=role,
             job_id=job_id,
             job_link=job_link,
-            sender_name=sender_name,
             employee_email=resolved_email,
         )
         approved_preview = self._approved_preview_for_employee(row, employee, resolved_email)

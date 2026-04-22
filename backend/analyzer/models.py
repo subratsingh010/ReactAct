@@ -377,6 +377,8 @@ class Tracking(BaseModel):
     )
     approved_test_mail_payloads = models.JSONField(default=list, blank=True)
     mail_subject = models.CharField(max_length=255, blank=True, default='')
+    interaction_time = models.CharField(max_length=120, blank=True, default='')
+    interview_round = models.CharField(max_length=120, blank=True, default='')
     is_freezed = models.BooleanField(default=False)
     freezed_at = models.DateTimeField(blank=True, null=True)
     class Meta:

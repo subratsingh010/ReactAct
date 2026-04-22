@@ -3180,6 +3180,8 @@ class ApplicationTrackingListCreateView(APIView):
             ),
             'template_choice': template_choice,
             'template_subject': str(tracking.mail_subject or '').strip(),
+            'interaction_time': str(tracking.interaction_time or '').strip(),
+            'interview_round': str(tracking.interview_round or '').strip(),
             'template_message': '',
             'compose_mode': compose_mode,
             'hardcoded_follow_up': True,
@@ -3396,6 +3398,8 @@ class ApplicationTrackingListCreateView(APIView):
         tracking.schedule_time = schedule_time
         tracking.mail_type = mail_type
         tracking.mail_subject = str(payload.get('template_subject') or payload.get('mail_subject') or payload.get('subject') or tracking.mail_subject or '').strip()
+        tracking.interaction_time = str(payload.get('interaction_time') or tracking.interaction_time or '').strip()[:120]
+        tracking.interview_round = str(payload.get('interview_round') or tracking.interview_round or '').strip()[:120]
         tracking.mailed = self._to_bool(payload.get('mailed'), default=tracking.mailed if reuse_existing_row else False)
         tracking.save()
         if selected_targets is not None:
@@ -3735,6 +3739,8 @@ class ApplicationTrackingDetailView(APIView):
             'selected_employees': selected_employees,
             'template_choice': template_choice,
             'template_subject': str(row.mail_subject or '').strip(),
+            'interaction_time': str(row.interaction_time or '').strip(),
+            'interview_round': str(row.interview_round or '').strip(),
             'template_message': '',
             'compose_mode': compose_mode,
             'hardcoded_follow_up': True,
@@ -3901,6 +3907,10 @@ class ApplicationTrackingDetailView(APIView):
                 row.mail_type = action_text
         if 'template_subject' in payload or 'mail_subject' in payload or 'subject' in payload:
             row.mail_subject = str(payload.get('template_subject') or payload.get('mail_subject') or payload.get('subject') or '').strip()
+        if 'interaction_time' in payload:
+            row.interaction_time = str(payload.get('interaction_time') or '').strip()[:120]
+        if 'interview_round' in payload:
+            row.interview_round = str(payload.get('interview_round') or '').strip()[:120]
         if 'use_hardcoded_personalized_intro' in payload:
             row.use_hardcoded_personalized_intro = self._to_bool(
                 payload.get('use_hardcoded_personalized_intro'),
