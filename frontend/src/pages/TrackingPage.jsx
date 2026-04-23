@@ -219,6 +219,17 @@ function formatSendModeLabel(value) {
   return humanizeLabel(text)
 }
 
+function resumeKindLabel(isTailored) {
+  return isTailored ? 'Tailored' : 'Base'
+}
+
+function resumeOptionLabel(options, value, fallback = 'Resume') {
+  const id = normalizeId(value)
+  if (!id) return ''
+  const match = (Array.isArray(options) ? options : []).find((item) => normalizeId(item?.value) === id)
+  return String(match?.label || `${fallback} #${id}`).trim()
+}
+
 function formatStatusLabel(value) {
   const text = String(value || 'pending').trim().toLowerCase()
   if (text === 'sent_via_cron') return 'Bounce Verifying'
@@ -1376,6 +1387,32 @@ function TrackingPage() {
     })),
     [tailoredResumeOptions],
   )
+  const createAttachedResumeSummary = useMemo(() => {
+    if (!createForm?.has_attachment) return ''
+    if (createForm.attachment_source === 'tailored' && createForm.tailored_resume_id) {
+      return `${resumeKindLabel(true)} | ${resumeOptionLabel(tailoredResumeDropdownOptions, createForm.tailored_resume_id, 'Tailored Resume')}`
+    }
+    if (createForm.resume_id) {
+      return `${resumeKindLabel(false)} | ${resumeOptionLabel(baseResumeDropdownOptions, createForm.resume_id, 'Base Resume')}`
+    }
+    if (createForm.tailored_resume_id) {
+      return `${resumeKindLabel(true)} | ${resumeOptionLabel(createAssociatedResumeOptions, createForm.tailored_resume_id, 'Tailored Resume')}`
+    }
+    return ''
+  }, [baseResumeDropdownOptions, createAssociatedResumeOptions, createForm, tailoredResumeDropdownOptions])
+  const editAttachedResumeSummary = useMemo(() => {
+    if (!editForm?.has_attachment) return ''
+    if (editForm.attachment_source === 'tailored' && editForm.tailored_resume_id) {
+      return `${resumeKindLabel(true)} | ${resumeOptionLabel(tailoredResumeDropdownOptions, editForm.tailored_resume_id, 'Tailored Resume')}`
+    }
+    if (editForm.resume_id) {
+      return `${resumeKindLabel(false)} | ${resumeOptionLabel(baseResumeDropdownOptions, editForm.resume_id, 'Base Resume')}`
+    }
+    if (editForm.tailored_resume_id) {
+      return `${resumeKindLabel(true)} | ${resumeOptionLabel(editAssociatedResumeOptions, editForm.tailored_resume_id, 'Tailored Resume')}`
+    }
+    return ''
+  }, [baseResumeDropdownOptions, editAssociatedResumeOptions, editForm, tailoredResumeDropdownOptions])
   const activeEmployeeOptions = useMemo(
     () => (Array.isArray(employeeOptions) ? employeeOptions.filter((emp) => emp?.working_mail !== false) : []),
     [employeeOptions],
@@ -1809,6 +1846,10 @@ function TrackingPage() {
               const visibleEmployeeNames = selectedHrValues.slice(0, 2)
               const hiddenEmployeeCount = Math.max(0, selectedHrValues.length - visibleEmployeeNames.length)
               const linkedPreviewResume = row.resume_preview || row.tailored_resume_preview || null
+              const linkedResumeIsTailored = Boolean(row.tailored_resume_preview)
+              const linkedResumeLabel = linkedPreviewResume
+                ? `${resumeKindLabel(linkedResumeIsTailored)} | ${String(linkedPreviewResume.title || `Resume #${linkedPreviewResume.id}`).trim()}`
+                : ''
               return (
                 <Fragment key={`row-wrap-${row.id}`}>
                   <tr key={`data-${row.id}`}>
@@ -1862,6 +1903,7 @@ function TrackingPage() {
                     <td>
                       {linkedPreviewResume ? (
                         <div className="tracking-actions-compact">
+                          <span className="hint">{linkedResumeLabel}</span>
                           <button
                             type="button"
                             className="secondary tracking-icon-btn"
@@ -2341,6 +2383,9 @@ function TrackingPage() {
                     }}
                   />
                 </label>
+                {createAttachedResumeSummary ? (
+                  <p className="hint tracking-form-span-2">Currently attached: {createAttachedResumeSummary}</p>
+                ) : null}
                 <p className="hint tracking-form-span-2">Only one resume can be shared. Selecting Base, Tailored, or Associated To Job will override the other choices.</p>
                 {!createAssociatedResumeOptions.length ? <p className="hint tracking-form-span-2">No resume is associated with this job yet.</p> : null}
               </>
@@ -2782,6 +2827,9 @@ function TrackingPage() {
                     }}
                   />
                 </label>
+                {editAttachedResumeSummary ? (
+                  <p className="hint tracking-form-span-2">Currently attached: {editAttachedResumeSummary}</p>
+                ) : null}
                 <p className="hint tracking-form-span-2">Only one resume can be shared. Selecting Base, Tailored, or Associated To Job will override the other choices.</p>
                 {!editAssociatedResumeOptions.length ? <p className="hint tracking-form-span-2">No resume is associated with this job yet.</p> : null}
               </>

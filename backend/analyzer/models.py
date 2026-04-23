@@ -67,6 +67,7 @@ class Resume(BaseModel):
     )
     file = models.FileField(upload_to='resumes/', blank=True, null=True)
     ats_pdf_path = models.CharField(max_length=1000, blank=True, default='')
+    ats_pdf_builder_hash = models.CharField(max_length=64, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     class Meta:
         ordering = ['-created_at']

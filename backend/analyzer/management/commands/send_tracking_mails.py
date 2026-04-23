@@ -26,12 +26,12 @@ from analyzer.resume_rendering import (
     available_browser_binaries,
     build_builder_pdf_bytes,
     build_frontend_ats_pdf_html,
-    default_pdf_filename,
-    pick_local_pdf_path,
+    builder_data_hash,
     pdf_page_count,
     render_pdf_bytes_from_html,
 )
 from analyzer.template_access import resolve_template_ids_for_user
+from analyzer.tailor import sanitize_builder_data
 from analyzer.tracking_mail_utils import build_mail_tracking_status_map, ensure_mail_tracking, log_mail_event, recompute_tracking_delivery_status
 
 
@@ -320,6 +320,7 @@ class Command(BaseCommand):
         attachment_payload = self._resolve_attachment_payload(row) or {}
         attachment_path = attachment_payload.get("path")
         attachment_bytes = attachment_payload.get("bytes")
+        attachment_error = str(attachment_payload.get("error") or "").strip()
         latest_status_map = build_mail_tracking_status_map(mail_tracking)
         is_scheduled_replay = bool(getattr(row, "schedule_time", None))
         pending_employees = []
@@ -339,6 +340,21 @@ class Command(BaseCommand):
                 self._clear_schedule_if_processed(row)
             self._emit(f"[tracking:{row.id}] skipped (no pending employees left to process)", level="warning", style=self.style.WARNING)
             return 0, 0
+
+        if attachment_error:
+            for emp, to_email in pending_employees:
+                self._log_event(
+                    mail_tracking=mail_tracking,
+                    tracking=row,
+                    employee=emp,
+                    success=False,
+                    subject="",
+                    body="",
+                    to_email=to_email or "",
+                    notes=attachment_error,
+                )
+            self._emit(f"[tracking:{row.id}] blocked ({attachment_error})", level="warning", style=self.style.WARNING)
+            return 0, len(pending_employees)
 
         for emp, to_email in pending_employees:
             if not to_email:
@@ -551,29 +567,25 @@ class Command(BaseCommand):
 
     def _resolve_attachment_payload(self, row):
         builder = row.resume.builder_data if row and row.resume and isinstance(row.resume.builder_data, dict) else {}
-        title = str(getattr(row.resume, "title", "") or "").strip() or "Resume"
         saved_pdf_path = str(getattr(row.resume, "ats_pdf_path", "") or "").strip() if row and row.resume else ""
+        saved_pdf_hash = str(getattr(row.resume, "ats_pdf_builder_hash", "") or "").strip() if row and row.resume else ""
+        current_builder_hash = builder_data_hash(sanitize_builder_data(builder)) if builder else ""
+        resume_label = self._attachment_resume_label(row)
 
         if saved_pdf_path:
             saved_path = Path(saved_pdf_path)
-            if saved_path.exists() and saved_path.is_file():
+            if saved_path.exists() and saved_path.is_file() and saved_pdf_hash and saved_pdf_hash == current_builder_hash:
                 return {"path": str(saved_path), "bytes": None}
+            if row and row.resume and builder:
+                return {"error": f"ATS PDF is outdated or missing for {resume_label}. Please regenerate it from the builder before sending mail."}
 
-        if builder:
-            exact_pdf = self._build_builder_pdf_bytes(
-                builder,
-                filename_hint=title,
-                preserve_highlights=True,
-            )
-            if exact_pdf:
-                persisted_path = self._persist_attachment_pdf(row, builder, exact_pdf)
-                if persisted_path:
-                    return {"path": persisted_path, "bytes": None}
-                return {"path": None, "bytes": exact_pdf}
+        if row and row.resume and builder:
+            return {"error": f"ATS PDF is not generated yet for {resume_label}. Please save or export ATS PDF from the builder before sending mail."}
 
         if not builder:
             return None
 
+        title = str(getattr(row.resume, "title", "") or "").strip() or "Resume"
         text = self._builder_data_to_text(builder, fallback_title=title)
         if text.strip():
             return {"path": None, "bytes": self._build_simple_pdf_bytes(text, filename_hint=title)}
@@ -582,18 +594,16 @@ class Command(BaseCommand):
     def _build_builder_pdf_bytes(self, builder_data, filename_hint="resume", preserve_highlights=False):
         return build_builder_pdf_bytes(builder_data, preserve_highlights=preserve_highlights)
 
-    def _persist_attachment_pdf(self, row, builder_data, pdf_bytes):
-        if not row or not row.resume or not pdf_bytes:
-            return None
-        try:
-            file_name = default_pdf_filename(builder_data, resume=row.resume)
-            output_path = pick_local_pdf_path(file_name, row.resume.id if row.resume else None)
-            output_path.write_bytes(pdf_bytes)
-            row.resume.ats_pdf_path = str(output_path)
-            row.resume.save(update_fields=["ats_pdf_path", "updated_at"])
-            return str(output_path)
-        except Exception:
-            return None
+    def _attachment_resume_label(self, row):
+        if not row or not row.resume:
+            return "the attached resume"
+        resume = row.resume
+        kind = "tailored resume" if bool(getattr(resume, "is_tailored", False)) else "base resume"
+        title = str(getattr(resume, "title", "") or "").strip() or f"Resume #{getattr(resume, 'id', '')}"
+        resume_id = getattr(resume, "id", None)
+        if resume_id:
+            return f'{kind} "{title}" (resume_id={resume_id})'
+        return f'{kind} "{title}"'
 
     def _render_browser_pdf_bytes(self, html_text, browser_bins):
         return render_pdf_bytes_from_html(html_text)

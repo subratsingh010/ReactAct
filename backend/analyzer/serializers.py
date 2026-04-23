@@ -106,6 +106,7 @@ class ResumeSerializer(serializers.ModelSerializer):
             'optimized_text',
             'builder_data',
             'ats_pdf_path',
+            'ats_pdf_builder_hash',
             'is_default',
             'is_tailored',
             'job',
@@ -118,7 +119,7 @@ class ResumeSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'optimized_text', 'status', 'ats_pdf_path', 'job_id', 'job_label', 'source_resume_id', 'source_resume_title', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'optimized_text', 'status', 'ats_pdf_path', 'ats_pdf_builder_hash', 'job_id', 'job_label', 'source_resume_id', 'source_resume_title', 'created_at', 'updated_at']
 
 
 class TailoredResumeSerializer(serializers.ModelSerializer):
@@ -149,6 +150,7 @@ class TailoredResumeSerializer(serializers.ModelSerializer):
             'title',
             'builder_data',
             'ats_pdf_path',
+            'ats_pdf_builder_hash',
             'job',
             'job_id',
             'job_label',
@@ -158,7 +160,7 @@ class TailoredResumeSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'ats_pdf_path', 'job_id', 'job_label', 'resume_id', 'resume_title', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'ats_pdf_path', 'ats_pdf_builder_hash', 'job_id', 'job_label', 'resume_id', 'resume_title', 'created_at', 'updated_at']
 
 
 class MailTrackingSerializer(serializers.ModelSerializer):

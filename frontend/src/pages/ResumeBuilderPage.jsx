@@ -489,7 +489,7 @@ function ResumeBuilderPage({
       if (saveMode === 'edit') {
         setResumeRecordId(String(full.id))
         setResumeJobId(full?.job ? String(full.job) : '')
-        setSaveTarget(full?.is_tailored ? 'tailored' : 'base')
+        setSaveTarget('base')
         setTailoredSourceResumeId(full?.is_tailored ? String(full?.source_resume_id || '') : String(full.id))
         sessionStorage.setItem(resumeIdSessionKey, String(full.id))
       } else {
@@ -523,7 +523,7 @@ function ResumeBuilderPage({
           }))
           setResumeRecordId(String(full.id))
           setResumeJobId(full?.job ? String(full.job) : '')
-          setSaveTarget(full?.is_tailored ? 'tailored' : 'base')
+          setSaveTarget('base')
           setTailoredSourceResumeId(full?.is_tailored ? String(full?.source_resume_id || '') : String(full.id))
           setSaveMode('edit')
           // Stored resume was loaded successfully; do not override with default resume.
@@ -949,15 +949,10 @@ function ResumeBuilderPage({
 
       const sourceResumeId = String(tailoredSourceResumeId || resumeRecordId || tailorReferenceResumeId || '').trim()
       if (sourceResumeId) {
-        // Tailored preview defaults to saving a tailored copy unless the user switches back to base.
         setTailoredSourceResumeId(sourceResumeId)
-        setSaveTarget('tailored')
         setResumeJobId('')
-        if (saveTarget !== 'tailored') {
-          setResumeRecordId(null)
-          setSaveMode('create')
-          sessionStorage.removeItem(resumeIdSessionKey)
-        }
+        setSaveTarget('base')
+        setSaveMode('edit')
       } else {
         setTailoredSourceResumeId('')
         setSaveTarget('base')
@@ -1069,18 +1064,21 @@ function ResumeBuilderPage({
       setSaveState({ saving: true, message: '' })
       const derivedTitle = String(titleOverride || '').trim() || autoTitle
       const resolvedJobId = String(jobIdOverride || resumeJobId || '').trim()
+      const atsHtml = buildAtsPdfHtmlPreserveHighlights({
+        ...form,
+        pageMarginIn: normalizePageMarginIn(form.pageMarginIn),
+      })
       const payload = {
         title: derivedTitle,
         builder_data: form,
+        ats_html: atsHtml,
         original_text: formToPlainText(form),
         is_default: true,
         job: resolvedJobId ? Number(resolvedJobId) : null,
       }
 
       const baseResumeId = String(tailoredSourceResumeId || resumeRecordId || '').trim()
-      const shouldUpdateExisting = !forceCreate && Boolean(baseResumeId) && (
-        saveMode === 'edit' || (saveTarget === 'base' && Boolean(String(tailoredSourceResumeId || '').trim()))
-      )
+      const shouldUpdateExisting = !forceCreate && Boolean(baseResumeId) && saveMode === 'edit'
       if (!forceCreate && saveMode === 'edit' && !baseResumeId) {
         throw new Error('Edit mode requires an existing resume.')
       }
@@ -1098,9 +1096,12 @@ function ResumeBuilderPage({
         ...prev,
         isDefaultResume: Boolean(data.is_default),
       }))
+      const atsWarning = String(data?.ats_pdf_warning || '').trim()
       setSaveState({
         saving: false,
-        message: `Saved: ${new Date().toLocaleTimeString()}`,
+        message: atsWarning
+          ? `Saved: ${new Date().toLocaleTimeString()} | ${atsWarning}`
+          : `Saved: ${new Date().toLocaleTimeString()}`,
       })
       return data
     } catch (err) {
@@ -1120,9 +1121,14 @@ function ResumeBuilderPage({
       setSaveState({ saving: true, message: '' })
       const derivedTitle = String(titleOverride || '').trim() || `Tailored - ${String(autoTitle || '').trim() || 'Resume'}`
       const resolvedJobId = String(jobIdOverride || resumeJobId || '').trim()
+      const atsHtml = buildAtsPdfHtmlPreserveHighlights({
+        ...form,
+        pageMarginIn: normalizePageMarginIn(form.pageMarginIn),
+      })
       const updatePayload = {
         title: derivedTitle,
         builder_data: form,
+        ats_html: atsHtml,
         original_text: formToPlainText(form),
         is_default: false,
         is_tailored: true,
@@ -1149,9 +1155,12 @@ function ResumeBuilderPage({
           ...prev,
           isDefaultResume: false,
         }))
+        const atsWarning = String(data?.ats_pdf_warning || '').trim()
         setSaveState({
           saving: false,
-          message: `Updated tailored copy: ${new Date().toLocaleTimeString()}`,
+          message: atsWarning
+            ? `Updated tailored copy: ${new Date().toLocaleTimeString()} | ${atsWarning}`
+            : `Updated tailored copy: ${new Date().toLocaleTimeString()}`,
         })
         return data
       }
@@ -1163,6 +1172,7 @@ function ResumeBuilderPage({
       const payload = {
         name: derivedTitle,
         builder_data: form,
+        ats_html: atsHtml,
         resume: Number(sourceResumeId),
         job: resolvedJobId ? Number(resolvedJobId) : null,
       }
@@ -1178,9 +1188,12 @@ function ResumeBuilderPage({
         ...prev,
         isDefaultResume: false,
       }))
+      const atsWarning = String(data?.ats_pdf_warning || '').trim()
       setSaveState({
         saving: false,
-        message: `Saved tailored copy: ${new Date().toLocaleTimeString()}`,
+        message: atsWarning
+          ? `Saved tailored copy: ${new Date().toLocaleTimeString()} | ${atsWarning}`
+          : `Saved tailored copy: ${new Date().toLocaleTimeString()}`,
       })
       return data
     } catch (err) {
