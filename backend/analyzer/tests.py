@@ -14,6 +14,7 @@ from django.test.utils import override_settings
 from django.utils import timezone
 from rest_framework.test import APIRequestFactory, force_authenticate
 
+from analyzer.management.commands.check_imap_bounces import Command as CheckImapBouncesCommand
 from analyzer.management.commands.send_tracking_mails import Command
 from analyzer.models import Company, Employee, Interview, Job, Location, MailTrackingEvent, ProfilePanel, Resume, SubjectTemplate, Template, Tracking, TrackingAction, UserProfile
 from analyzer.default_mail_templates import DEFAULT_SUBJECT_TEMPLATE_SEEDS, DEFAULT_TRACKING_TEMPLATE_SEEDS, ensure_default_mail_templates_for_profile
@@ -733,6 +734,42 @@ class ProfileSettingsTests(TestCase):
         self.assertEqual(imap_settings["host"], "imap.profile.example.com")
         self.assertEqual(openai_settings["api_key"], "profile-openai-key")
         self.assertEqual(openai_settings["model"], "gpt-4o-mini")
+
+    def test_check_imap_bounces_auto_uses_single_profile_imap_config(self):
+        self.profile.imap_host = "imap.profile.example.com"
+        self.profile.imap_port = 993
+        self.profile.imap_user = "imap-user"
+        self.profile.imap_password = "imap-secret"
+        self.profile.save(update_fields=["imap_host", "imap_port", "imap_user", "imap_password", "updated_at"])
+
+        command = CheckImapBouncesCommand()
+        resolved_user = command._resolve_imap_user(None)
+
+        self.assertEqual(resolved_user, self.user)
+
+    def test_check_imap_bounces_requires_user_id_when_multiple_profiles_have_imap(self):
+        other_user = User.objects.create_user(username="second-imap-user", password="x")
+        UserProfile.objects.create(
+            user=other_user,
+            imap_host="imap.second.example.com",
+            imap_port=993,
+            imap_user="second-user",
+            imap_password="second-secret",
+        )
+        self.profile.imap_host = "imap.profile.example.com"
+        self.profile.imap_port = 993
+        self.profile.imap_user = "imap-user"
+        self.profile.imap_password = "imap-secret"
+        self.profile.save(update_fields=["imap_host", "imap_port", "imap_user", "imap_password", "updated_at"])
+
+        command = CheckImapBouncesCommand()
+        output = StringIO()
+        command.stdout = output
+
+        resolved_user = command._resolve_imap_user(None)
+
+        self.assertFalse(resolved_user)
+        self.assertIn("Multiple profile IMAP configs found", output.getvalue())
 
 
 class TrackingTemplateValidationTests(TestCase):

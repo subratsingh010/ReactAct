@@ -13,7 +13,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import Q
 from django.utils import timezone
 
-from analyzer.models import Employee, MailTracking, MailTrackingEvent, Tracking
+from analyzer.models import Employee, MailTracking, MailTrackingEvent, Tracking, UserProfile
 from analyzer.profile_settings import resolve_imap_settings
 from analyzer.tracking_mail_utils import log_mail_event, recompute_tracking_delivery_status
 
@@ -65,6 +65,28 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="Do not write DB changes")
         parser.add_argument("--unseen-only", action="store_true", help="Only scan unread IMAP messages instead of all recent messages")
 
+    def _resolve_imap_user(self, user_id):
+        if user_id:
+            return User.objects.filter(id=user_id).first()
+
+        configured_profiles = list(
+            UserProfile.objects.select_related("user")
+            .exclude(imap_host="")
+            .exclude(imap_user="")
+            .exclude(imap_password="")
+            .order_by("user_id")
+        )
+        if len(configured_profiles) == 1:
+            return configured_profiles[0].user
+        if len(configured_profiles) > 1:
+            self._emit(
+                "Multiple profile IMAP configs found. Re-run with --user-id to choose which inbox to scan.",
+                level="error",
+                style=self.style.ERROR,
+            )
+            return False
+        return None
+
     def handle(self, *args, **options):
         user_id = options.get("user_id")
         limit = int(options.get("limit") or 100)
@@ -73,7 +95,9 @@ class Command(BaseCommand):
         dry_run = bool(options.get("dry_run"))
         unseen_only = bool(options.get("unseen_only"))
 
-        imap_user = User.objects.filter(id=user_id).first() if user_id else None
+        imap_user = self._resolve_imap_user(user_id)
+        if imap_user is False:
+            return
         imap_settings = resolve_imap_settings(imap_user)
         host = str(imap_settings.get("host", "") or "").strip()
         port = int(imap_settings.get("port", 993) or 993)
@@ -82,7 +106,11 @@ class Command(BaseCommand):
         folder = str(imap_settings.get("folder", "INBOX") or "").strip() or "INBOX"
 
         if not host or not username or not password:
-            self._emit("Missing IMAP config. Set IMAP_HOST, IMAP_USER, IMAP_PASSWORD.", level="error", style=self.style.ERROR)
+            self._emit(
+                "Missing IMAP config. Set IMAP_HOST/IMAP_USER/IMAP_PASSWORD or save IMAP settings in the selected profile.",
+                level="error",
+                style=self.style.ERROR,
+            )
             return
 
         since_date = (timezone.now() - timedelta(days=since_days)).strftime("%d-%b-%Y")
