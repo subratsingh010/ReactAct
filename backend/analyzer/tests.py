@@ -2,6 +2,7 @@ import os
 import shutil
 import tempfile
 from io import StringIO
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from django.contrib.auth.models import Group, Permission, User
@@ -17,7 +18,7 @@ from analyzer.management.commands.send_tracking_mails import Command
 from analyzer.models import Company, Employee, Interview, Job, Location, MailTrackingEvent, ProfilePanel, Resume, SubjectTemplate, Template, Tracking, TrackingAction, UserProfile
 from analyzer.default_mail_templates import DEFAULT_SUBJECT_TEMPLATE_SEEDS, DEFAULT_TRACKING_TEMPLATE_SEEDS, ensure_default_mail_templates_for_profile
 from analyzer.profile_settings import resolve_imap_settings, resolve_openai_settings, resolve_smtp_settings
-from analyzer.resume_rendering import available_browser_binaries, builder_data_hash
+from analyzer.resume_rendering import available_browser_binaries, builder_data_hash, render_pdf_from_html
 from analyzer.serializers import CompanySerializer, InterviewSerializer, JobSerializer, ProfilePanelSerializer, SubjectTemplateSerializer, UserProfileSerializer
 from analyzer.tailor import sanitize_builder_data
 from analyzer.tracking_mail_utils import ensure_mail_tracking
@@ -2211,6 +2212,33 @@ class ResumeRenderingBrowserDetectionTests(TestCase):
 
         self.assertIn("/usr/bin/google-chrome-stable", bins)
         self.assertIn("/snap/bin/chromium", bins)
+
+    @patch("analyzer.resume_rendering.available_browser_binaries", return_value=["/usr/bin/google-chrome-stable"])
+    @patch("analyzer.resume_rendering.subprocess.run")
+    def test_render_pdf_from_html_tries_data_url_before_file_url_fallback(self, mocked_run, _mocked_bins):
+        calls = []
+
+        def _fake_run(cmd, capture_output, text, timeout, check):  # noqa: ARG001
+            calls.append(cmd)
+            target = str(cmd[-1])
+            output_arg = next(item for item in cmd if str(item).startswith("--print-to-pdf="))
+            output_path = output_arg.split("=", 1)[1]
+            if target.startswith("file:"):
+                Path(output_path).write_bytes(b"%PDF-1.4 test")
+                return Mock(returncode=0, stderr="", stdout="")
+            return Mock(returncode=1, stderr="ERR_FILE_NOT_FOUND", stdout="")
+
+        mocked_run.side_effect = _fake_run
+
+        with tempfile.TemporaryDirectory(prefix="reactact-render-test-") as tmp_dir:
+            output_pdf = Path(tmp_dir) / "output.pdf"
+            ok, note = render_pdf_from_html("<html><body>Hello</body></html>", output_pdf)
+
+        self.assertTrue(ok)
+        self.assertEqual(note, "")
+        self.assertTrue(calls)
+        self.assertTrue(str(calls[0][-1]).startswith("data:text/html;base64,"))
+        self.assertTrue(any(str(call[-1]).startswith("file:") for call in calls))
 
 
 class SerializerNormalizationTests(TestCase):

@@ -1,4 +1,5 @@
 import io
+import base64
 import hashlib
 import json
 import shutil
@@ -79,66 +80,67 @@ def available_browser_binaries():
     return [path for path in candidates if Path(path).exists()]
 
 
+def _html_render_targets(html_text: str, html_file_path: Path):
+    raw_html = str(html_text or "")
+    encoded = base64.b64encode(raw_html.encode("utf-8")).decode("ascii")
+    return [
+        f"data:text/html;base64,{encoded}",
+        html_file_path.as_uri(),
+    ]
+
+
 def render_pdf_from_html(html_text: str, output_pdf: Path):
     browser_bins = available_browser_binaries()
     if not browser_bins:
         return False, "Chrome/Brave not found on this machine."
 
-    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as tmp:
-        tmp.write(str(html_text or ""))
-        tmp_html_path = Path(tmp.name)
-
-    html_url = tmp_html_path.as_uri()
     errors = []
-    try:
+    with tempfile.TemporaryDirectory(prefix="reactact-pdf-") as tmp_dir:
+        tmp_html_path = Path(tmp_dir) / "resume.html"
+        tmp_html_path.write_text(str(html_text or ""), encoding="utf-8")
+        html_targets = _html_render_targets(html_text, tmp_html_path)
         output_pdf.parent.mkdir(parents=True, exist_ok=True)
         for browser_bin in browser_bins:
-            cmd = [
-                browser_bin,
-                "--headless=new",
-                "--disable-gpu",
-                "--no-sandbox",
-                "--no-pdf-header-footer",
-                f"--print-to-pdf={str(output_pdf)}",
-                html_url,
-            ]
-            try:
-                run = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=45,
-                    check=False,
-                )
-                if run.returncode == 0 and output_pdf.exists() and output_pdf.stat().st_size > 0:
-                    return True, ""
-                stderr = (run.stderr or "").strip()
-                stdout = (run.stdout or "").strip()
-                snippet = stderr or stdout or f"exit code {run.returncode}"
-                errors.append(f"{Path(browser_bin).name}: {snippet[:220]}")
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"{Path(browser_bin).name}: {exc}")
-        return False, "; ".join(errors) or "PDF generation failed."
-    finally:
-        try:
-            tmp_html_path.unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
+            for target in html_targets:
+                for headless_flag in ["--headless=new", "--headless"]:
+                    cmd = [
+                        browser_bin,
+                        headless_flag,
+                        "--disable-gpu",
+                        "--no-sandbox",
+                        "--no-pdf-header-footer",
+                        "--allow-file-access-from-files",
+                        f"--print-to-pdf={str(output_pdf)}",
+                        target,
+                    ]
+                    try:
+                        run = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=45,
+                            check=False,
+                        )
+                        if run.returncode == 0 and output_pdf.exists() and output_pdf.stat().st_size > 0:
+                            return True, ""
+                        stderr = (run.stderr or "").strip()
+                        stdout = (run.stdout or "").strip()
+                        snippet = stderr or stdout or f"exit code {run.returncode}"
+                        target_label = "data-url" if str(target).startswith("data:") else "file-url"
+                        errors.append(f"{Path(browser_bin).name} {headless_flag} {target_label}: {snippet[:220]}")
+                    except Exception as exc:  # noqa: BLE001
+                        target_label = "data-url" if str(target).startswith("data:") else "file-url"
+                        errors.append(f"{Path(browser_bin).name} {headless_flag} {target_label}: {exc}")
+    return False, "; ".join(errors) or "PDF generation failed."
 
 
 def render_pdf_bytes_from_html(html_text: str):
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
-        output_pdf = Path(tmp_pdf.name)
-    try:
+    with tempfile.TemporaryDirectory(prefix="reactact-pdf-bytes-") as tmp_dir:
+        output_pdf = Path(tmp_dir) / "resume.pdf"
         ok, _note = render_pdf_from_html(html_text, output_pdf)
         if ok and output_pdf.exists() and output_pdf.stat().st_size > 0:
             return output_pdf.read_bytes()
         return None
-    finally:
-        try:
-            output_pdf.unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def pdf_page_count(pdf_bytes):
