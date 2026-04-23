@@ -3,7 +3,7 @@ name: CI/CD Deploy
 on:
   pull_request:
     branches:
-      - master
+      - main
     types:
       - opened
       - synchronize
@@ -11,7 +11,7 @@ on:
       - closed
 
 concurrency:
-  group: deploy-master
+  group: deploy-main
   cancel-in-progress: true
 
 jobs:
@@ -71,7 +71,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script_stop: true
           script: |
-            export DEPLOY_BRANCH=master
+            export DEPLOY_BRANCH=main
             export ROOT_DIR=${{ secrets.EC2_APP_DIR }}
             export BACKEND_SERVICE=${{ secrets.EC2_BACKEND_SERVICE }}
             bash "$ROOT_DIR/scripts/deploy_ec2.sh"
