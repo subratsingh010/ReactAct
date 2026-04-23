@@ -8,7 +8,13 @@ BACKEND_SERVICE="${BACKEND_SERVICE:-reactact}"
 
 cd "$ROOT_DIR"
 
-git pull origin "${DEPLOY_BRANCH:-main}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
+
+# Deployment should mirror the remote branch exactly, even if the server
+# checkout has local merge commits or other divergence from origin.
+git fetch origin "$DEPLOY_BRANCH"
+git checkout "$DEPLOY_BRANCH" >/dev/null 2>&1 || git checkout -B "$DEPLOY_BRANCH" "origin/$DEPLOY_BRANCH"
+git reset --hard "origin/$DEPLOY_BRANCH"
 
 if [ -f ".env" ]; then
   set -a
