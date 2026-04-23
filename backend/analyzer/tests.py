@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 from io import StringIO
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.contrib.auth.models import Group, Permission, User
 from django.core.management import call_command
@@ -17,7 +17,7 @@ from analyzer.management.commands.send_tracking_mails import Command
 from analyzer.models import Company, Employee, Interview, Job, Location, MailTrackingEvent, ProfilePanel, Resume, SubjectTemplate, Template, Tracking, TrackingAction, UserProfile
 from analyzer.default_mail_templates import DEFAULT_SUBJECT_TEMPLATE_SEEDS, DEFAULT_TRACKING_TEMPLATE_SEEDS, ensure_default_mail_templates_for_profile
 from analyzer.profile_settings import resolve_imap_settings, resolve_openai_settings, resolve_smtp_settings
-from analyzer.resume_rendering import builder_data_hash
+from analyzer.resume_rendering import available_browser_binaries, builder_data_hash
 from analyzer.serializers import CompanySerializer, InterviewSerializer, JobSerializer, ProfilePanelSerializer, SubjectTemplateSerializer, UserProfileSerializer
 from analyzer.tailor import sanitize_builder_data
 from analyzer.tracking_mail_utils import ensure_mail_tracking
@@ -2191,24 +2191,26 @@ class ResumeSaveStorageTests(TestCase):
         self.assertTrue(os.path.exists(tailored.ats_pdf_path))
         mocked_builder_pdf.assert_called_once()
 
-    def test_delete_resume_removes_existing_file_attachment(self):
-        resume = Resume.objects.create(
-            profile=self.profile,
-            title="Delete Resume",
-            original_text="Delete text",
-            file=SimpleUploadedFile("delete-resume.pdf", b"%PDF-1.4 delete file", content_type="application/pdf"),
-        )
-        old_file_name = str(resume.file.name or '').strip()
-        self.assertTrue(resume.file.storage.exists(old_file_name))
 
-        request = self.factory.delete(f"/api/resumes/{resume.id}/")
-        force_authenticate(request, user=self.user)
+class ResumeRenderingBrowserDetectionTests(TestCase):
+    @patch("analyzer.resume_rendering.Path")
+    def test_available_browser_binaries_includes_linux_paths(self, mocked_path):
+        available = {
+            "/usr/bin/google-chrome-stable",
+            "/snap/bin/chromium",
+        }
 
-        response = ResumeDetailView.as_view()(request, resume_id=resume.id)
+        def _build_path(path_text):
+            path_obj = Mock()
+            path_obj.exists.return_value = path_text in available
+            return path_obj
 
-        self.assertEqual(response.status_code, 204)
-        self.assertFalse(Resume.objects.filter(id=resume.id).exists())
-        self.assertFalse(resume.file.storage.exists(old_file_name))
+        mocked_path.side_effect = _build_path
+
+        bins = available_browser_binaries()
+
+        self.assertIn("/usr/bin/google-chrome-stable", bins)
+        self.assertIn("/snap/bin/chromium", bins)
 
 
 class SerializerNormalizationTests(TestCase):

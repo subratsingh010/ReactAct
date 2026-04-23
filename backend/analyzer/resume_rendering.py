@@ -70,6 +70,11 @@ def available_browser_binaries():
     candidates = [
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/snap/bin/chromium",
     ]
     return [path for path in candidates if Path(path).exists()]
 
