@@ -3,7 +3,6 @@ import json
 import shutil
 import subprocess
 import tempfile
-import os
 from pathlib import Path
 
 try:
@@ -14,38 +13,10 @@ except Exception:  # noqa: BLE001
 
 def available_browser_binaries():
     candidates = [
-        str(os.getenv("CHROME_BIN") or "").strip(),
-        str(os.getenv("GOOGLE_CHROME_BIN") or "").strip(),
-        str(os.getenv("CHROMIUM_BIN") or "").strip(),
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-        "/usr/bin/google-chrome",
-        "/usr/bin/google-chrome-stable",
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/snap/bin/chromium",
     ]
-    for command_name in [
-        "google-chrome",
-        "google-chrome-stable",
-        "chromium",
-        "chromium-browser",
-        "brave-browser",
-    ]:
-        resolved = shutil.which(command_name)
-        if resolved:
-            candidates.append(resolved)
-
-    seen = set()
-    binaries = []
-    for path in candidates:
-        normalized = str(path or "").strip()
-        if not normalized or normalized in seen:
-            continue
-        if Path(normalized).exists():
-            binaries.append(normalized)
-            seen.add(normalized)
-    return binaries
+    return [path for path in candidates if Path(path).exists()]
 
 
 def render_pdf_from_html(html_text: str, output_pdf: Path):

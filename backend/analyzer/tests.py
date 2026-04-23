@@ -14,7 +14,6 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from analyzer.management.commands.send_tracking_mails import Command
 from analyzer.models import Company, Employee, Interview, Job, Location, MailTrackingEvent, ProfilePanel, Resume, SubjectTemplate, Template, Tracking, TrackingAction, UserProfile
 from analyzer.profile_settings import resolve_imap_settings, resolve_openai_settings, resolve_smtp_settings
-from analyzer.resume_rendering import available_browser_binaries
 from analyzer.serializers import CompanySerializer, InterviewSerializer, JobSerializer, ProfilePanelSerializer, SubjectTemplateSerializer, UserProfileSerializer
 from analyzer.tracking_mail_utils import ensure_mail_tracking
 from analyzer.views import (
@@ -704,19 +703,6 @@ class ExportAtsPdfLocalViewTests(TestCase):
         self.assertTrue(os.path.exists(saved_path))
         with open(saved_path, "rb") as handle:
             self.assertEqual(handle.read(), b"%PDF-1.7 export")
-
-
-class ResumeRenderingBrowserDetectionTests(TestCase):
-    @patch("analyzer.resume_rendering.shutil.which")
-    def test_available_browser_binaries_supports_linux_and_env_paths(self, mocked_which):
-        with tempfile.NamedTemporaryFile() as env_browser, tempfile.NamedTemporaryFile() as which_browser:
-            with patch.dict("os.environ", {"CHROME_BIN": env_browser.name}, clear=False):
-                mocked_which.side_effect = lambda command_name: which_browser.name if command_name == "chromium" else None
-
-                bins = available_browser_binaries()
-
-        self.assertIn(env_browser.name, bins)
-        self.assertIn(which_browser.name, bins)
 
 
 class TrackingFreshRuleApiTests(TestCase):
