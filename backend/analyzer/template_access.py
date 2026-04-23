@@ -1,9 +1,12 @@
 from .profile_utils import ensure_profile_for_user
+from .default_mail_templates import ensure_default_mail_templates_for_profile
 from .models import SubjectTemplate, Template
 
 
 def ensure_template_profile_for_user(user):
-    return ensure_profile_for_user(user)
+    profile = ensure_profile_for_user(user)
+    ensure_default_mail_templates_for_profile(profile)
+    return profile
 
 
 def template_queryset_for_user(user):

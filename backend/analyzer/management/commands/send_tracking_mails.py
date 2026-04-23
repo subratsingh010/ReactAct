@@ -1261,32 +1261,15 @@ class Command(BaseCommand):
             return None, f"OpenAI request failed: {exc}"
 
     def _resume_attachment_line(self, row):
-        has_attached_resume = False
-        if row.resume and isinstance(getattr(row.resume, "builder_data", None), dict) and row.resume.builder_data:
-            has_attached_resume = True
-        if has_attached_resume:
-            return "I have attached my resume for your reference."
-        return "I am happy to share my resume if helpful."
+        return ""
 
     def _build_signature(self, row, profile):
-        mail_type = str(getattr(row, "mail_type", "") or "").strip().lower() if row else ""
         sender = self._sender_identity(row, profile)
         sender_name = str(sender.get("full_name") or "").strip()
-        if mail_type == "followed_up":
-            sign_parts = [
-                "Thanks,",
-                sender_name,
-            ]
-        else:
-            sign_parts = [
-                "Thanks,",
-                *self._sender_detail_lines(
-                    sender_name,
-                    sender.get("email"),
-                    sender.get("contact"),
-                    sender.get("linkedin"),
-                ),
-            ]
+        sign_parts = [
+            "Thanks,",
+            sender_name,
+        ]
         return "\n".join([p for p in sign_parts if str(p or "").strip()])
 
     def _inject_dynamic_names(self, text, employee_name, sender_name):
@@ -1528,10 +1511,10 @@ class Command(BaseCommand):
         value = re.sub(r"\n\s+", "\n", value)
         return value.strip()
 
-    def _ordered_achievement_paragraphs(self, achievements, replacements=None):
+    def _ordered_achievement_paragraphs(self, achievements, replacements=None, *, include_personalized=False):
         paragraphs = []
         for ach in achievements or []:
-            if self._template_category(ach) == "personalized":
+            if self._template_category(ach) == "personalized" and not include_personalized:
                 continue
             detail = self._render_mail_placeholders(getattr(ach, "achievement", "") or "", replacements)
             if not detail:
@@ -1619,8 +1602,23 @@ class Command(BaseCommand):
             return approved_preview["subject"], approved_preview["body"]
 
         attachment_line = self._resume_attachment_line(row)
-        ordered_template_paragraphs = self._ordered_achievement_paragraphs(achievements, placeholder_values)
-        personalized_intro = self._hardcoded_personalized_intro(row, placeholder_values)
+        use_personalized_intro = bool(getattr(row, "use_hardcoded_personalized_intro", False)) and mail_type != "followed_up"
+        ordered_template_paragraphs = self._ordered_achievement_paragraphs(
+            achievements,
+            placeholder_values,
+            include_personalized=not use_personalized_intro,
+        )
+        personalized_intro = ""
+        if use_personalized_intro:
+            if getattr(row, "personalized_template_id", None):
+                personalized_intro = self._hardcoded_personalized_intro(row, placeholder_values)
+            else:
+                personalized_intro = self._cold_applied_personalized_intro(
+                    employee,
+                    company_name,
+                    role,
+                    allow_generate=True,
+                )
 
         subject = self._default_subject_for_template(
             choice,
@@ -1630,7 +1628,7 @@ class Command(BaseCommand):
             job_id,
         )
         saved_subject = self._render_mail_placeholders(str(getattr(row, "mail_subject", "") or "").strip(), placeholder_values)
-        if saved_subject:
+        if saved_subject and mail_type != "followed_up":
             subject = saved_subject
         body = self._build_ordered_hardcoded_mail(
             row=row,

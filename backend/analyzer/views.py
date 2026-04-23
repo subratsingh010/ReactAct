@@ -3399,6 +3399,9 @@ class ApplicationTrackingListCreateView(APIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
+        requested_mail_subject = str(payload.get('template_subject') or payload.get('mail_subject') or payload.get('subject') or '').strip()
+        if mail_type == 'followed_up':
+            requested_mail_subject = ''
         tracking = reuse_existing_row or Tracking.objects.create(
             profile=_workspace_profile_for_user(request.user),
             job=job,
@@ -3411,7 +3414,7 @@ class ApplicationTrackingListCreateView(APIView):
             mail_delivery_status='pending',
             mailed=self._to_bool(payload.get('mailed'), default=False),
             mail_type=mail_type,
-            mail_subject=str(payload.get('template_subject') or payload.get('mail_subject') or payload.get('subject') or '').strip(),
+            mail_subject=requested_mail_subject,
         )
         tracking.job = job
         tracking.template = template
@@ -3421,7 +3424,7 @@ class ApplicationTrackingListCreateView(APIView):
         tracking.use_hardcoded_personalized_intro = self._to_bool(payload.get('use_hardcoded_personalized_intro'), default=False)
         tracking.schedule_time = schedule_time
         tracking.mail_type = mail_type
-        tracking.mail_subject = str(payload.get('template_subject') or payload.get('mail_subject') or payload.get('subject') or tracking.mail_subject or '').strip()
+        tracking.mail_subject = requested_mail_subject if mail_type == 'followed_up' else str(payload.get('template_subject') or payload.get('mail_subject') or payload.get('subject') or tracking.mail_subject or '').strip()
         tracking.interaction_time = str(payload.get('interaction_time') or tracking.interaction_time or '').strip()[:120]
         tracking.interview_round = str(payload.get('interview_round') or tracking.interview_round or '').strip()[:120]
         tracking.mailed = self._to_bool(payload.get('mailed'), default=tracking.mailed if reuse_existing_row else False)
@@ -3930,7 +3933,10 @@ class ApplicationTrackingDetailView(APIView):
             if action_text in {'fresh', 'followed_up'}:
                 row.mail_type = action_text
         if 'template_subject' in payload or 'mail_subject' in payload or 'subject' in payload:
-            row.mail_subject = str(payload.get('template_subject') or payload.get('mail_subject') or payload.get('subject') or '').strip()
+            next_mail_subject = str(payload.get('template_subject') or payload.get('mail_subject') or payload.get('subject') or '').strip()
+            row.mail_subject = '' if str(row.mail_type or '').strip() == 'followed_up' else next_mail_subject
+        elif str(row.mail_type or '').strip() == 'followed_up':
+            row.mail_subject = ''
         if 'interaction_time' in payload:
             row.interaction_time = str(payload.get('interaction_time') or '').strip()[:120]
         if 'interview_round' in payload:

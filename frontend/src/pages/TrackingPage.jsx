@@ -475,11 +475,23 @@ function mergeAchievementOptions(baseOptions, selectedMeta) {
   ]
 }
 
-function filterAchievementOptionsForMode(options) {
+function filterAchievementOptionsForMode(options, { allowPersonalized = false } = {}) {
   return (Array.isArray(options) ? options : []).filter((item) => {
     const category = String(item?.category || '').trim().toLowerCase()
-    return category !== 'personalized' && category !== 'follow_up'
+    if (category === 'follow_up') return false
+    if (!allowPersonalized && category === 'personalized') return false
+    return true
   })
+}
+
+function removePersonalizedTemplateIds(values, options) {
+  const personalizedIds = new Set(
+    (Array.isArray(options) ? options : [])
+      .filter((item) => String(item?.category || '').trim().toLowerCase() === 'personalized')
+      .map((item) => String(item?.id || '').trim())
+      .filter(Boolean),
+  )
+  return orderedAchievementIds(values).filter((id) => !personalizedIds.has(String(id || '').trim()))
 }
 
 function templateSelectionError(templateChoice, values, options) {
@@ -932,6 +944,7 @@ function TrackingPage() {
       template_ids_ordered: [],
       personalized_template_id: '',
       use_hardcoded_personalized_intro: false,
+      personalization_mode: 'template',
       achievement_name: '',
       achievement_text: '',
       attachment_source: '',
@@ -995,8 +1008,13 @@ function TrackingPage() {
       setCreateFormError(createTemplateError)
       return
     }
-    if (createForm.mail_type !== 'followed_up' && createForm.use_hardcoded_personalized_intro && !String(createForm.personalized_template_id || '').trim()) {
-      setCreateFormError('Select one Personalized template when personalized intro is checked.')
+    if (
+      createForm.mail_type !== 'followed_up'
+      && createForm.use_hardcoded_personalized_intro
+      && String(createForm.personalization_mode || 'template').trim() === 'template'
+      && !String(createForm.personalized_template_id || '').trim()
+    ) {
+      setCreateFormError('Select one Personalized template when personalized intro uses template mode.')
       return
     }
     if (createForm.mail_type === 'followed_up') {
@@ -1016,7 +1034,11 @@ function TrackingPage() {
         template_ids_ordered: createAchievementIds,
         personalized_template: createForm.mail_type === 'followed_up'
           ? null
-          : (createForm.use_hardcoded_personalized_intro ? (createForm.personalized_template_id || null) : null),
+          : (
+            createForm.use_hardcoded_personalized_intro && String(createForm.personalization_mode || 'template').trim() === 'template'
+              ? (createForm.personalized_template_id || null)
+              : null
+          ),
         use_hardcoded_personalized_intro: Boolean(createForm.use_hardcoded_personalized_intro),
         achievement: createAchievementIds[0] || null,
         achievement_ids_ordered: createAchievementIds,
@@ -1052,6 +1074,15 @@ function TrackingPage() {
     try {
       const fullRow = await fetchTrackingRow(access, row.id).catch(() => row)
       const hydrated = await hydrateCompanyDependent(fullRow.company || '')
+      const initialUseHardcodedPersonalizedIntro = Boolean(fullRow.use_hardcoded_personalized_intro)
+      const initialOrderedTemplateIds = Array.isArray(fullRow.achievement_ids_ordered) && fullRow.achievement_ids_ordered.length
+        ? fullRow.achievement_ids_ordered.map((id) => String(id)).slice(0, TRACKING_TEMPLATE_SLOT_COUNT)
+        : (String(fullRow.mail_type || 'fresh').trim() === 'followed_up' && fullRow.personalized_template_id
+          ? [String(fullRow.personalized_template_id)]
+          : (fullRow.achievement_id ? [String(fullRow.achievement_id)] : []))
+      const initialSanitizedTemplateIds = initialUseHardcodedPersonalizedIntro
+        ? removePersonalizedTemplateIds(initialOrderedTemplateIds, achievementOptions)
+        : initialOrderedTemplateIds
       const matchingJob = (Array.isArray(hydrated?.jobs) ? hydrated.jobs : []).find((job) => String(job.id) === String(fullRow.job || ''))
       const associatedRows = Array.isArray(matchingJob?.associated_resumes) ? matchingJob.associated_resumes : []
       const associatedResumeIdSet = new Set(associatedRows.map((item) => String(item?.id || '')))
@@ -1060,7 +1091,7 @@ function TrackingPage() {
         : (fullRow.resume_preview?.id
           ? (associatedResumeIdSet.has(String(fullRow.resume_preview.id)) ? 'associated' : 'base')
           : '')
-      setEditForm({
+      setEditForm(syncLegacyAchievementFields({
         id: fullRow.id,
         company: fullRow.company || '',
         job: fullRow.job || '',
@@ -1081,19 +1112,14 @@ function TrackingPage() {
         initial_selected_hr_ids: Array.isArray(fullRow.selected_hr_ids) ? fullRow.selected_hr_ids.map((id) => String(id)) : [],
         schedule_time: toDateTimeLocalInput(fullRow.schedule_time),
         has_attachment: Boolean(fullRow.resume_preview || fullRow.tailored_resume),
-        achievement_id: fullRow.achievement_id ? String(fullRow.achievement_id) : '',
-        achievement_ids_ordered: Array.isArray(fullRow.achievement_ids_ordered) && fullRow.achievement_ids_ordered.length
-          ? fullRow.achievement_ids_ordered.map((id) => String(id)).slice(0, TRACKING_TEMPLATE_SLOT_COUNT)
-          : (String(fullRow.mail_type || 'fresh').trim() === 'followed_up' && fullRow.personalized_template_id
-            ? [String(fullRow.personalized_template_id)]
-            : (fullRow.achievement_id ? [String(fullRow.achievement_id)] : [])),
-        template_ids_ordered: Array.isArray(fullRow.template_ids_ordered)
-          ? fullRow.template_ids_ordered.map((id) => String(id)).slice(0, TRACKING_TEMPLATE_SLOT_COUNT)
-          : (Array.isArray(fullRow.achievement_ids_ordered)
-            ? fullRow.achievement_ids_ordered.map((id) => String(id)).slice(0, TRACKING_TEMPLATE_SLOT_COUNT)
-            : (fullRow.achievement_id ? [String(fullRow.achievement_id)] : [])),
+        achievement_id: initialSanitizedTemplateIds[0] || '',
+        achievement_ids_ordered: initialSanitizedTemplateIds,
+        template_ids_ordered: initialSanitizedTemplateIds,
         personalized_template_id: fullRow.personalized_template_id ? String(fullRow.personalized_template_id) : '',
         use_hardcoded_personalized_intro: Boolean(fullRow.use_hardcoded_personalized_intro),
+        personalization_mode: fullRow.use_hardcoded_personalized_intro
+          ? (fullRow.personalized_template_id ? 'template' : 'ai')
+          : 'template',
         template_subject: String(fullRow.template_subject || '').trim(),
         interaction_time: toDateTimeLocalInput(fullRow.interaction_time) || '',
         interview_round: String(fullRow.interview_round || '').trim(),
@@ -1112,7 +1138,17 @@ function TrackingPage() {
         follow_thread_ids: Array.isArray(fullRow.selected_hr_ids) ? fullRow.selected_hr_ids.map((id) => String(id)) : [],
         selected_employees: Array.isArray(fullRow.selected_employees) ? fullRow.selected_employees : [],
         mail_events: Array.isArray(fullRow.mail_events) ? fullRow.mail_events : [],
-      })
+      }, initialUseHardcodedPersonalizedIntro
+        ? filterAchievementOptionsForMode(mergeAchievementOptions(achievementOptions, {
+          id: fullRow.achievement_id,
+          name: fullRow.achievement_name,
+          text: fullRow.achievement_text,
+        }))
+        : mergeAchievementOptions(achievementOptions, {
+          id: fullRow.achievement_id,
+          name: fullRow.achievement_name,
+          text: fullRow.achievement_text,
+        })))
     } catch (err) {
       setEditFormError(err.message || 'Could not load tracking row.')
     }
@@ -1164,8 +1200,13 @@ function TrackingPage() {
       setEditFormError(editTemplateError)
       return
     }
-    if (editForm.mail_type !== 'followed_up' && editForm.use_hardcoded_personalized_intro && !String(editForm.personalized_template_id || '').trim()) {
-      setEditFormError('Select one Personalized template when personalized intro is checked.')
+    if (
+      editForm.mail_type !== 'followed_up'
+      && editForm.use_hardcoded_personalized_intro
+      && String(editForm.personalization_mode || 'template').trim() === 'template'
+      && !String(editForm.personalized_template_id || '').trim()
+    ) {
+      setEditFormError('Select one Personalized template when personalized intro uses template mode.')
       return
     }
     if (editForm.mail_type === 'followed_up' && !editHasFreshMilestone) {
@@ -1202,7 +1243,11 @@ function TrackingPage() {
       template_ids_ordered: editAchievementIds,
       personalized_template: editForm.mail_type === 'followed_up'
         ? null
-        : (editForm.use_hardcoded_personalized_intro ? (editForm.personalized_template_id || null) : null),
+        : (
+          editForm.use_hardcoded_personalized_intro && String(editForm.personalization_mode || 'template').trim() === 'template'
+            ? (editForm.personalized_template_id || null)
+            : null
+        ),
       use_hardcoded_personalized_intro: Boolean(editForm.use_hardcoded_personalized_intro),
       achievement: editAchievementIds[0] || null,
       achievement_ids_ordered: editAchievementIds,
@@ -1572,12 +1617,16 @@ function TrackingPage() {
     [achievementOptions, editForm?.achievement_id, editForm?.achievement_name, editForm?.achievement_text],
   )
   const createAchievementOptionsForMode = useMemo(
-    () => filterAchievementOptionsForMode(createAchievementDropdownOptions),
-    [createAchievementDropdownOptions],
+    () => filterAchievementOptionsForMode(createAchievementDropdownOptions, {
+      allowPersonalized: !Boolean(createForm?.use_hardcoded_personalized_intro),
+    }),
+    [createAchievementDropdownOptions, createForm?.use_hardcoded_personalized_intro],
   )
   const editAchievementOptionsForMode = useMemo(
-    () => filterAchievementOptionsForMode(editAchievementDropdownOptions),
-    [editAchievementDropdownOptions],
+    () => filterAchievementOptionsForMode(editAchievementDropdownOptions, {
+      allowPersonalized: !Boolean(editForm?.use_hardcoded_personalized_intro),
+    }),
+    [editAchievementDropdownOptions, editForm?.use_hardcoded_personalized_intro],
   )
   const personalizedTemplateOptions = useMemo(
     () => (Array.isArray(achievementOptions) ? achievementOptions : [])
@@ -1741,6 +1790,13 @@ function TrackingPage() {
 
   useEffect(() => {
     if (!editForm) return
+    if (String(editForm.mail_type || '').trim() === 'followed_up') {
+      const currentSubject = String(editForm.template_subject || '').trim()
+      if (currentSubject) {
+        setEditForm((prev) => (prev ? { ...prev, template_subject: '' } : prev))
+      }
+      return
+    }
     const currentSubject = String(editForm.template_subject || '').trim()
     const firstOption = editSubjectOptions[0]?.value || ''
     if (!firstOption) return
@@ -1903,11 +1959,10 @@ function TrackingPage() {
                     <td>
                       {linkedPreviewResume ? (
                         <div className="tracking-actions-compact">
-                          <span className="hint">{linkedResumeLabel}</span>
                           <button
                             type="button"
                             className="secondary tracking-icon-btn"
-                            title="Review resume"
+                            title="Preview resume"
                             onClick={() => setPreviewResume(linkedPreviewResume)}
                           >
                             <PreviewIcon />
@@ -2274,41 +2329,72 @@ function TrackingPage() {
                   <input
                     type="checkbox"
                     checked={Boolean(createForm.use_hardcoded_personalized_intro)}
-                    onChange={(event) => setCreateForm((prev) => ({
-                      ...prev,
-                      use_hardcoded_personalized_intro: event.target.checked,
-                      personalized_template_id: event.target.checked ? prev.personalized_template_id : '',
-                    }))}
+                    onChange={(event) => setCreateForm((prev) => {
+                      const checked = event.target.checked
+                      const nextIds = checked
+                        ? removePersonalizedTemplateIds(prev.achievement_ids_ordered, createAchievementDropdownOptions)
+                        : prev.achievement_ids_ordered
+                      return syncLegacyAchievementFields({
+                        ...prev,
+                        use_hardcoded_personalized_intro: checked,
+                        personalization_mode: checked ? (prev.personalization_mode || 'template') : 'template',
+                        personalized_template_id: checked ? prev.personalized_template_id : '',
+                        achievement_ids_ordered: nextIds,
+                        template_ids_ordered: nextIds,
+                      }, filterAchievementOptionsForMode(createAchievementDropdownOptions, { allowPersonalized: !checked }))
+                    })}
                   />
                   {' '}
-                  Use Personalized Template For Employee
+                  Use Personalized Intro
                 </label>
                 {createForm.use_hardcoded_personalized_intro ? (
                   <div className="tracking-form-span-2 tracking-template-stack">
                     <label className="tracking-template-stack-item">
-                      Personalized Template
+                      Personalized Intro Source
                       <SingleSelectDropdown
-                        value={createForm.personalized_template_id || ''}
-                        placeholder="Search and select personalized template"
-                        searchPlaceholder="Type personalized template name"
-                        clearLabel="No personalized template selected"
-                        options={personalizedTemplateOptions}
-                        onChange={(nextValue) => setCreateForm((prev) => ({ ...prev, personalized_template_id: nextValue || '' }))}
+                        value={createForm.personalization_mode || 'template'}
+                        placeholder="Select personalized intro source"
+                        options={[
+                          { value: 'template', label: 'Generic Template' },
+                          { value: 'ai', label: 'AI Generated' },
+                        ]}
+                        onChange={(nextValue) => setCreateForm((prev) => ({
+                          ...prev,
+                          personalization_mode: nextValue || 'template',
+                          personalized_template_id: (nextValue || 'template') === 'template' ? prev.personalized_template_id : '',
+                        }))}
                       />
                     </label>
-                    {createSelectedPersonalizedPreview.length ? (
-                      <div className="tracking-template-preview-list">
-                        {createSelectedPersonalizedPreview.map((item, index) => (
-                          <article key={`create-personalized-template-preview-${item.id || index}`} className="tracking-template-preview-card">
-                            <div className="tracking-template-preview-title">{item.label || 'Personalized Template'}</div>
-                            <p className="tracking-template-preview-text">{item.text}</p>
-                          </article>
-                        ))}
-                      </div>
-                    ) : null}
+                    {String(createForm.personalization_mode || 'template').trim() === 'template' ? (
+                      <>
+                        <label className="tracking-template-stack-item">
+                          Personalized Template
+                          <SingleSelectDropdown
+                            value={createForm.personalized_template_id || ''}
+                            placeholder="Search and select personalized template"
+                            searchPlaceholder="Type personalized template name"
+                            clearLabel="No personalized template selected"
+                            options={personalizedTemplateOptions}
+                            onChange={(nextValue) => setCreateForm((prev) => ({ ...prev, personalized_template_id: nextValue || '' }))}
+                          />
+                        </label>
+                        {createSelectedPersonalizedPreview.length ? (
+                          <div className="tracking-template-preview-list">
+                            {createSelectedPersonalizedPreview.map((item, index) => (
+                              <article key={`create-personalized-template-preview-${item.id || index}`} className="tracking-template-preview-card">
+                                <div className="tracking-template-preview-title">{item.label || 'Personalized Template'}</div>
+                                <p className="tracking-template-preview-text">{item.text}</p>
+                              </article>
+                            ))}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="hint">AI mode will generate the personalized opening for each employee and fall back to the generic employee intro when AI is unavailable.</p>
+                    )}
                   </div>
                 ) : (
-                  <p className="hint tracking-form-span-2">Mail content will come fully from your selected templates. Add a personalized template only if you want an employee-specific intro block.</p>
+                  <p className="hint tracking-form-span-2">Mail content will come from your selected templates only. You can also select Personalized templates directly in the template slots and they will be used as normal paragraphs.</p>
                 )}
               </>
             )}
@@ -2516,6 +2602,7 @@ function TrackingPage() {
                       mail_type: nextMailType,
                       achievement_ids_ordered: prev.achievement_ids_ordered,
                       template_ids_ordered: prev.template_ids_ordered,
+                      template_subject: prev.template_subject,
                       follow_thread_id: '',
                       follow_thread_ids: [],
                     }
@@ -2528,7 +2615,10 @@ function TrackingPage() {
                     mail_type: nextMailType,
                     achievement_ids_ordered: [],
                     template_ids_ordered: [],
+                    template_subject: '',
                     use_hardcoded_personalized_intro: false,
+                    personalization_mode: 'template',
+                    personalized_template_id: '',
                     selected_hr_ids: matchingIds.length ? matchingIds : [...editFollowUpCandidateIds],
                     follow_thread_id: matchingIds[0] || editFollowUpCandidateIds[0] || '',
                     follow_thread_ids: matchingIds.length ? matchingIds : [...editFollowUpCandidateIds],
@@ -2541,9 +2631,10 @@ function TrackingPage() {
               Subject Source
               <SingleSelectDropdown
                 value={editForm.template_subject || ''}
-                placeholder="Select subject source"
+                placeholder={editForm.mail_type === 'followed_up' ? 'Follow up uses the thread subject automatically' : 'Select subject source'}
                 searchPlaceholder="Search subject source"
                 options={editSubjectOptions}
+                disabled={editForm.mail_type === 'followed_up'}
                 onChange={(nextValue) => setEditForm((prev) => ({ ...prev, template_subject: nextValue || '' }))}
               />
             </label>
@@ -2551,10 +2642,16 @@ function TrackingPage() {
               Subject
               <input
                 value={editForm.template_subject || ''}
+                disabled={editForm.mail_type === 'followed_up'}
                 onChange={(event) => setEditForm((prev) => ({ ...prev, template_subject: event.target.value }))}
-                placeholder="Example: Application for {role} at {company_name} | {job_id}"
+                placeholder={editForm.mail_type === 'followed_up'
+                  ? 'Follow up keeps the existing mail thread subject'
+                  : 'Example: Application for {role} at {company_name} | {job_id}'}
               />
             </label>
+            {editForm.mail_type === 'followed_up' ? (
+              <p className="hint tracking-form-span-2">Follow Up keeps the existing thread subject automatically, so subject editing is disabled.</p>
+            ) : null}
             <label>
               Interaction Time
               <input
@@ -2718,41 +2815,72 @@ function TrackingPage() {
                   <input
                     type="checkbox"
                     checked={Boolean(editForm.use_hardcoded_personalized_intro)}
-                    onChange={(event) => setEditForm((prev) => ({
-                      ...prev,
-                      use_hardcoded_personalized_intro: event.target.checked,
-                      personalized_template_id: event.target.checked ? prev.personalized_template_id : '',
-                    }))}
+                    onChange={(event) => setEditForm((prev) => {
+                      const checked = event.target.checked
+                      const nextIds = checked
+                        ? removePersonalizedTemplateIds(prev.achievement_ids_ordered, editAchievementDropdownOptions)
+                        : prev.achievement_ids_ordered
+                      return syncLegacyAchievementFields({
+                        ...prev,
+                        use_hardcoded_personalized_intro: checked,
+                        personalization_mode: checked ? (prev.personalization_mode || 'template') : 'template',
+                        personalized_template_id: checked ? prev.personalized_template_id : '',
+                        achievement_ids_ordered: nextIds,
+                        template_ids_ordered: nextIds,
+                      }, filterAchievementOptionsForMode(editAchievementDropdownOptions, { allowPersonalized: !checked }))
+                    })}
                   />
                   {' '}
-                  Use Personalized Template For Employee
+                  Use Personalized Intro
                 </label>
                 {editForm.use_hardcoded_personalized_intro ? (
                   <div className="tracking-form-span-2 tracking-template-stack">
                     <label className="tracking-template-stack-item">
-                      Personalized Template
+                      Personalized Intro Source
                       <SingleSelectDropdown
-                        value={editForm.personalized_template_id || ''}
-                        placeholder="Search and select personalized template"
-                        searchPlaceholder="Type personalized template name"
-                        clearLabel="No personalized template selected"
-                        options={personalizedTemplateOptions}
-                        onChange={(nextValue) => setEditForm((prev) => ({ ...prev, personalized_template_id: nextValue || '' }))}
+                        value={editForm.personalization_mode || 'template'}
+                        placeholder="Select personalized intro source"
+                        options={[
+                          { value: 'template', label: 'Generic Template' },
+                          { value: 'ai', label: 'AI Generated' },
+                        ]}
+                        onChange={(nextValue) => setEditForm((prev) => ({
+                          ...prev,
+                          personalization_mode: nextValue || 'template',
+                          personalized_template_id: (nextValue || 'template') === 'template' ? prev.personalized_template_id : '',
+                        }))}
                       />
                     </label>
-                    {editSelectedPersonalizedPreview.length ? (
-                      <div className="tracking-template-preview-list">
-                        {editSelectedPersonalizedPreview.map((item, index) => (
-                          <article key={`edit-personalized-template-preview-${item.id || index}`} className="tracking-template-preview-card">
-                            <div className="tracking-template-preview-title">{item.label || 'Personalized Template'}</div>
-                            <p className="tracking-template-preview-text">{item.text}</p>
-                          </article>
-                        ))}
-                      </div>
-                    ) : null}
+                    {String(editForm.personalization_mode || 'template').trim() === 'template' ? (
+                      <>
+                        <label className="tracking-template-stack-item">
+                          Personalized Template
+                          <SingleSelectDropdown
+                            value={editForm.personalized_template_id || ''}
+                            placeholder="Search and select personalized template"
+                            searchPlaceholder="Type personalized template name"
+                            clearLabel="No personalized template selected"
+                            options={personalizedTemplateOptions}
+                            onChange={(nextValue) => setEditForm((prev) => ({ ...prev, personalized_template_id: nextValue || '' }))}
+                          />
+                        </label>
+                        {editSelectedPersonalizedPreview.length ? (
+                          <div className="tracking-template-preview-list">
+                            {editSelectedPersonalizedPreview.map((item, index) => (
+                              <article key={`edit-personalized-template-preview-${item.id || index}`} className="tracking-template-preview-card">
+                                <div className="tracking-template-preview-title">{item.label || 'Personalized Template'}</div>
+                                <p className="tracking-template-preview-text">{item.text}</p>
+                              </article>
+                            ))}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="hint">AI mode will generate the personalized opening for each employee and fall back to the generic employee intro when AI is unavailable.</p>
+                    )}
                   </div>
                 ) : (
-                  <p className="hint tracking-form-span-2">Mail content will come fully from your selected templates. Add a personalized template only if you want an employee-specific intro block.</p>
+                  <p className="hint tracking-form-span-2">Mail content will come from your selected templates only. You can also select Personalized templates directly in the template slots and they will be used as normal paragraphs.</p>
                 )}
               </>
             )}

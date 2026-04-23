@@ -1,9 +1,11 @@
 import os
 import shutil
 import tempfile
+from io import StringIO
 from unittest.mock import patch
 
 from django.contrib.auth.models import Group, Permission, User
+from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
 from django.test import TestCase
@@ -13,6 +15,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 from analyzer.management.commands.send_tracking_mails import Command
 from analyzer.models import Company, Employee, Interview, Job, Location, MailTrackingEvent, ProfilePanel, Resume, SubjectTemplate, Template, Tracking, TrackingAction, UserProfile
+from analyzer.default_mail_templates import DEFAULT_SUBJECT_TEMPLATE_SEEDS, DEFAULT_TRACKING_TEMPLATE_SEEDS, ensure_default_mail_templates_for_profile
 from analyzer.profile_settings import resolve_imap_settings, resolve_openai_settings, resolve_smtp_settings
 from analyzer.resume_rendering import builder_data_hash
 from analyzer.serializers import CompanySerializer, InterviewSerializer, JobSerializer, ProfilePanelSerializer, SubjectTemplateSerializer, UserProfileSerializer
@@ -107,6 +110,43 @@ class TemplateAccessTests(TestCase):
         own_row = next(row for row in response.data if row["name"] == "My Opening")
         self.assertFalse(own_row["is_system"])
         self.assertEqual(own_row["owner_label"], "templater")
+
+    def test_template_list_seeds_default_tracking_templates_for_profile(self):
+        request = self.factory.get("/api/templates/")
+        force_authenticate(request, user=self.user)
+
+        response = TemplateListCreateView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        names = {row["name"] for row in response.data}
+        self.assertTrue({seed["name"] for seed in DEFAULT_TRACKING_TEMPLATE_SEEDS}.issubset(names))
+
+
+class SubjectTemplateSeedTests(TestCase):
+    def test_ensure_default_mail_templates_for_profile_is_idempotent(self):
+        user = User.objects.create_user(username="subject-seed", password="x")
+        profile = UserProfile.objects.create(user=user)
+
+        first = ensure_default_mail_templates_for_profile(profile)
+        second = ensure_default_mail_templates_for_profile(profile)
+
+        self.assertEqual(first["templates_created"], len(DEFAULT_TRACKING_TEMPLATE_SEEDS))
+        self.assertEqual(first["subject_templates_created"], len(DEFAULT_SUBJECT_TEMPLATE_SEEDS))
+        self.assertEqual(second["templates_created"], 0)
+        self.assertEqual(second["subject_templates_created"], 0)
+        self.assertEqual(Template.objects.filter(profile=profile).count(), len(DEFAULT_TRACKING_TEMPLATE_SEEDS))
+        self.assertEqual(SubjectTemplate.objects.filter(profile=profile).count(), len(DEFAULT_SUBJECT_TEMPLATE_SEEDS))
+
+    def test_seed_default_mail_templates_command_backfills_existing_profiles(self):
+        user = User.objects.create_user(username="seed-command-user", password="x")
+        profile = UserProfile.objects.create(user=user)
+        output = StringIO()
+
+        call_command("seed_default_mail_templates", stdout=output)
+
+        self.assertIn("Seeded default mail templates for 1 profile(s)", output.getvalue())
+        self.assertEqual(Template.objects.filter(profile=profile).count(), len(DEFAULT_TRACKING_TEMPLATE_SEEDS))
+        self.assertEqual(SubjectTemplate.objects.filter(profile=profile).count(), len(DEFAULT_SUBJECT_TEMPLATE_SEEDS))
 
 
 class TemplateAccessControlTests(TestCase):
@@ -347,21 +387,12 @@ class SendTrackingMailsThreadingTests(TestCase):
 
         self.assertEqual(rendered, html_body)
 
-    def test_build_signature_uses_profile_sender_details_for_fresh_mail(self):
+    def test_build_signature_keeps_fresh_mail_short_with_full_name_only(self):
         self.tracking.mail_type = "fresh"
 
         signature = self.command._build_signature(self.tracking, self.profile)
 
-        self.assertEqual(
-            signature,
-            "\n".join([
-                "Thanks,",
-                "Subrat Singh",
-                "Contact: +91 9999999999",
-                "Email: profile@example.com",
-                "LinkedIn: https://linkedin.com/in/subrat",
-            ]),
-        )
+        self.assertEqual(signature, "Thanks,\nSubrat Singh")
 
     def test_build_signature_keeps_follow_up_short_but_uses_profile_name(self):
         self.tracking.mail_type = "followed_up"
@@ -369,6 +400,113 @@ class SendTrackingMailsThreadingTests(TestCase):
         signature = self.command._build_signature(self.tracking, self.profile)
 
         self.assertEqual(signature, "Thanks,\nSubrat Singh")
+
+    def test_build_mail_uses_selected_personalized_templates_when_intro_checkbox_is_off(self):
+        self.tracking.mail_type = "fresh"
+        self.tracking.use_hardcoded_personalized_intro = False
+        self.tracking.personalized_template = None
+        self.tracking.save(update_fields=["mail_type", "use_hardcoded_personalized_intro", "personalized_template", "updated_at"])
+        personalized = Template.objects.create(
+            profile=self.profile,
+            name="Personalized Paragraph",
+            category="personalized",
+            achievement="I noticed your work on platform hiring at {company_name}",
+        )
+        general = Template.objects.create(
+            profile=self.profile,
+            name="General Paragraph",
+            category="general",
+            achievement="I am excited to apply for the {role} role",
+        )
+
+        subject, body = self.command._build_mail(
+            self.tracking,
+            self.employee,
+            self.profile,
+            [personalized, general],
+        )
+
+        self.assertIn("I noticed your work on platform hiring at Acme.", body)
+        self.assertIn("I am excited to apply for the Engineer role.", body)
+        self.assertNotIn("I have attached my resume for your reference.", body)
+        self.assertNotIn("I am happy to share my resume if helpful.", body)
+        self.assertIn("Application for Engineer at Acme", subject)
+
+    def test_build_mail_uses_selected_personalized_template_as_intro_when_enabled(self):
+        self.tracking.mail_type = "fresh"
+        self.tracking.use_hardcoded_personalized_intro = True
+        self.tracking.personalized_template = Template.objects.create(
+            profile=self.profile,
+            name="Personalized Intro",
+            category="personalized",
+            achievement="I came across your background in {department} hiring at {company_name}",
+        )
+        self.tracking.save(update_fields=["mail_type", "use_hardcoded_personalized_intro", "personalized_template", "updated_at"])
+        general = Template.objects.create(
+            profile=self.profile,
+            name="General Paragraph",
+            category="general",
+            achievement="I am excited to apply for the {role} role",
+        )
+        self.employee.department = "HR"
+        self.employee.save(update_fields=["department", "updated_at"])
+
+        subject, body = self.command._build_mail(
+            self.tracking,
+            self.employee,
+            self.profile,
+            [self.tracking.personalized_template, general],
+        )
+
+        self.assertIn("I came across your background in HR hiring at Acme.", body)
+        self.assertIn("I am excited to apply for the Engineer role.", body)
+        self.assertNotIn("I have attached my resume for your reference.", body)
+        self.assertIn("Application for Engineer at Acme", subject)
+
+    def test_build_mail_uses_ai_or_generic_personalized_intro_when_enabled_without_template(self):
+        self.tracking.mail_type = "fresh"
+        self.tracking.use_hardcoded_personalized_intro = True
+        self.tracking.personalized_template = None
+        self.tracking.save(update_fields=["mail_type", "use_hardcoded_personalized_intro", "personalized_template", "updated_at"])
+        general = Template.objects.create(
+            profile=self.profile,
+            name="General Paragraph",
+            category="general",
+            achievement="I am excited to apply for the {role} role",
+        )
+
+        with patch.object(Command, "_cold_applied_personalized_intro", return_value="Generated employee intro.") as mocked_intro:
+            _subject, body = self.command._build_mail(
+                self.tracking,
+                self.employee,
+                self.profile,
+                [general],
+            )
+
+        mocked_intro.assert_called_once()
+        self.assertIn("Generated employee intro.", body)
+        self.assertIn("I am excited to apply for the Engineer role.", body)
+        self.assertNotIn("I have attached my resume for your reference.", body)
+
+    def test_build_mail_ignores_saved_custom_subject_for_follow_up(self):
+        self.tracking.mail_type = "followed_up"
+        self.tracking.mail_subject = "Custom follow up subject"
+        self.tracking.save(update_fields=["mail_type", "mail_subject", "updated_at"])
+        general = Template.objects.create(
+            profile=self.profile,
+            name="Follow Up Body",
+            category="general",
+            achievement="Checking in regarding the {role} role at {company_name}",
+        )
+
+        subject, _body = self.command._build_mail(
+            self.tracking,
+            self.employee,
+            self.profile,
+            [general],
+        )
+
+        self.assertEqual(subject, "Follow up on my application for Engineer at Acme")
 
     def test_log_success_persists_message_metadata(self):
         self.command._log_success(
