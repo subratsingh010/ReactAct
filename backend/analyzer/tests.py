@@ -388,14 +388,19 @@ class SendTrackingMailsThreadingTests(TestCase):
 
         self.assertEqual(rendered, html_body)
 
-    def test_build_signature_keeps_fresh_mail_short_with_full_name_only(self):
+    def test_build_signature_includes_full_name_email_and_contact_for_fresh_mail(self):
         self.tracking.mail_type = "fresh"
+        self.profile.country_code = "+91"
+        self.profile.contact_number = "9999999999"
 
         signature = self.command._build_signature(self.tracking, self.profile)
 
-        self.assertEqual(signature, "Thanks,\nSubrat Singh")
+        self.assertEqual(
+            signature,
+            "Thanks,\nSubrat Singh\n\nprofile@example.com\n\n+91 9999999999",
+        )
 
-    def test_build_signature_keeps_follow_up_short_but_uses_profile_name(self):
+    def test_build_signature_keeps_follow_up_short_with_full_name_only(self):
         self.tracking.mail_type = "followed_up"
 
         signature = self.command._build_signature(self.tracking, self.profile)

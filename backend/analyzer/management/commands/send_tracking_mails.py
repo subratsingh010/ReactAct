@@ -1264,13 +1264,26 @@ class Command(BaseCommand):
         return ""
 
     def _build_signature(self, row, profile):
+        mail_type = str(getattr(row, "mail_type", "") or "").strip().lower() if row else ""
         sender = self._sender_identity(row, profile)
         sender_name = str(sender.get("full_name") or "").strip()
-        sign_parts = [
-            "Thanks,",
-            sender_name,
-        ]
-        return "\n".join([p for p in sign_parts if str(p or "").strip()])
+        sign_lines = ["Thanks,"]
+        if sender_name:
+            sign_lines.append(sender_name)
+        if mail_type == "fresh":
+            sender_email = str(getattr(profile, "email", "") or sender.get("email") or "").strip() if profile else str(sender.get("email") or "").strip()
+            raw_country_code = str(getattr(profile, "country_code", "") or "").strip() if profile else ""
+            raw_contact_number = str(getattr(profile, "contact_number", "") or "").strip() if profile else str(sender.get("contact") or "").strip()
+            normalized_country_code = raw_country_code.replace(" ", "")
+            normalized_contact_number = raw_contact_number.strip()
+            if normalized_country_code and normalized_contact_number and not normalized_contact_number.startswith(normalized_country_code):
+                sender_contact = f"{normalized_country_code} {normalized_contact_number}".strip()
+            else:
+                sender_contact = normalized_contact_number
+            trailing_blocks = [value for value in [sender_email, sender_contact] if str(value or "").strip()]
+            if trailing_blocks:
+                return "\n".join(sign_lines) + "\n\n" + "\n\n".join(trailing_blocks)
+        return "\n".join(sign_lines)
 
     def _inject_dynamic_names(self, text, employee_name, sender_name):
         value = str(text or "")
