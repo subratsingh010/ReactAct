@@ -36,6 +36,9 @@ frontend/dist/
 .idea/
 
 # Project-specific
+log/
+backend/resumes/
+backend/storage/ats_pdfs/
 backend/tailored_resumes/
 backend/analyzer/migrations/__pycache__/
 log/*.log
